@@ -40,7 +40,7 @@ public sealed partial class NativePublicationConsumerTests
         var shown = HistoricalInvoke(paths, ["show", "41", "-o", "json"]);
         shown.Exit.ShouldBe(1);
         shown.Output.ShouldBeEmpty();
-        var bench = HistoricalInvoke(paths, ["workspace", "-o", "json"]);
+        var bench = HistoricalInvoke(paths, ["workspace", "--bench", "Read scope", "-o", "json"]);
         bench.Exit.ShouldBe(1);
         bench.Output.ShouldBeEmpty();
         _transport.TotalRequests.ShouldBe(requests);
@@ -74,11 +74,11 @@ public sealed partial class NativePublicationConsumerTests
         tree.Output.ShouldBeEmpty();
         _transport.TotalRequests.ShouldBe(requests);
 
-        var bench = HistoricalInvoke(paths, ["workspace", "-o", "ids"]);
+        var bench = HistoricalInvoke(paths, ["workspace", "--bench", "Read scope", "-o", "ids"]);
         bench.Exit.ShouldBe(1, "a withdrawn subtree member makes the hierarchy evidence incomplete");
         bench.Output.ShouldBeEmpty();
         await File.WriteAllTextAsync(evidence + ".withdrawn", """["41","45"]""");
-        var remaining = HistoricalInvoke(paths, ["workspace", "-o", "json"]);
+        var remaining = HistoricalInvoke(paths, ["workspace", "--bench", "Read scope", "-o", "json"]);
         remaining.Exit.ShouldBe(0, remaining.Error);
         remaining.Output.ShouldContain("query member");
         remaining.Output.ShouldContain("Unpublished debt");

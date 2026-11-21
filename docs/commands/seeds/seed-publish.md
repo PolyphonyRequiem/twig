@@ -9,13 +9,14 @@ mutates: ado
 # `twig seed publish`
 
 ```sh
-twig seed publish <actual-negative-id> --dry-run
-twig seed publish <actual-negative-id>
+twig seed publish <negative-id> --dry-run
+twig seed publish <negative-id>
 ```
 
 ## Behavior
 
-Requires one negative seed ID or explicit `--all`. Human output only; machine
+Use the returned negative ID as a positional argument, or use `twig seed publish --all`
+to explicitly select all seeds. Human output only; machine
 publication is refused. Prepares ordered creation intent through Core with the
 original UUIDs, schema, policy, digest and attempts.
 

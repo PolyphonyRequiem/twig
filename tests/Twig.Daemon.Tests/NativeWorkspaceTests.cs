@@ -129,6 +129,45 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task OpeningSameSourceDoesNotShareSelectionOrCommitAnInFlightViewAba()
+    {
+        await Start();
+        var source = await Source("shared");
+        var first = await Bench("First");
+        var second = await Bench("Second");
+        var peer = sessions.ConnectOwner((await definitions.ReadAsync()).Value.InstanceId, null, Guid.NewGuid());
+        using var peerClient = new HttpClient { BaseAddress = client.BaseAddress };
+        peerClient.DefaultRequestHeaders.Authorization = new("Bearer", peer.ContentCapability);
+        peerClient.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
+        var peerView = $"/api/v1/views/{peer.ViewId:D}/";
+        static StringContent Json(string value) => new(value, Encoding.UTF8, "application/json");
+        var open = new System.Text.Json.Nodes.JsonObject { ["root"] = source.Root }.ToJsonString();
+        await Select(first.Id);
+        using var selected = await peerClient.PutAsync(peerView + "selection",
+            Json($$"""{"expectedBenchId":null,"benchId":"{{second.Id}}"}"""));
+        selected.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var admitted = await peerClient.PutAsync(peerView + "context", Json(open));
+        admitted.StatusCode.ShouldBe(HttpStatusCode.OK);
+
+        var (entered, release) = BlockNextRead();
+        var opening = client.PutAsync(View + "context", Json(open));
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Select(second.Id, first.Id);
+            await Select(first.Id, second.Id);
+        }
+        finally { release.TrySetResult(); }
+        using var stale = await opening;
+        stale.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await stale.Content.ReadAsStringAsync()).ShouldContain("ViewStateConflict");
+        using var state = JsonDocument.Parse(await peerClient.GetStringAsync(peerView + "session"));
+        state.RootElement.GetProperty("preferences").GetProperty("benchId").GetGuid().ShouldBe(second.Id);
+        using var current = JsonDocument.Parse(await client.GetStringAsync(View + "session"));
+        current.RootElement.GetProperty("preferences").GetProperty("benchId").GetGuid().ShouldBe(first.Id);
+    }
+
+    [Fact]
     public async Task ChangedSelectionDuringReadIsRefusedEvenWhenItReturnsToOriginalBench()
     {
         await Start();
@@ -153,7 +192,6 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     [InlineData("snapshot")]
     [InlineData("catalogue")]
     [InlineData("profile")]
-    [InlineData("local-selection")]
     [InlineData("exclusions")]
     [InlineData("signout")]
     [InlineData("expiry")]
@@ -181,9 +219,6 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
                 var otherSession = sessions.Content(other.ViewId, other.ContentCapability, true);
                 var state = sessions.ReadState(otherSession);
                 sessions.SaveState(otherSession, new(state.Revision, state.Choices with { Layout = "tree" }));
-                break;
-            case "local-selection":
-                gateway.AfterRead = () => gateway.SelectedBench = Guid.NewGuid();
                 break;
             case "exclusions":
                 gateway.AfterRead = () => gateway.Exclusions = [new(SelectorKind.Pin, ItemKey.Local(Guid.NewGuid()))];
@@ -462,7 +497,6 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         internal DateTimeOffset SchemaAt { get; } = DateTimeOffset.UtcNow.AddMinutes(-5);
         internal int SchemaReads { get; private set; }
         internal int OnlineReads { get; private set; }
-        internal Guid? SelectedBench { get; set; }
         internal System.Collections.Immutable.ImmutableArray<Selector> Exclusions { get; set; } = [];
         internal Func<Task>? NextRead;
         internal Action? AfterRead;
@@ -472,12 +506,11 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
             if (Interlocked.Exchange(ref NextRead, null) is { } next) await next();
             if (Denied.Contains(root)) return Result<NativeSourceObservation>.Fail(ErrorCode.PolicyViolation, "Fixture source denied.");
             var snapshot = Snapshots[root];
-            var selection = SelectedBench;
             var exclusions = Exclusions;
             Interlocked.Exchange(ref AfterRead, null)?.Invoke();
             return Result<NativeSourceObservation>.Ok(new(Stamps[root], snapshot, DateTimeOffset.UtcNow,
                 observeSchema ? Result<ProcessSchema>.Ok(new(Stamps[root].Connection, [], [])) : null,
-                observeSchema ? SchemaAt : null) { SelectedBenchId = selection, WorkspaceExclusions = exclusions });
+                observeSchema ? SchemaAt : null) { WorkspaceExclusions = exclusions });
         }
         public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         {

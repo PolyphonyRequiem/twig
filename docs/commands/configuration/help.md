@@ -12,7 +12,7 @@ mutates: none
 twig --help
 twig proposal --help
 twig proposal apply --help
-twig help workspace area add
+twig help bench rules
 twig --skill operations
 ```
 
@@ -30,8 +30,8 @@ help advertisement. Use group/leaf help, not that escape hatch.
 `operations`, `changes` or `presentation` reference. Bundled older presenter
 guidance cannot qualify retired captured UI/preview flags.
 
-Bare `twig` displays help outside an initialized workspace; inside, it can read
-the selected item. Use explicit `--help` for discovery without data-command effects.
+Use `twig --help` for discovery without data-command effects. An empty command
+does not resolve a previously selected work item.
 
 ## Effects
 

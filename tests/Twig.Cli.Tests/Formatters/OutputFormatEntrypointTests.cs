@@ -133,13 +133,15 @@ public sealed class OutputFormatEntrypointTests
     }
 
     [Fact]
-    public void SetWithStructuredOutput_IsRejectedBeforeChangingActiveContext()
+    public void SetWithStructuredOutput_ReportsRetirementWithoutOpeningAWorkspace()
     {
         var (stdout, stderr, exitCode, exited) = RunTwig("set 123 -o json");
 
         exited.ShouldBeTrue("twig set 123 -o json timed out");
-        exitCode.ShouldBe(2);
-        stderr.ShouldContain("cannot be used with structured output");
+        exitCode.ShouldBe(1);
+        using var result = System.Text.Json.JsonDocument.Parse(stderr);
+        result.RootElement.GetProperty("error").GetString().ShouldNotBeNull()
+            .ShouldContain("set or its UI envelope is retired");
         stdout.ShouldBeEmpty();
     }
 }

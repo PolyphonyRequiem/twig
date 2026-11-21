@@ -15,8 +15,8 @@ twig patch --id 12345 --json '{"System.Title":"New title"}' -o json
 ## Behavior
 
 Requires an explicit positive target and exactly one JSON object source,
-`--json` or `--stdin`. Machine invocations must use `--id`; no active target is
-inferred. The current Core adapter does not patch unpublished seed aliases.
+`--json` or `--stdin`. Use a positional ID or `--id` for human output;
+use `--id` for machine output. The Core adapter does not patch unpublished seed aliases.
 
 Actual discovered fields determine supported JSON value conversion.
 Unknown, duplicate, read-only or invalid values refuse rather than warning and

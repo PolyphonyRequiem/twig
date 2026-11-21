@@ -7,14 +7,13 @@ internal static class CommandExamples
 {
     /// <summary>
     /// Command name → array of example lines. Each line is a complete example string
-    /// (e.g. <c>"twig set 1234              Set context by work item ID"</c>).
-    /// Compound commands use space-separated keys (e.g. <c>"nav up"</c>).
+    /// (e.g. <c>"twig show 1234             Show work item #1234"</c>).
+    /// Compound commands use space-separated keys (e.g. <c>"bench list"</c>).
     /// </summary>
     internal static Dictionary<string, string[]> Examples { get; } = new(StringComparer.Ordinal)
     {
         ["bench rules"] =
         [
-            "twig bench rules                         List the current Bench's exact pin/rule indices and revision",
             "twig bench rules \"My Bench\" -o json     Read a named shared definition without fetching items",
         ],
         ["bench rule add"] =
@@ -98,11 +97,6 @@ internal static class CommandExamples
             "twig process --refresh                                                 5) verify remote metadata access without work-item sync",
             "twig connection status                                                 optional: inspect the local binding (no ADO call)",
         ],
-        ["set"] =
-        [
-            "twig set 1234              Set active context to work item #1234",
-            "twig set login bug         Search cache for 'login bug' and set as active",
-        ],
         ["show"] =
         [
             "twig show 1234             Show work item #1234",
@@ -111,9 +105,7 @@ internal static class CommandExamples
             "twig show 1234 -o json --fields System.Title,System.State  Read selected fields with provenance",
             "twig show --local-id 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b -o json  Read by canonical local identity",
             "twig show --local-id 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b -o json-compact  Same JSON shape via alias",
-            "twig show --tree           Show work item tree hierarchy for the active item",
             "twig show 1234 --tree      Show tree hierarchy rooted at #1234",
-            "twig show --tree --depth 2  Show tree hierarchy limited to 2 levels deep",
         ],
         ["tree-set"] =
         [
@@ -137,15 +129,12 @@ internal static class CommandExamples
         ],
         ["state"] =
         [
-            "twig state Active          Transition active item to Active",
-            "twig state Done            Transition active item to Done",
+            "twig state Doing --id 42  Transition item #42 to a discovered state",
         ],
         ["batch"] =
         [
-            "twig batch --state Active                        Transition active item to Active",
-            "twig batch --state Done --note \"Completed work\"  Transition and add a note",
-            "twig batch --set Priority=1 --set Severity=High  Update multiple fields at once",
-            "twig batch --state Active --ids 1234,5678        Batch transition multiple items",
+            "twig batch --state Doing --id 42  Stage a transition for one item",
+            "twig batch --set Priority=1 --ids 42,43  Update an explicit set of items",
         ],
         ["process"] =
         [
@@ -174,53 +163,6 @@ internal static class CommandExamples
             "twig new task \"Write tests\"         Create a new Task under the active item",
             "twig new bug \"Login fails on edge\"  Create a new Bug under the active item",
         ],
-        ["nav"] =
-        [
-            "twig nav up                Navigate to the parent work item",
-            "twig nav down              Navigate to the first child work item",
-        ],
-        ["nav up"] =
-        [
-            "twig nav up                Navigate to the parent work item",
-            "twig nav up --output json  Navigate up and output result as JSON",
-        ],
-        ["nav down"] =
-        [
-            "twig nav down              Navigate to the first child of the active item",
-            "twig nav down --output json  Navigate down and output as JSON",
-        ],
-        ["nav next"] =
-        [
-            "twig nav next              Navigate to the next sibling work item",
-            "twig nav next --output json  Navigate to next sibling and output as JSON",
-        ],
-        ["nav prev"] =
-        [
-            "twig nav prev              Navigate to the previous sibling work item",
-            "twig nav prev --output json  Navigate to previous sibling and output as JSON",
-        ],
-        ["nav back"] =
-        [
-            "twig nav back              Go back one step in navigation history",
-            "twig nav back --output json  Go back and output result as JSON",
-        ],
-        ["nav fore"] =
-        [
-            "twig nav fore              Go forward one step in navigation history",
-            "twig nav fore --output json  Go forward and output result as JSON",
-        ],
-        ["nav history"] =
-        [
-            "twig nav history           Show the navigation history stack",
-            "twig nav history --output json  Output navigation history as JSON",
-        ],
-        ["history"] =
-        [
-            "twig history 1234          Show the revision history for item #1234",
-            "twig history 1234 --detail 8,11  Show full field values for updates 8 and 11",
-            "twig history 1234 --detail all   Show full field values for every update",
-            "twig history 1234 --field System.State  Show only System.State changes",
-        ],
         ["web"] =
         [
             "twig web                   Open the active work item in a browser",
@@ -228,23 +170,20 @@ internal static class CommandExamples
         ],
         ["seed new"] =
         [
-            "twig seed new              Start authoring a new seed work item",
-            "twig seed new --type bug   Start authoring a new seed of type Bug",
+            "twig seed new --no-parent --type Task --title \"Write tests\"  Create a local draft",
+            "twig seed new --parent 42 --type Task --title \"Follow up\"  Create a child draft",
         ],
         ["seed edit"] =
         [
-            "twig seed edit             Edit the draft seed for the active item",
-            "twig seed edit 1234        Edit the draft seed for item #1234",
+            "twig seed edit -42  Edit a specific local draft",
         ],
         ["seed discard"] =
         [
-            "twig seed discard          Discard the draft seed for the active item",
-            "twig seed discard 1234     Discard the draft seed for item #1234",
+            "twig seed discard -42 --yes  Discard a specific local draft",
         ],
         ["seed view"] =
         [
-            "twig seed view             View the draft seed for the active item",
-            "twig seed view --output json  View the seed as JSON",
+            "twig seed view -o json  List retained seed drafts",
         ],
         ["seed link"] =
         [
@@ -263,22 +202,20 @@ internal static class CommandExamples
         ],
         ["seed chain"] =
         [
-            "twig seed chain            Show the full seed chain for the active item",
-            "twig seed chain \"design api,build api\"  Create a chain from comma-separated titles",
-            "twig seed chain --output json  Output the seed chain as JSON",
+            "twig seed chain \"Design,Build\" --parent 42 --type Task  Create a chain of local drafts",
         ],
         ["seed validate"] =
         [
             "twig seed validate         Validate all pending seeds before publish",
-            "twig seed validate 1234    Validate seed #1234 specifically",
+            "twig seed validate -42    Validate seed #1234 specifically",
         ],
         ["seed publish"] =
         [
-            "twig seed publish 42       Publish seed #42 to ADO",
+            "twig seed publish -42       Publish seed #42 to ADO",
             "twig seed publish --all    Publish all seeds in dependency order",
             "twig seed publish --all --link-branch feature/my-branch  Publish all and link to branch",
-            "twig seed publish 42 --link-branch feature/my-branch     Publish and link to branch",
-            "twig seed publish --dry-run  Preview what would be published",
+            "twig seed publish -42 --link-branch feature/my-branch     Publish and link to branch",
+            "twig seed publish --all --dry-run  Preview what would be published",
         ],
         ["seed reconcile"] =
         [
@@ -287,41 +224,41 @@ internal static class CommandExamples
         ],
         ["link parent"] =
         [
-            "twig link parent 5678      Set #5678 as the parent of the active item",
+            "twig link parent 5678 --id 42      Set #5678 as the parent of item #42",
             "twig link parent 5678 1234  Set #5678 as the parent of item #1234",
             "twig link parent 5678 --id 1234 -o json  Apply and verify an explicit child",
             "twig link parent 5678 --id 1234 --child 1234 -o json  Cross-check the mandatory machine --id",
         ],
         ["link unparent"] =
         [
-            "twig link unparent         Remove the parent link from the active item",
+            "twig link unparent --id 42         Remove the parent link from item #42",
             "twig link unparent 1234    Remove the parent link from item #1234",
             "twig link unparent --id 1234 -o json  Remove and verify the observed parent",
         ],
         ["link reparent"] =
         [
-            "twig link reparent 5678        Unsupported: refuses without removing the current parent",
+            "twig link reparent 5678 --id 42        Unsupported: refuses without removing the current parent",
             "twig link reparent 5678 --id 1234 -o json  Report the unsupported replacement as JSON",
         ],
         ["link predecessor"] =
         [
-            "twig link predecessor 65        Mark the active item as blocked by #65",
+            "twig link predecessor 65 --id 42        Mark item #42 as blocked by #65",
             "twig link predecessor 65 --id 66  Mark #66 as blocked by #65",
         ],
         ["link successor"] =
         [
-            "twig link successor 66          Mark the active item as blocking #66",
+            "twig link successor 66 --id 42          Mark item #42 as blocking #66",
             "twig link successor 66 --id 65  Mark #65 as blocking #66",
         ],
         ["link related"] =
         [
-            "twig link related 615           Relate the active item to #615",
-            "twig link related 615 --comment \"same root cause\"  Unsupported: refuses rather than dropping the comment",
+            "twig link related 615 --id 42           Relate item #42 to #615",
+            "twig link related 615 --comment \"same root cause\" --id 42  Unsupported: refuses rather than dropping the comment",
             "twig link related 615 --id 619 -o json  Apply and verify #619's association",
         ],
         ["link unrelate"] =
         [
-            "twig link unrelate 615          Remove the related link to #615",
+            "twig link unrelate 615 --id 42          Remove the related link to #615",
             "twig link unrelate 615 --id 619  Remove #619's related link to #615",
         ],
         ["link local related"] =
@@ -341,40 +278,36 @@ internal static class CommandExamples
         ],
         ["link unlink"] =
         [
-            "twig link unlink predecessor 65   Remove the predecessor link to #65",
-            "twig link unlink related 615      Remove the related link to #615",
+            "twig link unlink predecessor 65 --id 42   Remove the predecessor link to #65",
+            "twig link unlink related 615 --id 42      Remove the related link to #615",
             "twig link unlink successor 66 --id 65  Remove #65's successor link to #66",
         ],
         ["link artifact"] =
         [
-            "twig link artifact https://example.com/doc --name \"Plan\"  Add a hyperlink",
-            "twig link artifact vstfs:///Git/Commit/p/r/abc123         Add an artifact link",
+            "twig link artifact https://example.com/doc --name \"Plan\" --id 42  Add a hyperlink",
+            "twig link artifact vstfs:///Git/Commit/p/r/abc123 --id 42         Add an artifact link",
             "twig link artifact https://example.com --id 42            Link to a specific item",
         ],
         ["note"] =
         [
-            "twig note \"Investigated root cause\"          Add a note to the active item",
-            "twig note --text \"Investigated root cause\"   The same, spelled with the option",
-            "twig note --file notes/findings.md           Read the note body from a file",
-            "cat findings.md | twig note --stdin          Read the note body from stdin",
-            "twig note                                    Open editor to compose a note",
+            "twig note --id 42 --text \"Investigated root cause\"  Add a note",
+            "twig note --id 42 --file notes.md  Read the note body from a file",
         ],
         ["update"] =
         [
-            "twig update System.Title \"New title\"           Update the title field",
-            "twig update System.Description \"<p>…</p>\" --format markdown  Update description",
+            "twig update System.Title \"New title\" --id 42           Update the title field",
+            "twig update System.Description \"<p>…</p>\" --format markdown --id 42  Update description",
         ],
         ["patch"] =
         [
-            "twig patch --json '{\"System.Title\":\"New title\",\"System.State\":\"Doing\"}'  Patch multiple fields at once",
-            "twig patch --stdin --format markdown   Read JSON from stdin, converting values from Markdown to HTML",
+            "twig patch --json '{\"System.Title\":\"New title\",\"System.State\":\"Doing\"}' --id 42  Patch multiple fields at once",
+            "twig patch --stdin --format markdown --id 42   Read JSON from stdin, converting values from Markdown to HTML",
             "twig patch --json '{\"System.Title\":\"Fix\"}' --id 1234   Patch a specific work item by ID",
         ],
         ["edit"] =
         [
-            "twig edit                  Open the active item's description in an editor",
-            "twig edit System.Title     Open the Title field for editing",
-            "twig edit --field System.Title  The same, spelled with the option",
+            "twig edit --id 42  Edit the description of #42",
+            "twig edit --field System.Title --id 42  Edit the specified field",
         ],
         ["delete"] =
         [
@@ -383,19 +316,13 @@ internal static class CommandExamples
         ],
         ["discard"] =
         [
-            "twig discard               Discard all pending changes on the active item",
-            "twig discard --yes         Skip the confirmation prompt",
-        ],
-        ["sync"] =
-        [
-            "twig sync                  Save retained remote drafts, then pull the selected Bench",
-            "twig sync --pull-only -o json  Pull selected scope without publishing drafts; emit one JSON result",
+            "twig discard 42 --yes  Discard local edits for #42",
+            "twig discard --all --yes  Discard all retained remote-item edits",
         ],
         ["workspace"] =
         [
-            "twig workspace                 Read cached current Bench items and all protected drafts as a static table",
-            "twig workspace --bench Focused -o json  Read an existing Bench without changing selection; acquires schema metadata",
-            "twig workspace --expect-bench <bench-guid> --refresh -o ids  Guard and pull only the current Bench; never publish drafts",
+            "twig workspace --bench Focused -o json  Read saved Bench membership and protected drafts",
+            "twig workspace --bench Focused --refresh -o ids  Pull only this named Bench without publishing drafts",
         ],
         ["workspace migrate"] =
         [
@@ -403,31 +330,6 @@ internal static class CommandExamples
             "twig workspace migrate --confirm <digest>  Explicitly authorize the exact reviewed admitted-ADO cutover",
             "twig workspace migrate --rollback --confirm <digest>  Return to protected originals when parity still holds",
             "twig workspace migrate --cancel-intent <intent-id> --confirm <digest>  Cancel preparation before a fresh review",
-        ],
-        ["workspace sync"] =
-        [
-            "twig workspace sync                    Pull only the current Bench scope, without flushing edits",
-            "twig workspace sync --expect-bench <captured-bench-id> -o json  Pull only if the captured Bench is still current",
-        ],
-        ["workspace track"] =
-        [
-            "twig workspace track 1234          Pin work item #1234 to workspace",
-            "twig workspace track 5678 -o json  Pin and output confirmation as JSON",
-            "twig workspace track 5678 --expect-bench 7 -o json  Pin only if Bench 7 is still current",
-        ],
-        ["workspace track-tree"] =
-        [
-            "twig workspace track-tree 1234     Pin #1234 and its subtree to workspace",
-            "twig workspace track-tree 42       Pin an epic and all its children",
-            "twig workspace track-tree 42 --expect-bench 7 -o json  Add a subtree selector with a captured Bench guard",
-        ],
-        ["workspace untrack"] =
-        [
-            "twig workspace untrack 1234        Stop tracking work item #1234",
-            "twig workspace untrack 5678        Remove a pinned item from workspace",
-            "twig workspace untrack 5678 --expect-bench 7 -o json  Remove both explicit pins with a captured Bench guard",
-            "twig workspace untrack 5678 --mode single  Remove only the explicit single pin; retain a subtree pin",
-            "twig workspace untrack 5678 --mode tree --expect-bench 7 -o json  Remove only the explicit subtree pin on captured Bench 7",
         ],
         ["workspace exclude"] =
         [
@@ -450,15 +352,9 @@ internal static class CommandExamples
         ],
         ["bench list"] =
         [
-            "twig bench list                        List Benches, marking the current one",
+            "twig bench list                        List shared Benches",
             "twig bench list -o json                List them for a script to read",
             "twig bench list --include-management -o json   Capture stable IDs and complete contents for management",
-        ],
-        ["bench switch"] =
-        [
-            "twig bench switch \"release blockers\"   Stand on another Bench",
-            "twig bench switch \"bugs I own\"         Select an existing Bench in this worktree only",
-            "twig bench switch \"release blockers\" --expect-bench <id>   Select the displayed target only",
         ],
         ["bench rename"] =
         [
@@ -542,45 +438,10 @@ internal static class CommandExamples
             "twig bench configuration sprint remove @Current  Remove the current-sprint expression",
             "twig bench configuration sprint remove \"Project\\Sprint 8\" --expect-settings <digest> -o json  Refuse stale settings",
         ],
-        ["workspace area"] =
-        [
-            "twig workspace area                    Show area-filtered workspace view",
-            "twig workspace area -o json            Output area view as JSON",
-        ],
-        ["workspace area add"] =
-        [
-            "twig workspace area add \"Project\\Team A\"           Add area path with subtree matching",
-            "twig workspace area add \"Project\\Team A\" --exact   Add area path with exact matching only",
-        ],
-        ["workspace area remove"] =
-        [
-            "twig workspace area remove \"Project\\Team A\"        Remove a configured area path",
-            "twig workspace area remove \"Project\\Team A\" -o json  Remove and output result as JSON",
-        ],
-        ["workspace area list"] =
-        [
-            "twig workspace area list                          List all configured area paths",
-            "twig workspace area list -o json                  List area paths as JSON",
-        ],
         ["workspace area sync"] =
         [
             "twig workspace area sync                          Refresh native planning metadata; shared Bench rules are not replaced",
             "twig workspace area sync -o json                  Areas and exact-team calendar, not work-item synchronization",
-        ],
-        ["workspace sprint add"] =
-        [
-            "twig workspace sprint add \"@Current\"             Add current iteration to the selected shared planning rule",
-            "twig workspace sprint add \"@Current-1\"           Preserve the relative expression and canonical team",
-        ],
-        ["workspace sprint remove"] =
-        [
-            "twig workspace sprint remove \"@Current\"          Remove only that saved expression",
-            @"twig workspace sprint remove ""Project\Sprint 5""  Remove an absolute sprint path",
-        ],
-        ["workspace sprint list"] =
-        [
-            "twig workspace sprint list                        List configured sprint expressions",
-            "twig workspace sprint list -o json                List sprint expressions as JSON",
         ],
         ["sprint"] =
         [

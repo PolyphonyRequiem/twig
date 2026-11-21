@@ -1,14 +1,6 @@
-# Human navigation
+# Navigation commands: retired
 
-Only these targeted ADO navigation routes are retained:
-
-- [`nav up`](nav-up.md): select the discovered parent.
-- [`nav down`](nav-down.md): select a child, optionally by ID/title pattern.
-- [`nav next`](nav-next.md) / [`nav prev`](nav-prev.md): select a sibling.
-
-They change worktree-local human context, can fetch missing observations, and
-are refused with structured output. They do not assign or claim an item.
-GitHub navigation is not qualified.
-
-Bare interactive `nav`, `nav back/fore/history`, and top-level
-`up/down/next/prev/back/fore` are retired. Use explicit `show` targets for scripts.
+`twig nav` and its directional and history commands are retired. To inspect a
+qualified ADO hierarchy, start with [`twig tree 12345`](../views/tree.md), then
+pass the ID of the parent, child or sibling to [`twig show`](../context/show.md).
+To browse a named Bench instead, use `twig workspace --bench MyWork`.

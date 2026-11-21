@@ -44,5 +44,6 @@ decision, not authorization to close an item by themselves.
 GitHub process/workflow rule discovery remains unsupported even when native
 API constraints are acquired.
 
-`process layout` is retired. Human `states` is only a convenience for active
-context; structured callers must use `process <type>` explicitly.
+Use `twig process <discovered-type>` to inspect states and transitions in any
+output format. There is no current CLI item from which to infer a type.
+Neither `states` nor `process layout` is a supported command.

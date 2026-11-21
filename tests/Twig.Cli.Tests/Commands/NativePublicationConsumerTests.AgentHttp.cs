@@ -28,6 +28,10 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("diagnostics")]
     [InlineData("access")]
     [InlineData("membership")]
+    [InlineData("incomplete")]
+    [InlineData("remote-summary")]
+    [InlineData("seed-denied")]
+    [InlineData("seed-withdrawal")]
     [InlineData("rules")]
     [InlineData("rule-guards")]
     [InlineData("draft")]
@@ -83,6 +87,7 @@ public sealed partial class NativePublicationConsumerTests
             var admitted = await Send("/context", HttpMethod.Put,
                 new JsonObject { ["root"] = fixture.Root }, owner: true);
             Check(admitted.Status == HttpStatusCode.OK, admitted.Body.ToJsonString());
+            (await Send("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench }, owner: true)).Status.ShouldBe(HttpStatusCode.OK);
             var view = await Send($"/benches/{fixture.Bench:D}", HttpMethod.Get, owner: true);
             Check(view.Status == HttpStatusCode.OK, view.Body.ToJsonString());
             var source = view.Body["sources"]![0]!;
@@ -119,11 +124,26 @@ public sealed partial class NativePublicationConsumerTests
                 return body;
             }
 
+            var sequence = 0;
+            async Task<(HttpStatusCode Status, JsonNode Body)> Rpc(string method, JsonObject? parameters = null,
+                string? capability = null) => await Send("/mcp", HttpMethod.Post, new JsonObject
+                { ["jsonrpc"] = "2.0", ["id"] = ++sequence, ["method"] = method, ["params"] = parameters }, capability: capability);
+            async Task<JsonNode> Call(string name, JsonObject arguments)
+            {
+                var response = await Rpc("tools/call", new JsonObject { ["name"] = name, ["arguments"] = arguments });
+                Check(response.Status == HttpStatusCode.OK, response.Body.ToJsonString());
+                return response.Body["result"] ?? response.Body;
+            }
+
             switch (scenario)
             {
                 case "diagnostics": await Diagnostics(); break;
                 case "access": await Access(); break;
                 case "membership": await Membership(); break;
+                case "incomplete": await Incomplete(); break;
+                case "remote-summary": await RemoteSummary(); break;
+                case "seed-denied":
+                case "seed-withdrawal": await SeedDetail(); break;
                 case "rules": await Rules(false); break;
                 case "rule-guards": await Rules(true); break;
                 case "draft": await Draft(); break;
@@ -137,12 +157,97 @@ public sealed partial class NativePublicationConsumerTests
             _transport.TotalRequests.ShouldBeGreaterThan(0, "The fixture must exercise actual native provider transport.");
             var captures = await store.ReadEditorCapturesAsync(ct);
             Check(captures.IsSuccess, "Native capture counters must come from the real registry.");
-            captures.Value.Length.ShouldBe(scenario == "draft" ? 1 : 0);
+            captures.Value.Length.ShouldBe(scenario is "draft" or "seed-denied" or "seed-withdrawal" ? 1 : 0);
             _agentHttpOutput?.WriteLine(
                 $"AGENT {scenario}: local={gateway.LocalReads}; schema={gateway.SchemaReads}; online={gateway.OnlineReads}; " +
-                $"selectionWrites={gateway.SelectionWrites}; profileReads={gateway.ProfileReads}; " +
+                $"profileReads={gateway.ProfileReads}; " +
                 $"providerHttp={_transport.TotalRequests}; providerItemReads={_transport.ItemReadIds.Count}; " +
                 $"captures={captures.Value.Length}; providerPatchAttempts={HumanPatchAttempts}");
+
+            async Task SeedDetail()
+            {
+                using (var editor = (await OpenHumanHostAsync(fixture.Root, bench, fixture.Stamp, ct)).Value)
+                {
+                    var seed = (await editor.CreateSeedAsync(item["type"]!.GetValue<string>(), ct)).Value;
+                    (await editor.StageAsync(seed.Ticket, FieldValues.Empty.Set("System.Title",
+                        FieldValue.String("Private seed")).Set("System.State", FieldValue.String("Doing"))
+                        .Set("System.AssignedTo", FieldValue.Identity(Sibling)), ct)).IsSuccess.ShouldBeTrue();
+                    var definition = (await store.ReadAsync(ct)).Value.Benches.Single();
+                    (await store.SaveAsync(new(bench, definition.Name, [new(SelectorKind.Pin, seed.Item, connection: connection)],
+                        connections: definition.Connections), definition.Revision, ct)).IsSuccess.ShouldBeTrue();
+                }
+                (await Send("/agent/permissions", HttpMethod.Put, Grant(true), owner: true)).Status.ShouldBe(HttpStatusCode.OK);
+                var members = (await Call("read_bench", new()))["structuredContent"]!;
+                var seedMember = members["items"]!.AsArray().Single()!;
+                seedMember["state"].ShouldBeNull();
+                seedMember["assignedTo"].ShouldBeNull();
+                JsonObject SeedTarget() => new()
+                {
+                    ["snapshotId"] = members["snapshotId"]!.DeepClone(),
+                    ["sourceId"] = seedMember["sourceId"]!.DeepClone(), ["itemId"] = seedMember["itemId"]!.DeepClone(),
+                };
+                async Task<JsonNode> Details()
+                {
+                    var args = SeedTarget();
+                    args["fields"] = new JsonArray("System.Title");
+                    args["assignedToField"] = "System.AssignedTo";
+                    return await Call("show_work_item_details", args);
+                }
+                var requests = _transport.TotalRequests;
+                (await Send("/agent/item", HttpMethod.Post, SeedTarget())).Body["item"]!["isLocal"]!.GetValue<bool>().ShouldBeTrue();
+                (await Details())["structuredContent"]!["isLocal"]!.GetValue<bool>().ShouldBeTrue();
+                _transport.TotalRequests.ShouldBe(requests);
+                var evidence = Directory.GetFiles(Path.Combine(directory, "agent-evidence"), "*.json").Single();
+                if (scenario == "seed-denied")
+                    await File.WriteAllBytesAsync(evidence + ".denied", [1], ct);
+                else
+                    await File.WriteAllTextAsync(evidence + ".withdrawn", """["42"]""", ct);
+                var refused = await Send("/agent/item", HttpMethod.Post, SeedTarget());
+                refused.Status.ShouldBe(HttpStatusCode.Forbidden);
+                refused.Body["item"].ShouldBeNull();
+                var details = await Details();
+                details["isError"]!.GetValue<bool>().ShouldBeTrue();
+                details["structuredContent"].ShouldBeNull();
+                _transport.TotalRequests.ShouldBe(requests);
+            }
+
+            async Task RemoteSummary()
+            {
+                using (var services = EditorServices(fixture.Root))
+                using (var native = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(ct)).Value)
+                {
+                    var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+                    (await native.Workspace.StageEditAsync(key, FieldValues.Empty
+                        .Set("System.State", FieldValue.String("Doing"))
+                        .Set("System.AssignedTo", FieldValue.Identity(Sibling)), ct)).IsSuccess.ShouldBeTrue();
+                }
+                (await Send("/agent/permissions", HttpMethod.Put, Grant(true), owner: true)).Status.ShouldBe(HttpStatusCode.OK);
+                var http = await Send("/agent/bench", HttpMethod.Post, Snapshot(await Context()));
+                http.Status.ShouldBe(HttpStatusCode.OK);
+                var mcp = await Call("read_bench", new());
+                foreach (var page in new[] { http.Body, mcp["structuredContent"]! })
+                {
+                    var summary = page["items"]!.AsArray().Single(member => member!["locator"]!.GetValue<string>() == "42")!;
+                    summary["hasDraft"]!.GetValue<bool>().ShouldBeTrue();
+                    summary["state"]!["value"]!.GetValue<string>().ShouldBe("To Do");
+                    summary["assignedTo"]!["value"]!.GetValue<string>().ShouldBe(Actor);
+                }
+            }
+
+            async Task Incomplete()
+            {
+                var definition = (await store.ReadAsync(ct)).Value.Benches.Single();
+                var missing = new Connection(connection.Provider, connection.ResourceScope, "missing-project", connection.IdentityRef);
+                (await store.SaveAsync(new(bench, definition.Name, definition.Selectors,
+                    connections: definition.Connections.Add(missing)), definition.Revision, ct)).IsSuccess.ShouldBeTrue();
+                (await Send("/agent/permissions", HttpMethod.Put, Grant(true), owner: true)).Status.ShouldBe(HttpStatusCode.OK);
+                var page = await Send("/agent/bench", HttpMethod.Post, Snapshot(await Context()));
+                page.Status.ShouldBe(HttpStatusCode.ServiceUnavailable);
+                page.Body["total"].ShouldBeNull();
+                var result = await Call("read_bench", new());
+                result["isError"]!.GetValue<bool>().ShouldBeTrue();
+                result["structuredContent"].ShouldBeNull();
+            }
 
             async Task Diagnostics()
             {
@@ -357,14 +462,15 @@ public sealed partial class NativePublicationConsumerTests
                 var all = new Selector(SelectorKind.Query, query: new(QueryKind.All), connection: connection);
                 var foreign = new Selector(SelectorKind.Query, query: new(QueryKind.All),
                     connection: new(connection.Provider, connection.ResourceScope, connection.Destination, "another-principal"));
-                var selectors = original.Selectors.Take(1).Append(all).Append(foreign).ToArray();
+                var selectors = guards ? original.Selectors.Take(1).Append(all).Append(foreign).ToArray()
+                    : original.Selectors.Take(1).Append(all).ToArray();
                 var prepared = await store.SaveAsync(new(bench, original.Name, selectors), original.Revision, ct);
                 Check(prepared.IsSuccess, "Rules regression requires a real persisted query, an unrelated pin and an unadmitted source.");
                 Check((await Send("/agent/permissions", HttpMethod.Put, Grant(true, membership: guards), owner: true)).Status == HttpStatusCode.OK, "Read rules consent.");
                 var context = await Context();
                 var read = await Send("/agent/rules", HttpMethod.Post, Snapshot(context));
                 Check(read.Status == HttpStatusCode.OK, $"Read saved Bench rules, not display filters: HTTP {read.Status} {read.Body}");
-                Check(read.Body["unadmittedRuleCount"]!.GetValue<int>() == 1
+                Check(read.Body["unadmittedRuleCount"]!.GetValue<int>() == (guards ? 1 : 0)
                     && !read.Body.ToJsonString().Contains("another-principal", StringComparison.Ordinal),
                     "Unadmitted rules are counted without disclosing their selector, identity or source.");
                 var rule = read.Body["rules"]!.AsArray().Single(value => value!["kind"]!.GetValue<string>() == "Query")!;
@@ -614,16 +720,6 @@ public sealed partial class NativePublicationConsumerTests
 
             async Task Mcp()
             {
-                var sequence = 0;
-                async Task<(HttpStatusCode Status, JsonNode Body)> Rpc(string method, JsonObject? parameters = null,
-                    string? capability = null) => await Send("/mcp", HttpMethod.Post, new JsonObject
-                    { ["jsonrpc"] = "2.0", ["id"] = ++sequence, ["method"] = method, ["params"] = parameters }, capability: capability);
-                async Task<JsonNode> Call(string name, JsonObject arguments)
-                {
-                    var response = await Rpc("tools/call", new JsonObject { ["name"] = name, ["arguments"] = arguments });
-                    Check(response.Status == HttpStatusCode.OK, response.Body.ToJsonString());
-                    return response.Body["result"] ?? response.Body;
-                }
                 Check(source["types"]!.AsArray().Any(type => type!["fields"]!.AsArray()
                     .Any(field => field!["reference"]!.GetValue<string>() == "System.Description"))
                     && item["cachedFields"]!.AsArray().Any(field => field!["reference"]!.GetValue<string>() == "System.Title"),

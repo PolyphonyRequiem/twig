@@ -18,8 +18,8 @@ not an invocation recipe.
 The retained Core save helper freezes eligible existing-item typed drafts and
 uses preview, digest-bound proposal, journal and independent verification.
 Current `update`/`edit` save their own changes through that lifecycle.
-Ordinary `sync` can save eligible remote drafts before pulling; it is not a
-read-only replacement for the missing standalone route.
+To inspect a named Bench, use `twig workspace --bench MyWork`. To refresh its
+view, use `twig workspace --bench MyWork --refresh`. Neither is a save command.
 
 ## Effects
 

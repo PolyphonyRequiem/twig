@@ -198,27 +198,32 @@ public static partial class NativeBenchHost
         app.MapPut("/api/v1/views/{id:guid}/context", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
+            long revision;
+            lock (session) revision = session.SelectionRevision;
             var body = await Body<ContextBody>(context);
             session.Agent.Invalidate();
             CancelEditor(session);
             session.Setup.Invalidate();
             await RequireAvailableRoot(panel, session, body.Root, context.RequestAborted);
             var opened = ConnectionObservation(await panel.OpenAsync(body.Root, context.RequestAborted), app.Logger);
-            RequireAvailable(session, opened.Stamp.Connection);
-            var selection = Require(await panel.ReadSelectionAsync(opened, context.RequestAborted));
-            lock (session)
+            if (Require(await panel.ReadAdmittedSourceAsync(opened, context.RequestAborted)).Source != opened.Stamp)
+                throw new HttpFailure(409, "Conflict", "The admitted connection changed while opening the source.");
+            _ = sessions.CommitViewChoice(session, Bearer(context), revision, () =>
             {
+                RequireAvailable(session, opened.Stamp.Connection);
                 session.NativeContext = opened;
                 session.DisplayContexts[opened.Stamp.Connection] = opened;
-                session.CurrentBenchId ??= selection.SelectedBenchId;
                 session.ReferencesRestored = true;
-            }
+                return true;
+            });
             updates.Publish(0);
             await Write(context, new Ack());
         });
         app.MapPut("/api/v1/views/{id:guid}/selection", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
+            long revision;
+            lock (session) revision = session.SelectionRevision;
             var body = await Body<SelectionBody>(context);
             session.Agent.Invalidate();
             CancelEditor(session);
@@ -226,12 +231,10 @@ public static partial class NativeBenchHost
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
                 throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
-            string? repositoryId;
-            lock (session)
+            var committed = sessions.CommitViewChoice(session, Bearer(context), revision, () =>
             {
                 if (session.CurrentBenchId != body.ExpectedBenchId)
                     throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
-                repositoryId = session.RepositoryBindings?.RepositoryId;
                 session.CurrentBenchId = body.BenchId;
                 session.ReferencesRestored = true;
                 session.PopulationContext = null;
@@ -240,9 +243,10 @@ public static partial class NativeBenchHost
                     session.NativeContext = null;
                     session.DisplayContexts.Clear();
                 }
-            }
+                return (session.SelectionRevision, RepositoryId: session.RepositoryBindings?.RepositoryId);
+            });
             await ResolveBenchConnections(panel, session, context.RequestAborted);
-            sessions.RememberRepositoryBench(session, body.BenchId, repositoryId);
+            sessions.RememberRepositoryBench(session, body.BenchId, committed.SelectionRevision, committed.RepositoryId);
             updates.Publish(0);
             await Write(context, new Ack());
         });

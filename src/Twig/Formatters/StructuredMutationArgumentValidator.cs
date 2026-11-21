@@ -1,13 +1,13 @@
 namespace Twig.Formatters;
 
 /// <summary>
-/// Prevents structured CLI calls from implicitly targeting the active work item.
+/// Checks explicit invocation scope before workspace discovery or daemon dispatch.
 /// </summary>
 public static class StructuredMutationArgumentValidator
 {
     public const int UsageExitCode = 2;
 
-    private static readonly HashSet<string> ActiveItemMutationCommands =
+    private static readonly HashSet<string> ItemMutationCommands =
     [
         "state",
         "batch",
@@ -24,22 +24,6 @@ public static class StructuredMutationArgumentValidator
         "link unrelate",
         "link unlink",
         "link artifact",
-    ];
-
-    private static readonly HashSet<string> ActiveContextChangeCommands =
-    [
-        "up",
-        "down",
-        "next",
-        "prev",
-        "nav",
-        "nav up",
-        "nav down",
-        "nav next",
-        "nav prev",
-        "nav back",
-        "nav fore",
-        "seed publish",
     ];
 
     private static readonly HashSet<string> ValueOptions =
@@ -76,18 +60,49 @@ public static class StructuredMutationArgumentValidator
         "--fields",
         "--sections",
         "--depth",
+        "--file",
+        "--child",
+        "--bench",
+        "--view",
+        "--expect-bench",
+        "--expect-revision",
+        "--expect-contents",
+        "--index",
+        "--backlog",
+        "--set",
+        "--comment",
+        "--confirm",
     ];
 
     /// <summary>
-    /// Returns a usage error when a structured invocation would use or change active-item
-    /// context instead of naming its target explicitly.
+    /// Returns a usage error when the invocation omits its required target or uses
+    /// an interactive-only operation with structured output.
     /// </summary>
     public static string? Validate(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
 
-        var outputFormat = GetOutputFormat(args);
+        if (args.Contains("--help") || args.Contains("-h")) return null;
+        var machine = GetOutputFormat(args) is { } format && format != OutputFormats.Default;
         var command = GetCommand(args);
+        if (command is null) return null;
+        if (args[0] is "proposal" or "plan" && args.Count > 1 && args[1] is "validate" or "preview" or "apply" or "status"
+            && !HasNonEmptyValueOption(args, "--file"))
+            return "Specify an explicit proposal file with --file.";
+        if (command is "workspace" or "ws" && (args.Count == 1 || args[1].StartsWith('-'))
+            && !HasNonEmptyValueOption(args, "--bench"))
+            return "Name the Bench with --bench <name-or-guid>.";
+        if (args[0] == "bench" && args.Count > 1)
+        {
+            var nameAt = args[1] switch
+            {
+                "rules" or "rename" or "delete" or "create" => 2,
+                "rule" when args.Count > 2 && args[2] is "add" or "remove" => 3,
+                _ => -1,
+            };
+            if (nameAt >= 0 && !Positionals(args, nameAt).Any())
+                return "Name the Bench explicitly.";
+        }
         if (command is "link local related" or "link local unrelate" or "link local list")
         {
             var positional = 0;
@@ -109,67 +124,69 @@ public static class StructuredMutationArgumentValidator
                 return "Use 'twig link local related <target> --id <source>' (or unrelate); the old two-GUID positional form is retired.";
             if (command != "link local list" && sources.Count != 1)
                 return $"{command} requires an explicit --id source; no active-item fallback.";
+            if (command == "link local list" && sources.Count == 0 && positional == 0)
+                return "List requires an explicit item ID.";
         }
         if (command is "show" or "tree")
         {
-            var readError = ValidateReadTarget(args, command,
-                outputFormat is not null && outputFormat != OutputFormats.Default);
+            var readError = ValidateReadTarget(args, command);
             if (readError is not null) return readError;
         }
 
-        if (outputFormat is null || string.Equals(outputFormat, OutputFormats.Default, StringComparison.Ordinal))
-            return null;
-
-        if (command is null)
-            return null;
-
-        if (command == "states")
-            return "Structured twig states cannot read the active item; use 'twig process <type>' to name the type explicitly.";
-
-        if (command == "set")
-            return "twig set cannot be used with structured output because it changes the active work item.";
-
-        if (command == "new" && HasBooleanOption(args, "--set"))
-            return "twig new --set cannot be used with structured output because it changes the active work item.";
-
-        if (command == "nav history" && outputFormat is not ("json" or "minimal"))
-            return "Structured twig nav history supports only -o json or -o minimal; other formats may open an interactive selection and change active context.";
-
-        if (ActiveContextChangeCommands.Contains(command))
-            return $"twig {command} cannot be used with structured output because it reads or changes active work-item context.";
+        if (command == "seed publish" && machine)
+            return "Structured seed publication is refused. Use an explicit reviewed proposal apply.";
+        if (command is "seed publish" or "seed discard" or "seed edit"
+            && !(command == "seed publish" && HasBooleanOption(args, "--all"))
+            && !Positionals(args, 2).Any(value => int.TryParse(value, out var n) && n < 0))
+            return "Specify an explicit negative seed ID.";
+        if (command is "seed link" or "seed unlink" && Positionals(args, 2).Count() < 2)
+            return "Specify both seed link endpoints.";
+        if (command is "link parent" or "link reparent" or "link predecessor" or "link successor" or "link related" or "link unrelate"
+            && !Positionals(args, 2).Any(value => int.TryParse(value, out var n) && n > 0))
+            return "Specify the explicit relationship endpoint.";
+        if (command == "link unlink" && Positionals(args, 2).Count() < 2)
+            return "Specify the link type and endpoint to remove.";
+        if (command == "link artifact" && !Positionals(args, 2).Any())
+            return "Specify the resource URL to link.";
 
         if (command is "link local related" or "link local unrelate")
             return HasIntegerOption(args, "--id", static id => id != 0) || HasCanonicalLocalId(args)
-                ? null : $"{command} with structured output requires an explicit --id (native number, negative seed alias or canonical lowercase GUIDv7).";
+                ? null : $"{command} requires an explicit --id (native number, negative seed alias or canonical lowercase GUIDv7).";
 
         if (command == "seed new"
-            && !HasPositiveIntegerOption(args, "--parent")
+            && !HasIntegerOption(args, "--parent", static id => id != 0)
             && !HasBooleanOption(args, "--no-parent"))
-            return "Structured seed creation requires --parent <id> or --no-parent; it will not infer a parent from the active work item.";
+            return "Seed creation requires --parent <id> or --no-parent.";
 
-        if (command == "seed chain" && !HasPositiveIntegerOption(args, "--parent"))
-            return "Structured seed chains require --parent <id>; they will not infer a parent from the active work item.";
+        if (command == "seed chain" && !HasIntegerOption(args, "--parent", static id => id != 0))
+            return "Seed chains require --parent <id>.";
 
-        if (command == "save"
+        if (command is "save" or "discard"
             && !HasBooleanOption(args, "--all")
-            && !HasPositiveIntegerOption(args, "--id")
-            && !HasNumericPositional(args, 1))
-            return "Structured save requires an explicit work-item ID or --all; it will not use the active work item.";
+            && !HasIntegerOption(args, "--id", static id => id != 0)
+            && !Positionals(args, 1).Any(value => int.TryParse(value, out var n) && n != 0))
+            return $"twig {command} requires an explicit work-item ID or --all.";
 
-        if (!ActiveItemMutationCommands.Contains(command))
+        if (!ItemMutationCommands.Contains(command))
             return null;
 
         if (command == "batch" && HasNonEmptyValueOption(args, "--ids"))
             return null;
 
-        if (command == "edit")
+        if (command == "edit" && machine)
             return "twig edit is interactive and cannot use structured output; use 'twig patch --id <id>' instead.";
 
+        if (!machine && command == "patch" && Positionals(args, 1).Any(value => int.TryParse(value, out var n) && n > 0))
+            return null;
+        if (!machine && command is "link parent" or "link reparent" or "link unparent"
+            && (HasIntegerOption(args, "--child", static id => id > 0)
+                || Positionals(args, 2).Skip(command == "link unparent" ? 0 : 1).Any(value => int.TryParse(value, out var n) && n > 0)))
+            return null;
         // Negative IDs are explicit local seed aliases, not active-item fallbacks.
         if (HasIntegerOption(args, "--id", static id => id != 0))
             return null;
 
-        return $"{command} with structured output requires an explicit --id; it will not use the active work item.";
+        return $"{command} requires an explicit --id.";
     }
 
     internal static string? GetOutputFormat(IReadOnlyList<string> args)
@@ -194,7 +211,7 @@ public static class StructuredMutationArgumentValidator
         return OutputFormats.Normalize(outputFormat);
     }
 
-    private static string? ValidateReadTarget(IReadOnlyList<string> args, string command, bool required)
+    private static string? ValidateReadTarget(IReadOnlyList<string> args, string command)
     {
         int? target = null;
         var positionalOnly = false;
@@ -242,9 +259,9 @@ public static class StructuredMutationArgumentValidator
         var local = command == "show" && HasNonEmptyValueOption(args, "--local-id");
         if (local && target.HasValue)
             return "Conflicting work-item targets: use an integer ID or --local-id, not both.";
-        if (!required || target.HasValue || local || command == "tree" && HasBooleanOption(args, "--all"))
+        if (target.HasValue || local || command == "tree" && HasBooleanOption(args, "--all"))
             return null;
-        return $"twig {command} with structured output requires an explicit work-item ID (positional or --id); it will not use the active work item.";
+        return $"twig {command} requires an explicit work-item ID (positional or --id).";
     }
 
     private static string? GetCommand(IReadOnlyList<string> args)
@@ -288,9 +305,6 @@ public static class StructuredMutationArgumentValidator
 
         return false;
     }
-
-    private static bool HasPositiveIntegerOption(IReadOnlyList<string> args, string option) =>
-        HasIntegerOption(args, option, static id => id > 0);
 
     private static bool HasCanonicalLocalId(IReadOnlyList<string> args)
     {
@@ -363,6 +377,15 @@ public static class StructuredMutationArgumentValidator
         && index + 1 < args.Count
         && args[index + 1] is not ("--" or "-o" or "--output");
 
-    private static bool HasNumericPositional(IReadOnlyList<string> args, int index) =>
-        index < args.Count && int.TryParse(args[index], out var id) && id > 0;
+    private static IEnumerable<string> Positionals(IReadOnlyList<string> args, int start)
+    {
+        var positionalOnly = false;
+        for (var i = start; i < args.Count; i++)
+        {
+            if (!positionalOnly && args[i] == "--") positionalOnly = true;
+            else if (!positionalOnly && ShouldSkipOptionValue(args, i)) i++;
+            else if (positionalOnly || !args[i].StartsWith('-') || int.TryParse(args[i], out _))
+                yield return args[i];
+        }
+    }
 }

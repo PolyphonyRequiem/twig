@@ -89,6 +89,7 @@ public sealed partial class GitHubCoreSpineTests
                 return response.Body;
             }
             await Send("/context", new JsonObject { ["root"] = fixture.Root }, HttpMethod.Put);
+            await Send("/selection", new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench }, HttpMethod.Put);
             var view = await Send($"/benches/{fixture.Bench:D}", method: HttpMethod.Get);
             var source = view["sources"]!.AsArray().Single()!;
             source["items"]!.AsArray().Count.ShouldBe(2);
@@ -202,6 +203,8 @@ public sealed partial class GitHubCoreSpineTests
                         human = sessions.ConnectOwner(instance, canvas.ViewId, profile);
                         owned = sessions.Content(human.ViewId, human.ContentCapability, true);
                         await Send("/context", new JsonObject { ["root"] = fixture.Root }, HttpMethod.Put);
+                        var restoredState = await Send("/view-state", method: HttpMethod.Get);
+                        restoredState["currentBenchId"]!.GetValue<Guid>().ShouldBe(fixture.Bench);
                         var restored = await Send($"/benches/{fixture.Bench:D}", method: HttpMethod.Get);
                         restored["sources"]![0]!["sourceId"]!.GetValue<string>().ShouldBe(source["sourceId"]!.GetValue<string>());
                         (await Request("/session", method: HttpMethod.Get)).Status.ShouldBe(200,

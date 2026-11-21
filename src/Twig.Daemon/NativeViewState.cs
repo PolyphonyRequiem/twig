@@ -20,7 +20,7 @@ public sealed record OwnerProfileStoreInfo(Guid StoreId);
 public sealed record OwnerRenewBody(Guid? ViewId, Guid ProfileId, Guid? StoreId = null, bool InitialView = false);
 // Restoration metadata is not cached content authority; every native read still requires its own admission.
 public sealed record NativeSourceRecovery(string Root, string Status, string? ErrorCode);
-// CurrentBenchId is observed on restoration only. The normal session endpoint reads the current CLI selection.
+// CurrentBenchId belongs to this view; source admission never selects a Bench.
 public sealed record NativeViewStateInfo(Guid StoreId, Guid ProfileId, long Revision, NativeViewChoices Choices,
     NativeSourceRecovery[] Sources, Guid? CurrentBenchId, DateTimeOffset ExpiresAt, DateTimeOffset RenewAfter)
 {

@@ -1,18 +1,3 @@
----
-command: area list
-group: workspace
-summary: Deprecated alias for reading shared planning area conditions.
-stability: stable
-mutates: none
----
+# `twig area list` (retired)
 
-# `twig area list`
-
-## Behavior
-
-Deprecated alias for [`workspace area list`](area-list.md).
-Reads retained current-connection rule conditions, not old config arrays.
-
-## Effects
-
-Cached inspection only, no work HTTP.
+To inspect or change shared planning rules, name the Bench in [`bench rules`, `bench rule add` or `bench rule remove`](../bench/planning.md). To read membership, use [`twig workspace --bench MyWork`](workspace.md).

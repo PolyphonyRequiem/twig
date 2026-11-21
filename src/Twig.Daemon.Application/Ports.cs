@@ -19,7 +19,6 @@ public sealed record SourceObservation(SourceBinding Binding, StoreSnapshot Snap
     DateTimeOffset CacheReadAt, DateTimeOffset SchemaObservedAt, ObservationMode Mode)
 {
     public ImmutableArray<Selector> WorkspaceExclusions { get; init; } = [];
-    public Guid? SelectedBenchId { get; init; }
     public PlanningSources? PlanningSources { get; init; }
     public DateTimeOffset? PlanningSourcesObservedAt { get; init; }
     public PlanningBrowse? PlanningBrowse { get; init; }

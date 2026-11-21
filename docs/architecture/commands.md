@@ -14,15 +14,28 @@ initialized Core marker refuse; they do not activate the old cache graph.
 
 ## Current execution
 
-`CoreCommandAdapter` maps retained item, draft, query, sync, and proposal commands
+`CoreCommandAdapter` maps retained item, draft, query, and proposal commands
 onto the admitted Core workspace. Dedicated native command services own
 initialization, authentication, connection inspection, user-wide Bench metadata,
 planning rules, and process projection. Provider restrictions are additional
 to command existence: a registered ADO convenience is not GitHub parity.
 
+The CLI has no selected item or Bench. Use `twig show <id>`, `twig tree <id>`,
+or `twig process <type>` directly; there is no `set`, navigation, or `states` step.
+`twig workspace --bench MyWork` (also `twig ws --bench MyWork`) reads a named
+Bench; add `--refresh` to pull that scope. There is no `bench switch`, bare
+workspace, or standalone sync or refresh command. Reading or editing an item
+does not track it in a Bench.
+
+`workspace track`, `track-tree`, `untrack`, contextual `workspace area` and
+`workspace sprint` add/list/remove commands, and their aliases are retired,
+not retargeted with new flags. Use `bench rules`, `bench rule add`, and
+`bench rule remove` for explicit Bench rules. Planning metadata routes do not
+require a Bench. Workspace exclusions remain local view rules.
+
 `CoreMutationAdmissionGuard` defines early catalog/provider restrictions.
-`StructuredMutationArgumentValidator` prevents machine calls from selecting an
-implicit active target. `SubcommandGuard` rejects misspelled compound verbs.
+`StructuredMutationArgumentValidator` requires `--id` for machine mutations
+targeting a single work item. `SubcommandGuard` rejects misspelled compound verbs.
 Refer to the [command guide](../commands/README.md), not historical declaration
 comments or removed command classes, for the current supported surface.
 

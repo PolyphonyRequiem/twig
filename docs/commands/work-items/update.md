@@ -23,7 +23,7 @@ Use exactly one value source: inline, `--file`, or `--stdin`.
 
 Published-item changes stage, preview and save through the same Core proposal
 and verified journal path. Seed field edits CAS the original local draft and
-do not create a provider item. Machine calls require `--id`.
+do not create a provider item. Name the target with `--id` in every output format.
 HTML fields use supported Markdown/raw conversion; native Markdown stays Markdown.
 
 ## Effects

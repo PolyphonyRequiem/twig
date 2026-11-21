@@ -317,14 +317,15 @@ public static partial class NativeBenchHost
         bool cachedAdmissionOnly = false)
     {
         Guid? bench;
+        long revision;
         NativePanelContext[] previous;
-        lock (session) { bench = session.CurrentBenchId; previous = session.DisplayContexts.Values.ToArray(); }
+        lock (session) { bench = session.CurrentBenchId; revision = session.SelectionRevision; previous = session.DisplayContexts.Values.ToArray(); }
         if (bench is null) return;
         var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct, AvailableConnections(session), cachedAdmissionOnly));
         lock (session.Agent)
         lock (session)
         {
-            if (session.CurrentBenchId != bench)
+            if (session.SelectionRevision != revision || session.CurrentBenchId != bench)
                 throw new HttpFailure(409, "BenchViewChanged", "The selected Bench changed during connection resolution.");
             if (resolved.Length == previous.Length && resolved.All(previous.Contains)) return;
             session.Agent.Invalidate();

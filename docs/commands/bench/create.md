@@ -20,8 +20,8 @@ twig bench create "Bugs I own" -o json
 ```
 
 The new Bench is empty. Nothing is copied, pinned, refreshed or selected
-automatically. Use `twig bench switch <name-or-guid>` in an initialized worktree
-to select it there without switching another worktree.
+automatically. In an initialized worktree, use `twig workspace --bench Release`
+to read its membership. This does not change a viewer's selection.
 
 `name` must be trimmed, nonempty and at most 120 characters. Names are unique
 under Unicode-normalized, case-insensitive comparison. A collision refuses
@@ -31,5 +31,5 @@ without modifying the existing Bench.
 new `id`, `name`, `revision` and message. Errors use the selected output format
 on stderr: `0` success, `1` conflicting/unavailable state, `2` invalid input.
 
-See [`bench list`](./list.md), [`bench rename`](./rename.md),
-[`bench switch`](./switch.md) and [`bench delete`](./delete.md).
+See [`bench list`](./list.md), [`bench rename`](./rename.md)
+and [`bench delete`](./delete.md).

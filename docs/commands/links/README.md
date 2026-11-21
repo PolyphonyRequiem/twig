@@ -21,11 +21,11 @@ zero total HTTP.
 
 |Command|Summary|Mutates|
 |---|---|---|
-|[`link parent`](./link-parent.md)|Set the parent of the active (or targeted) work item.|ado|
-|[`link unparent`](./link-unparent.md)|Remove the parent link from the active (or targeted) work item.|ado|
+|[`link parent`](./link-parent.md)|Attach a parent to an explicitly identified, unparented child.|ado|
+|[`link unparent`](./link-unparent.md)|Remove the named child's observed parent link.|ado|
 |[`link reparent`](./link-reparent.md)|Unsupported parent replacement; no mutation.|none|
-|[`link predecessor`](./link-predecessor.md)|Mark the active (or targeted) item as blocked by another.|ado|
-|[`link successor`](./link-successor.md)|Mark the active (or targeted) item as blocking another.|ado|
+|[`link predecessor`](./link-predecessor.md)|Mark the `--id` item as blocked by the positional target.|ado|
+|[`link successor`](./link-successor.md)|Mark the `--id` item as blocking the positional target.|ado|
 |[`link related`](./link-related.md)|Add a symmetric Related edge between two items.|ado|
 |[`link unrelate`](./link-unrelate.md)|Remove a Related edge between two items.|ado|
 |[`link local related`](./link-local-related.md)|Verify one local-only Related edge with exact Core CAS.|local|
@@ -36,18 +36,15 @@ zero total HTTP.
 
 ## Shared behavior
 
-- **Published-item targeting.** These verbs operate on the active work item by default. Pass
-  `--id <n>` — or, for the hierarchy verbs, the optional second positional
-  argument / `--child` — to target a specific item without changing active context.
+- **Published-item targeting.** Pass `--id <n>` to name the item. On hierarchy
+  commands, human output also accepts a positional child ID or `--child`.
   Every non-human output requires **`--id`**. A positional child or `--child`
   alone is human convenience, not machine authorization. With `--id`, either
   child form is an optional cross-check and must match. Conflicting child/ID values and
   nonpositive/self targets refuse with usage exit `2` before HTTP. Unpublished
   seeds remain under `seed link`; native links never publish or rewrite local UUIDs.
-  Human selection can retain an original seed UUID after publication: the command
-  resolves its permanent store mapping to the native item without changing history
-  or retained creation proposals. Unmapped/unknown seeds still refuse, and mapped
-  endpoints remain subject to the same partial/unknown proposal fences.
+  Unmapped/unknown seeds refuse, and mapped endpoints remain subject to the
+  same partial/unknown proposal fences.
 - **Local targeting.** Write `link local related <target> --id <source>` or
   `unrelate` with the same shape. Both endpoints must have live Core evidence;
   numeric locators, negative seed aliases and original canonical GUIDv7s are supported.

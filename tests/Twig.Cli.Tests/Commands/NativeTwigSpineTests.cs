@@ -72,9 +72,6 @@ public sealed class NativeTwigSpineTests
             (await reopened.Workspace.ReadAsync(published, default)).Value.Fields[NativeProvider.StateField].Text.ShouldBe("Closed");
             var adapter = new CoreCommandAdapter(factory, new RendererFactory(),
                 Substitute.For<IConsoleInput>(), Substitute.For<IEditorLauncher>());
-            var selected = await StdoutCapture.RunAsync(() => adapter.SetAsync("First native item", "human", default));
-            selected.result.ShouldBe(0);
-            selected.stdout.ShouldContain("First native item");
             var queried = await StdoutCapture.RunAsync(() => adapter.QueryAsync(null, "First", null, null,
                 "Closed", null, null, null, null, null, 10, "json", default));
             queried.result.ShouldBe(0);

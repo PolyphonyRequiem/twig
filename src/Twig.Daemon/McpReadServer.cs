@@ -74,7 +74,7 @@ internal static class McpReadServer
                     {
                         var data = await call(name, parameters["arguments"] as JsonObject ?? new JsonObject());
                         var summary = name == "read_bench"
-                            ? "Observed Bench members. Use the exact snapshotId, sourceId and itemId for details. Missing sources are explicitly unavailable."
+                            ? "Observed Bench members. Use the exact snapshotId, sourceId and itemId for details."
                             : "Read-only observed work-item details. Selected fields only; local proposals are labeled separately. " + data["note"]?.GetValue<string>();
                         result = new JsonObject
                         {
@@ -106,7 +106,7 @@ internal static class McpReadServer
 
     private static JsonNode Tools() => JsonNode.Parse("""
         {"tools":[
-          {"name":"read_bench","description":"Read the selected Twig Bench and its exact observed item identities. Returns a snapshot, available field definitions and unavailable-source metadata. Does not select a connection, refresh a provider or modify anything.",
+          {"name":"read_bench","description":"Read the selected Twig Bench and its exact observed item identities. Checks remote members with their providers and returns no page or total if a required source is unavailable. Does not select a connection or modify anything.",
            "annotations":{"readOnlyHint":true,"destructiveHint":false,"openWorldHint":false},
            "inputSchema":{"type":"object","properties":{"offset":{"type":"integer","minimum":0},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}},
           {"name":"show_work_item_details","description":"Show actual observed work-item details in chat, with selected exact field references and one optional emphasis. Read read_bench first. All item values, profiles, type/state presentation and web links come from the daemon, never from tool input. HTML/Markdown is safely formatted with active content removed. No Save or Apply.",

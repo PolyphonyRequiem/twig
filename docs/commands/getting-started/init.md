@@ -66,8 +66,11 @@ twig init contoso Fabrikam
 
 PAT enrollment is also supported through `twig auth pat`. Init uses the credential
 bound to the matching registered connection, not an endpoint default or last login.
-The low-level explicit `--binding` setup override can still pin an existing binding
-to a fresh checkout without changing any central selection.
+If multiple identities are bound to the same exact organization and project,
+coordinate-only init refuses. Run `twig connection list --provider ado`, then
+pass `--binding <binding-id>` to pin the intended identity in the fresh checkout.
+An equivalent URL spelling or a difference in case is not an exact binding:
+bind the raw coordinates in your manifest rather than changing the manifest.
 Unknown, empty or cross-endpoint bindings refuse before checkout writes or
 metadata HTTP. There is no ambient-token, last-login or Azure CLI fallback.
 

@@ -14,14 +14,12 @@ Attach a parent to an unparented published item in an explicitly initialized
 Core ADO workspace. Existing parents are never silently replaced.
 
 ```
-twig link parent <targetId> [child] [--id <n>] [--child <n>] [-o <format>]
+twig link parent <parentId> --id <childId> [-o <format>]
 ```
 
-`targetId` names the parent. `child` (positional or `--child`) or `--id` names
-the child; every machine output requires `--id`. `--child` or the positional
-alone is human convenience, not machine authorization; with `--id` they must match.
-Only human output may use the selected Core item. Supplying different
-child and ID values refuses before HTTP. Targets must be positive native IDs.
+The first positional ID names the parent. For human output, a second positional
+ID or `--child` can name the child instead of `--id`. Every machine output
+requires `--id`. Conflicting child IDs refuse before HTTP. Both IDs must be positive.
 
 The command discovers one directed hierarchy and observes both endpoints.
 Canonical direction is **parent -> child**: the parent's actual observed revision
@@ -32,14 +30,14 @@ success. No native relation reference or revision is guessed.
 ## Examples
 
 ```text
-twig link parent 5678
+twig link parent 5678 1234
 twig link parent 5678 --id 1234 -o json
 ```
 
 Success exits `0` with `linkParented`, `status: Verified`, the proposal digest
 and current native links. Duplicate adds, existing other parents, missing
 observations and unresolved effects exit `1`; invalid/self/conflicting targets
-or missing machine targets exit `2`.
+or missing targets exit `2`.
 
 See [shared behavior and output](./README.md),
 [`link unparent`](./link-unparent.md) and the explicitly unsupported

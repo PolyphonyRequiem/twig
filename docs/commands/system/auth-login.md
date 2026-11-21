@@ -29,8 +29,11 @@ Native principal attestation, not the alias/display name, establishes identity.
 `connection add` registers provider dimensions through the local daemon without
 selecting credentials. `connection bind` associates your credential with an
 already registered connection. Both require explicit provider dimensions and work
-outside a repository; neither reads or modifies `twig.json`. A different existing
-credential binding refuses rather than switching an initialized workspace.
+outside a repository; neither reads or modifies `twig.json`. Binding a different
+enrolled identity adds another candidate without changing an initialized workspace.
+`connection list` includes both CLI and native setup. For ADO it shows the exact
+organization, project and binding ID for each candidate; use the spellings in
+your manifest when binding, even if the same organization has another URL form.
 
 For GitHub, use `connection add --provider github --host github.com --repository owner/repo`,
 then the same dimensions with `connection bind --account <gh-user>`. A GitHub App

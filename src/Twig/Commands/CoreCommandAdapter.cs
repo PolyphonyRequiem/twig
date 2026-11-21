@@ -23,220 +23,18 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     private string StateField => factory.IsTwig ? Twig.Providers.Native.NativeProvider.StateField : factory.IsGitHub ? GitHubProvider.StateField : "System.State";
     private NativeHistoricalEvidence History => historicalEvidence ?? NativeHistoricalEvidence.ForLocalUser();
 
-    private async Task<Result<ItemKey>> ResolveKeyAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
+    private async Task<Result<int>> ResolveIdAsync(int? id, CancellationToken ct, bool allowNativeLookup = false)
     {
-        if (id is null && output != "human") return Result<ItemKey>.Fail(ErrorCode.InvalidInput, "Structured operations require an explicit target. Pass --id.");
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Result<ItemKey>.Fail(opened.Error);
-        using var handle = opened.Value;
-        if (id is not null) return await handle.Workspace.ResolveTargetAsync(id.Value, allowNativeLookup, ct);
-        var context = await handle.Workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Result<ItemKey>.Fail(context.Error);
-        if (context.Value.Position < 0) return Result<ItemKey>.Fail(ErrorCode.NotFound, "No active Core item is selected. Run `twig set <id>` or pass --id.");
-        var key = context.Value.History[context.Value.Position].Resolve(handle.Workspace.Connection);
-        var snapshot = await handle.Workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Result<ItemKey>.Fail(snapshot.Error);
-        if (key.IsLocal)
-        {
-            if (!KnownLocalKeys(snapshot.Value).Contains(key)
-                || KnownLocalKeys(snapshot.Value).Count(local => LocalAlias(local) == LocalAlias(key)) != 1)
-                return Result<ItemKey>.Fail(ErrorCode.Conflict, "The retained active UUID is absent or ambiguous; it was not replaced.");
-            var mapped = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key);
-            if (mapped is not null) key = mapped.Remote;
-            else return Result<ItemKey>.Ok(key);
-        }
-        return key.BelongsTo(handle.Workspace.Connection) ? Result<ItemKey>.Ok(key)
-            : Result<ItemKey>.Fail(ErrorCode.Conflict, "The active native identity is outside this connection.");
-    }
-
-    private async Task<Result<int>> ResolveIdAsync(int? id, string output, CancellationToken ct, bool allowNativeLookup = false)
-    {
-        if (id is > 0) return Result<int>.Ok(id.Value);
-        var key = await ResolveKeyAsync(id, output, ct, allowNativeLookup);
-        if (!key.IsSuccess) return Result<int>.Fail(key.Error);
+        if (id is null or 0) return Result<int>.Fail(ErrorCode.InvalidInput, "Pass an explicit nonzero work item ID.");
+        if (id > 0) return Result<int>.Ok(id.Value);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Result<int>.Fail(opened.Error);
         using var handle = opened.Value;
+        var key = await handle.Workspace.ResolveTargetAsync(id.Value, allowNativeLookup, ct);
+        if (!key.IsSuccess) return Result<int>.Fail(key.Error);
         var snapshot = await handle.Workspace.SnapshotAsync(ct);
         return snapshot.IsSuccess ? CoreWorkspace.DisplayId(handle.Workspace.Connection, snapshot.Value, key.Value)
             : Result<int>.Fail(snapshot.Error);
-    }
-
-    internal async Task<int> SetAsync(string target, string output, CancellationToken ct)
-    {
-        if (factory.IsGitHub) return Error(output, "GitHub interactive selection is not qualified; use explicit numeric targets.");
-        if (output != "human") return Error(output, "Structured set is refused because it changes interactive context.", 2);
-        if (string.IsNullOrWhiteSpace(target)) return Error(output, "Supply a work item ID or cached title pattern.", 2);
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var workspace = handle.Workspace;
-        var snapshot = await workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        if (KnownLocalKeys(snapshot.Value).GroupBy(LocalAlias).Any(group => group.Count() != 1))
-            return Error(output, "Local aliases are ambiguous; no active identity was guessed.");
-        ItemKey? selected = null;
-        if (int.TryParse(target, NumberStyles.Integer, CultureInfo.InvariantCulture, out var number) && number != 0)
-            selected = number < 0 ? KnownLocalKeys(snapshot.Value).SingleOrDefault(key => LocalAlias(key) == number)
-                : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, number.ToString(CultureInfo.InvariantCulture));
-        else
-        {
-            var candidates = snapshot.Value.Items.Concat(snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal)
-                .Select(draft => new WorkItem(draft.Key, draft.Type, draft.Changes, null))).Where(item =>
-                    item.Fields.TryGetValue(TitleField, out var title) && title.Text is { } text
-                    && (target.Contains('*') || target.Contains('?')
-                        ? System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(target, text, ignoreCase: true)
-                        : text.Contains(target, StringComparison.OrdinalIgnoreCase))).ToArray();
-            if (candidates.Length == 1) selected = candidates[0].Key;
-            else if (candidates.Length > 1)
-            {
-                foreach (var item in candidates)
-                    Console.Error.WriteLine($"#{(item.Key.IsLocal ? LocalAlias(item.Key).ToString(CultureInfo.InvariantCulture) : item.Key.NativeId)} {item.Fields[TitleField].Text}");
-                if (!consoleInput.IsOutputRedirected)
-                {
-                    Console.Write("Choose item ID: ");
-                    var chosen = consoleInput.ReadLine();
-                    if (int.TryParse(chosen, out var chosenId))
-                        selected = candidates.SingleOrDefault(item => item.Key.IsLocal
-                            ? LocalAlias(item.Key) == chosenId : item.Key.NativeId == chosenId.ToString(CultureInfo.InvariantCulture))?.Key;
-                }
-            }
-        }
-        if (selected is null) return Error(output, "The target is absent, ambiguous or selection was cancelled; active context was preserved.");
-        var key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == selected)?.Remote ?? selected;
-        var shownItem = key.IsLocal
-            ? snapshot.Value.Drafts.Where(draft => draft.Key == key).Select(draft => new WorkItem(key, draft.Type, draft.Changes, null)).SingleOrDefault()
-            : snapshot.Value.Items.SingleOrDefault(item => item.Key == key);
-        if (shownItem is null && !key.IsLocal)
-        {
-            var fetched = await workspace.ReadAsync(key, ct);
-            if (!fetched.IsSuccess) return Error(output, fetched.Error.Message);
-            shownItem = fetched.Value;
-        }
-        if (shownItem is null) return Error(output, "The exact selected item is unavailable; active context was preserved.");
-        var context = await workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var history = context.Value.History.Take(context.Value.Position + 1).Append(CoreContextKey.Capture(selected)).ToArray();
-        var saved = await workspace.Context.WriteAsync(context.Value, context.Value with { History = history, Position = history.Length - 1 }, ct);
-        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
-            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} {shownItem.Fields.GetValueOrDefault(TitleField)?.Text}", Severity.Success)]));
-        return 0;
-    }
-
-    internal async Task<int> NavigateAsync(string direction, string? pattern, string output, CancellationToken ct)
-    {
-        if (factory.IsGitHub) return Error(output, "GitHub navigation is not qualified; use explicit numeric targets.");
-        if (output != "human") return Error(output, "Structured navigation is refused because it changes interactive context.", 2);
-        var target = await ResolveIdAsync(null, output, ct);
-        if (!target.IsSuccess) return Error(output, target.Error.Message);
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var workspace = handle.Workspace;
-        var snapshot = await workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var current = target.Value < 0 ? KnownLocalKeys(snapshot.Value).Single(key => LocalAlias(key) == target.Value)
-            : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, target.Value.ToString(CultureInfo.InvariantCulture));
-        var schema = await workspace.SchemaAsync(ct);
-        if (!schema.IsSuccess) return Error(output, schema.Error.Message);
-        var relations = schema.Value.Relations.Where(relation => relation.Shape == RelationShape.Hierarchy && relation.Directed).ToArray();
-        if (relations.Length != 1) return Error(output, "Navigation requires a unique discovered hierarchy relation.");
-        var hierarchy = relations[0].Reference;
-        if (!current.IsLocal && snapshot.Value.Items.SingleOrDefault(item => item.Key == current)?.RelationshipsComplete != true)
-        {
-            var observed = await workspace.ReadAsync(current, ct);
-            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
-            snapshot = await workspace.SnapshotAsync(ct);
-            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        }
-        ItemKey Resolve(ItemKey key) => snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
-        var edges = snapshot.Value.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy)
-            .Select(edge => (From: Resolve(edge.From), To: Resolve(edge.To)))
-            .Concat(snapshot.Value.Drafts.Where(draft => draft.Parent is not null && draft.ParentRelation == hierarchy)
-                .Select(draft => (From: Resolve(draft.Parent!), To: Resolve(draft.Key)))).Distinct().ToArray();
-        var parents = edges.Where(edge => edge.To == current).Select(edge => edge.From).Distinct().ToArray();
-        if (parents.Length > 1) return Error(output, "The active item's parent is ambiguous; no navigation target was guessed.");
-        ItemKey[] candidates;
-        if (direction == "up") candidates = parents;
-        else if (direction == "down") candidates = edges.Where(edge => edge.From == current).Select(edge => edge.To).Distinct().ToArray();
-        else
-        {
-            var siblings = parents.Length == 1 ? edges.Where(edge => edge.From == parents[0]).Select(edge => edge.To)
-                : snapshot.Value.Items.Select(item => item.Key).Concat(snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal).Select(draft => draft.Key))
-                    .Where(key => !edges.Any(edge => edge.To == key));
-            var ordered = siblings.Distinct().OrderBy(key => key.IsLocal ? LocalAlias(key) : int.Parse(key.NativeId!, CultureInfo.InvariantCulture)).ToArray();
-            var index = Array.IndexOf(ordered, current);
-            if (index < 0 || ordered.Length < 2) return Error(output, "No sibling is available for navigation.");
-            candidates = [ordered[(index + (direction == "next" ? 1 : ordered.Length - 1)) % ordered.Length]];
-        }
-        if (pattern is not null)
-            candidates = candidates.Where(key => (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId) == pattern
-                || snapshot.Value.Items.Where(item => item.Key == key).Select(item => item.Fields.GetValueOrDefault(TitleField)?.Text)
-                    .Concat(snapshot.Value.Drafts.Where(draft => draft.Key == key).Select(draft => draft.Changes.GetValueOrDefault(TitleField)?.Text))
-                    .Any(title => title is not null && System.IO.Enumeration.FileSystemName.MatchesSimpleExpression(
-                        pattern.Contains('*') || pattern.Contains('?') ? pattern : "*" + pattern + "*", title, ignoreCase: true))).ToArray();
-        if (candidates.Length != 1)
-        {
-            foreach (var key in candidates) Console.Error.WriteLine("#" + (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId));
-            if (candidates.Length > 1 && !consoleInput.IsOutputRedirected)
-            {
-                Console.Write("Choose item ID: ");
-                var choice = consoleInput.ReadLine();
-                candidates = candidates.Where(key => (key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId) == choice).ToArray();
-            }
-        }
-        if (candidates.Length != 1) return Error(output, "No unique navigation target was selected; active context was preserved.");
-        return await SetAsync(candidates[0].IsLocal ? LocalAlias(candidates[0]).ToString(CultureInfo.InvariantCulture) : candidates[0].NativeId!, output, ct);
-    }
-
-    internal async Task<int> MoveHistoryAsync(int direction, string output, CancellationToken ct)
-    {
-        if (factory.IsGitHub) return Error(output, "GitHub history navigation is not qualified.");
-        if (output != "human") return Error(output, "Structured history navigation is refused because it changes interactive context.", 2);
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var context = await handle.Workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var position = context.Value.Position + direction;
-        if (position < 0 || position >= context.Value.History.Length)
-            return Error(output, "No further active-item history is available.");
-        var selected = context.Value.History[position].Resolve(handle.Workspace.Connection);
-        var snapshot = await handle.Workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == selected)?.Remote ?? selected;
-        if (key.IsLocal && !snapshot.Value.Drafts.Any(draft => draft.Key == key))
-            return Error(output, "The historical local draft is no longer available; history was preserved.");
-        if (!key.IsLocal && !snapshot.Value.Items.Any(item => item.Key == key))
-        {
-            var observed = await handle.Workspace.ReadAsync(key, ct);
-            if (!observed.IsSuccess) return Error(output, observed.Error.Message);
-        }
-        var saved = await handle.Workspace.Context.WriteAsync(context.Value, context.Value with { Position = position }, ct);
-        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Text(
-            $"#{(key.IsLocal ? LocalAlias(key).ToString(CultureInfo.InvariantCulture) : key.NativeId)} selected from history.", Severity.Success)]));
-        return 0;
-    }
-
-    internal async Task<int> NavigationHistoryAsync(string output, CancellationToken ct)
-    {
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var context = await handle.Workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var rows = context.Value.History.Select((key, index) => new RenderRow("navigationHistory",
-            new Dictionary<string, RenderCell>
-            {
-                ["position"] = RenderCell.Integer(index), ["active"] = RenderCell.Boolean(index == context.Value.Position),
-                ["localId"] = key.LocalId is { } local ? RenderCell.String(local.ToString("D")) : new("", new RenderValue.Null()),
-                ["nativeId"] = key.NativeId is { } native ? RenderCell.String(native) : new("", new RenderValue.Null()),
-            })).ToArray();
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table(null,
-            [new("position", "Position"), new("nativeId", "Native ID"), new("localId", "Local UUID"), new("active", "Active")], rows)]));
-        return 0;
     }
 
     internal async Task<int> TreeAsync(int? id, bool all, int? depth, bool refresh, string output, CancellationToken ct)
@@ -247,7 +45,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (all && id is not null) return Error(output, "--all cannot be combined with an explicit tree target.", 2);
         if (!all)
         {
-            var selected = await ResolveIdAsync(id, output, ct);
+            var selected = await ResolveIdAsync(id, ct);
             if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
             id = selected.Value;
         }
@@ -476,154 +274,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    internal async Task<int> BenchAsync(string action, string? name, string output, CancellationToken ct, string? expectBench = null,
-        string? expectBinding = null, string? expectIdentity = null, bool management = false)
-    {
-        using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
-        if (expectBinding is not null || expectIdentity is not null || management)
-            return Error(output, "The versioned browser management envelope is not yet connected to Core Bench admission; no operation was performed.");
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var workspace = handle.Workspace;
-        var snapshot = await workspace.BenchSnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var context = await workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        if (action == "list")
-        {
-            var rows = snapshot.Value.Benches.Select(bench => new RenderRow("bench", new Dictionary<string, RenderCell>
-            {
-                ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
-                ["isCurrent"] = RenderCell.Boolean(context.Value.BenchId == bench.Id),
-                ["selectorCount"] = RenderCell.Integer(bench.Selectors.Length),
-            })).ToArray();
-            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table(null,
-                [new("name", "Bench"), new("id", "ID"), new("isCurrent", "Current"), new("selectorCount", "Selectors")], rows)]));
-            return 0;
-        }
-        if (string.IsNullOrWhiteSpace(name) || name != name.Trim()) return Error(output, "A nonempty, canonical Bench name is required.", 2);
-        var matches = snapshot.Value.Benches.Where(bench => bench.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
-            || bench.Id.ToString("D").Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
-        if (action == "create")
-        {
-            if (matches.Length != 0) return Error(output, "A Bench with this name already exists; nothing was selected or replaced.");
-            var bench = new Bench(Guid.NewGuid(), name, []);
-            var saved = await workspace.CaptureBenchesAsync(snapshot.Value, snapshot.Value.Benches.Add(bench), ct);
-            if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchCreated",
-                new Dictionary<string, RenderCell>
-                {
-                    ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
-                    ["message"] = RenderCell.String($"Created Bench '{bench.Name}' without selecting it."),
-                })]));
-            return 0;
-        }
-        if (matches.Length != 1) return Error(output, "The named Bench is absent or ambiguous; no Bench was created or selected.");
-        var target = matches[0];
-        if (expectBench is not null && expectBench != target.Id.ToString("D"))
-            return Error(output, "The captured Bench identity changed; no replacement under the same name was adopted.");
-        var selected = await workspace.Context.WriteAsync(context.Value, context.Value with { BenchId = target.Id }, ct);
-        if (!selected.IsSuccess) return Error(output, selected.Error.Message);
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("benchSwitched",
-            new Dictionary<string, RenderCell>
-            {
-                ["id"] = RenderCell.String(target.Id.ToString("D")), ["name"] = RenderCell.String(target.Name),
-                ["message"] = RenderCell.String($"Now on Bench '{target.Name}'."),
-            })]));
-        return 0;
-    }
-
-    internal async Task<int> PinAsync(int id, bool subtree, bool remove, string output, CancellationToken ct,
-        string? expectBench, string? expectBinding, string? expectIdentity, string? expectSettings, string? mode = null)
-    {
-        if (factory.IsGitHub && (subtree || mode == "tree"))
-            return Error(output, "GitHub subtree selectors are not qualified; pin an explicit cached item.");
-        using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
-        if (expectBinding is not null || expectIdentity is not null || expectSettings is not null)
-            return Error(output, "Captured browser origin/settings admission is not yet connected; no selector was changed.");
-        if (id == 0) return Error(output, "A nonzero explicit pin target is required.", 2);
-        mode = mode?.ToLowerInvariant();
-        if (mode is not null && mode is not ("single" or "tree"))
-            return Error(output, "Untrack mode must be single or tree.", 2);
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(output, opened.Error.Message);
-        using var handle = opened.Value;
-        var workspace = handle.Workspace;
-        var context = await workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(output, context.Error.Message);
-        var snapshot = await workspace.BenchSnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var bench = snapshot.Value.Benches.SingleOrDefault(bench => bench.Id == context.Value.BenchId);
-        if (bench is null) return Error(output, "No existing Core Bench is selected. Create one and use `twig bench switch <name>`.");
-        if (expectBench is not null && expectBench != bench.Id.ToString("D")) return Error(output, "The captured current Bench changed.");
-        var capturedBenchId = bench.Id;
-        var resolved = await workspace.ResolveTargetAsync(id, false, ct);
-        if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
-        var key = id < 0 ? KnownLocalKeys(snapshot.Value).Single(local => LocalAlias(local) == id) : resolved.Value;
-        var mapped = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
-        if (!remove && !mapped.IsLocal && !snapshot.Value.Items.Any(item => item.Key == mapped))
-        {
-            var read = await workspace.ReadAsync(mapped, ct);
-            if (!read.IsSuccess) return Error(output, read.Error.Message);
-            snapshot = await workspace.BenchSnapshotAsync(ct);
-            if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-            bench = snapshot.Value.Benches.SingleOrDefault(value => value.Id == capturedBenchId);
-            if (bench is null) return Error(output, "The captured Bench was removed while reading the target; no selector was changed.");
-        }
-        string? hierarchy = null;
-        if (subtree && !remove)
-        {
-            var schema = await workspace.SchemaAsync(ct);
-            if (!schema.IsSuccess) return Error(output, schema.Error.Message);
-            var kinds = schema.Value.Relations.Where(kind => kind.Shape == RelationShape.Hierarchy && kind.Directed).ToArray();
-            if (kinds.Length != 1) return Error(output, "A subtree pin requires unique discovered hierarchy semantics.");
-            hierarchy = kinds[0].Reference;
-        }
-        var kind = subtree || mode == "tree" ? SelectorKind.Subtree : SelectorKind.Pin;
-        var removeBoth = remove && mode is null;
-        bool Matches(Selector selector) => selector.Item == key
-            && (removeBoth ? selector.Kind is SelectorKind.Pin or SelectorKind.Subtree : selector.Kind == kind);
-        var existing = bench.Selectors.Where(Matches).ToArray();
-        var modeLabel = removeBoth ? "both" : kind == SelectorKind.Pin ? "single" : "tree";
-        if (remove && existing.Length == 0)
-        {
-            renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("untrackNotTracked",
-                new Dictionary<string, RenderCell>
-                {
-                    ["id"] = RenderCell.Integer(id), ["benchId"] = RenderCell.String(bench.Id.ToString("D")),
-                    ["mode"] = RenderCell.String(modeLabel), ["wasPinned"] = RenderCell.Boolean(false),
-                    ["message"] = RenderCell.String("No explicit selector matched; inherited query/subtree membership was preserved."),
-                })]));
-            return 0;
-        }
-        var selectors = remove ? bench.Selectors.Where(selector => !Matches(selector)).ToArray()
-            : existing.Length == 0 ? bench.Selectors.Add(new(kind, key, hierarchyRelation: hierarchy)).ToArray() : bench.Selectors.ToArray();
-        var changed = new Bench(bench.Id, bench.Name, selectors, connections: bench.Connections);
-        var saved = await workspace.CaptureBenchesAsync(snapshot.Value,
-            snapshot.Value.Benches.Select(value => value.Id == changed.Id ? changed : value), ct);
-        if (!saved.IsSuccess) return Error(output, saved.Error.Message);
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record(remove ? "workspaceUntracked" : "workspaceTracked",
-            new Dictionary<string, RenderCell>
-            {
-                ["id"] = RenderCell.Integer(id), ["benchId"] = RenderCell.String(bench.Id.ToString("D")),
-                ["mode"] = RenderCell.String(modeLabel),
-                ["message"] = RenderCell.String(remove ? "Removed the exact local selector; inherited query membership was preserved." : "Retained the explicit Core Bench selector."),
-            })]));
-        return 0;
-    }
-
     internal async Task<int> SaveAsync(int? id, bool all, string output, CancellationToken ct)
     {
-        if (id is null && !all)
-        {
-            var selected = await ResolveIdAsync(null, output, ct);
-            if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
-            id = selected.Value;
-        }
         if (id < 0 && !all) return await SeedPublishAsync(id, false, false, false, null, null, output, ct);
         if (id is not null && (id <= 0 || all)) return Error(output, "Specify one positive --id or --all, not both.", 2);
-        if (id is null && !all) return Error(output, "No Core active scope is selected. Specify --id or --all.", 2);
+        if (id is null && !all) return Error(output, "Specify --id or --all.", 2);
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -683,79 +338,6 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["digest"] = digest is null ? new("", new RenderValue.Null()) : RenderCell.String(digest),
             })]));
         return 0;
-    }
-
-    internal async Task<int> SyncAsync(string output, bool pullOnly, CancellationToken ct, bool workspaceOnly = false,
-        string? expectBench = null, string? expectBinding = null, string? expectIdentity = null)
-    {
-        var started = Stopwatch.GetTimestamp();
-        var format = OutputFormats.Normalize(output) ?? string.Empty;
-        var exit = 1;
-        (int Count, string? Digest) saved = (0, null);
-        try
-        {
-            if (format is not ("human" or "minimal" or "json" or "json-full" or "json-compact"))
-            {
-                format = "human";
-                return exit = Error(format, "Sync supports human, minimal and JSON output, not IDs.", 2);
-            }
-            if (expectBinding is not null || expectIdentity is not null)
-                return exit = Error(format, "Captured browser origin admission is not yet connected to Core sync; no operation was performed.");
-            using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
-            var opened = await factory.OpenAsync(ct);
-            if (!opened.IsSuccess) return exit = Error(format, opened.Error.Message);
-            using var handle = opened.Value;
-            var workspace = handle.Workspace;
-            var context = await workspace.Context.ReadAsync(ct);
-            if (!context.IsSuccess) return exit = Error(format, context.Error.Message);
-            var snapshot = await workspace.BenchSnapshotAsync(ct);
-            if (!snapshot.IsSuccess) return exit = Error(format, snapshot.Error.Message);
-            var bench = snapshot.Value.Benches.SingleOrDefault(value => value.Id == context.Value.BenchId);
-            if (bench is null)
-                return exit = Error(format, "Select an existing Core Bench before syncing; no draft was published.");
-            if (expectBench is not null && (!Guid.TryParse(expectBench, out var id) || id != bench.Id))
-                return exit = Error(format, "The captured current Bench changed; no draft was published or scope pulled.");
-            if (!pullOnly && !workspaceOnly)
-            {
-                var result = await SaveRemoteDraftsAsync(workspace, null, true, ct);
-                if (!result.IsSuccess) return exit = Error(format, result.Error.Message);
-                saved = result.Value;
-            }
-            var depths = factory.TreeContextDepths;
-            var pulled = await workspace.PullBenchAsync(bench.Id.ToString("D"), format == "human",
-                depths.Up, depths.Down, depths.Sideways, ct);
-            if (!pulled.IsSuccess)
-                return exit = Error(format, saved.Count == 0 ? pulled.Error.Message
-                    : $"Saved {saved.Count} draft(s) in proposal {saved.Digest}; pull did not complete: {pulled.Error.Message}");
-            var counts = pulled.Value;
-            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record(workspaceOnly ? "benchSync" : "sync",
-                new Dictionary<string, RenderCell>
-                {
-                    ["benchId"] = RenderCell.String(counts.Bench.Id.ToString("D")),
-                    ["benchName"] = RenderCell.String(counts.Bench.Name),
-                    ["itemCount"] = RenderCell.Integer(counts.ItemCount),
-                    ["memberCount"] = RenderCell.Integer(counts.MemberCount),
-                    ["relationshipCount"] = RenderCell.Integer(counts.ContextCount),
-                    ["protectedCount"] = RenderCell.Integer(counts.ProtectedCount),
-                    ["itemsFlushed"] = RenderCell.Integer(saved.Count),
-                    ["digest"] = saved.Digest is null ? new("", new RenderValue.Null()) : RenderCell.String(saved.Digest),
-                    ["message"] = RenderCell.String($"Pulled Bench '{counts.Bench.Name}' without changing its selectors; {saved.Count} draft(s) saved through the proposal journal."),
-                })]));
-            return exit = 0;
-        }
-        catch (OperationCanceledException)
-        {
-            return exit = Error(format, "Sync was cancelled; existing drafts and acknowledged journal effects were retained without replay.");
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
-        {
-            return exit = Error(format, "Sync did not complete; preserved work and journal effects must be inspected: " + ex.Message);
-        }
-        finally
-        {
-            try { TelemetryHelper.TrackCommand(telemetry, workspaceOnly ? "workspace-sync" : "sync", format, exit, started); }
-            catch (Exception) { Debug.WriteLine("Optional Core sync telemetry failed; command outcome was preserved."); }
-        }
     }
 
     internal async Task<int> DiscardAsync(int? id, bool all, bool yes, string output, CancellationToken ct)
@@ -831,12 +413,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return Error(output, "Twig-native items require --no-parent; this source has no relationship schema.", 2);
         if (factory.IsGitHub && (!noParent || editor || predecessor is not null))
             return Error(output, "GitHub seed creation requires --no-parent and explicit native type/fields; editor and creation links are not qualified.", 2);
-        if (!noParent && parent is null)
-        {
-            var selected = await ResolveIdAsync(null, output, ct);
-            if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
-            parent = selected.Value;
-        }
+        if (!noParent && parent is null) return Error(output, "Specify --parent <id> or --no-parent.", 2);
         if (!editor && string.IsNullOrWhiteSpace(title) || string.IsNullOrWhiteSpace(requestedType))
             return Error(output, "Unparented seed creation requires --title and --type.", 2);
         var parsed = FieldAssignment.ParseAll(fields, "--field");
@@ -1051,7 +628,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> EditAsync(int? id, string? field, string output, CancellationToken ct)
     {
         if (factory.IsGitHub) return Error(output, "GitHub editor is not qualified; use explicit update or patch.");
-        var target = await ResolveIdAsync(id, output, ct);
+        var target = await ResolveIdAsync(id, ct);
         if (!target.IsSuccess) return Error(output, target.Error.Message, target.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = target.Value;
         if (id < 0) return await SeedEditAsync(id.Value, output, ct, field);
@@ -1133,7 +710,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> SeedChainAsync(string[]? titles, int? parent, string? type, string output, CancellationToken ct)
     {
         if (parent is null || string.IsNullOrWhiteSpace(type))
-            return Error(output, "Core chain authoring requires --parent and --type until active-context selection is connected.", 2);
+            return Error(output, "Core chain authoring requires --parent and --type.", 2);
         var created = new List<Draft>();
         var supplied = titles is { Length: > 0 };
         IEnumerable<string> Source()
@@ -1544,14 +1121,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         if (tree && localId is null && fields is null && sections is null)
             return await TreeAsync(id, false, null, refresh, output, ct);
-        if (id is null && localId is null)
-        {
-            var activeTarget = await ResolveIdAsync(null, output, ct);
-            if (!activeTarget.IsSuccess) return Error(output, activeTarget.Error.Message, activeTarget.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
-            id = activeTarget.Value;
-        }
         if (id is null && localId is null || id == 0)
-            return Error(output, "No Core active target is selected. Pass an explicit work item ID or --local-id.", 2);
+            return Error(output, "Pass an explicit work item ID or --local-id.", 2);
         if (tree || sections is not null)
             return Error(output, "Hierarchy/section detail routing is not yet connected in this in-progress Core cutover.", 1);
         if (localId is not null && (id is not null || refresh || fields is not null || output is not ("json" or "json-full" or "json-compact")))
@@ -1641,7 +1212,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> UpdateAsync(string field, string? value, string output, string? format, string? file,
         bool stdin, int? id, bool append, CancellationToken ct)
     {
-        var target = await ResolveIdAsync(id, output, ct, allowNativeLookup: true);
+        var target = await ResolveIdAsync(id, ct, allowNativeLookup: true);
         if (!target.IsSuccess) return Error(output, target.Error.Message, target.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = target.Value;
         var formatError = HtmlFieldFormatter.ValidateFormat(format);
@@ -2002,7 +1573,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     internal async Task<int> NoteAsync(string? text, string? file, bool stdin, int? id,
         string output, string? format, CancellationToken ct)
     {
-        var selected = await ResolveIdAsync(id, output, ct, allowNativeLookup: true);
+        var selected = await ResolveIdAsync(id, ct, allowNativeLookup: true);
         if (!selected.IsSuccess) return Error(output, selected.Error.Message, selected.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = selected.Value;
         if (id <= 0) return Error(output, "A note requires a published Core target; local note publication is not yet connected.");
@@ -2040,7 +1611,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
 
     internal async Task<int> StateAsync(string requested, int? id, string output, CancellationToken ct)
     {
-        var selectedId = await ResolveIdAsync(id, output, ct, allowNativeLookup: true);
+        var selectedId = await ResolveIdAsync(id, ct, allowNativeLookup: true);
         if (!selectedId.IsSuccess) return Error(output, selectedId.Error.Message, selectedId.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         id = selectedId.Value;
         if (id <= 0) return await UpdateAsync(StateField, requested, output, null, null, false, id, false, ct);

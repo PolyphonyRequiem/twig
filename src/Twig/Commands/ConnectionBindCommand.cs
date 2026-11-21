@@ -27,15 +27,19 @@ internal sealed class ConnectionBindCommand(Func<IConnectionBindingService> bind
                     "Supply --identity <registered-alias> for ADO, --account <gh-user> for GitHub, or --identity and --client-id for a GitHub App. Native connections need no binding."),
             };
             var service = bindings();
-            var registry = new ProviderConnectionRegistry(service.RegistryPath);
-            // Validate registration before creating an authentication binding in the native registry.
-            if (!(await registry.ListAsync(ct)).Any(value => value.Requirement == requirement))
-                throw new InvalidOperationException($"Register the connection first: twig connection add {requirement.SetupArguments}");
+            RegisteredProviderConnection bound;
             if (requirement.Provider == "ado")
-                await service.CreateBindingAsync(organization!, project!, credential.Selector, makeDefault: false, ct);
-            await registry.BindAsync(requirement, credential, ct);
+            {
+                var binding = await service.BindRegisteredAdoAsync(organization!, project!, credential.Selector, ct);
+                bound = new(requirement, credential, organization, project, binding.BindingId);
+            }
+            else
+            {
+                await new DeviceConnectionCatalog(service.RegistryPath).BindAsync(requirement, credential, ct);
+                bound = new(requirement, credential);
+            }
             renderers.GetRenderer(outputFormat).Render(new RenderTree.RenderTree(
-                [new RenderNode.Record("connectionBound", ConnectionRenderHelpers.ConnectionFields(new(requirement, credential)))]));
+                [new RenderNode.Record("connectionBound", ConnectionRenderHelpers.ConnectionFields(bound))]));
             return 0;
         }
         catch (Exception ex) when (ConnectionCommandFailure.IsExpected(ex))

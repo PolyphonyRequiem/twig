@@ -30,13 +30,25 @@ public sealed partial class GitHubCoreSpineTests
                 await File.ReadAllTextAsync(Path.Combine(fixture.Root, ".twig", "core-workspace.json")),
                 CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
             document.PrincipalId.ShouldBe(actor);
+            var requests = fixture.Http.Requests;
+            var credentials = fixture.CredentialCalls;
+            fixture.Run("connection", "bind", "--provider", "github", "--host", "github.com",
+                "--repository", "original/repo", "--account", "another-user", "-o", "json").ShouldBe(0, fixture.Error);
+            fixture.Run("connection", "list", "--provider", "github", "-o", "json").ShouldBe(0, fixture.Error);
+            using var listed = JsonDocument.Parse(fixture.Output);
+            listed.RootElement.EnumerateArray().Select(row => row.GetProperty("credential").GetString())
+                .Order(StringComparer.Ordinal).ShouldBe(new[] { account, "another-user" }.Order(StringComparer.Ordinal));
+            fixture.Run("connection", "status", "-o", "json").ShouldBe(0, fixture.Error);
+            using var status = JsonDocument.Parse(fixture.Output);
+            status.RootElement.GetProperty("recordedActor").GetString().ShouldBe(actor);
+            fixture.CredentialCalls.ShouldBe(credentials);
+            fixture.Http.Requests.ShouldBe(requests);
+            // The fixture accepts only the original named gh account, even after a second candidate exists.
             fixture.Run("show", "42", "--refresh", "-o", "json").ShouldBe(0, fixture.Error);
+            fixture.CredentialCalls.ShouldBeGreaterThan(credentials);
             using (var read = JsonDocument.Parse(fixture.Output))
                 read.RootElement.GetProperty("title").GetString().ShouldBe("original");
             (await File.ReadAllTextAsync(Path.Combine(fixture.Root, "twig.json"))).ShouldBe(manifest);
-            fixture.Run("connection", "bind", "--provider", "github", "--host", "github.com",
-                "--repository", "original/repo", "--account", "another-user", "-o", "json").ShouldNotBe(0);
-            fixture.Error.ShouldContain("different user credential binding");
             fixture.Http.Writes.ShouldBe(0);
         }
     }

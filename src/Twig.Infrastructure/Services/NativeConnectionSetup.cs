@@ -18,6 +18,7 @@ public abstract record NativeSetupTarget;
 public sealed record NativeAdoSetupTarget(string Organization, string Project, string BindingId,
     string? Team = null, string? GitProject = null) : NativeSetupTarget;
 public sealed record NativeGitHubSetupTarget(string Host, string Repository, string Account) : NativeSetupTarget;
+public sealed record NativeGitHubAppSetupTarget(string Host, string Repository, string Identity, string ClientId) : NativeSetupTarget;
 public sealed record NativeTwigSetupTarget(string Database) : NativeSetupTarget;
 public sealed record NativeFreshSetupRequest(string WorkspaceRoot, NativeSetupTarget Target, string? StoreFile = null);
 public sealed record NativeManagedSetupResult(string WorkspaceRoot, NativeSourceObservation Observation);
@@ -147,7 +148,7 @@ public sealed partial class NativeConnectionSetup
         try
         {
             ct.ThrowIfCancellationRequested();
-            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget or NativeAdoSetupTarget))
+            if (managedRoot is null || target is not (NativeTwigSetupTarget or NativeGitHubSetupTarget or NativeGitHubAppSetupTarget or NativeAdoSetupTarget))
                 return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unsupported, "Managed setup requires an explicit Twig, GitHub or bound ADO connection."));
             if (target is NativeAdoSetupTarget ado)
             {
@@ -158,6 +159,8 @@ public sealed partial class NativeConnectionSetup
             }
             if (target is NativeTwigSetupTarget native && !NativeDatabaseName.IsValid(native.Database))
                 return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose an explicit native database name: 1-64 lowercase letters, digits or internal hyphens."));
+            if (target is NativeGitHubAppSetupTarget app && !ValidGitHubApp(app))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Choose a github.com repository and an explicit GitHub App identity and client ID."));
             if (target is NativeGitHubSetupTarget github)
             {
                 var resolved = await ResolveManagedGitHubAccountAsync(github, processes ?? new BoundedProcessRunner(), ct).ConfigureAwait(false);
@@ -194,9 +197,7 @@ public sealed partial class NativeConnectionSetup
     internal static async Task<Result<NativeGitHubSetupTarget>> ResolveManagedGitHubAccountAsync(
         NativeGitHubSetupTarget target, IBoundedProcessRunner runner, CancellationToken ct)
     {
-        if (!GitHubWorkspaceScope.TryCreate(new GitHubConfig { Host = target.Host, Repository = target.Repository }, out _, out _)
-            || target.Account is null || target.Account.StartsWith('-')
-            || target.Account.Any(char.IsWhiteSpace) || target.Account.Any(char.IsControl))
+        if (!ValidGitHubAccountTarget(target, allowDiscovery: true))
             return Result<NativeGitHubSetupTarget>.Fail(ErrorCode.InvalidInput, "Choose valid GitHub coordinates and an optional named account.");
         if (target.Account.Length != 0) return Result<NativeGitHubSetupTarget>.Ok(target);
         var account = await runner.RunAsync("gh", ["api", "--hostname", target.Host, "user", "--jq", ".login"],
@@ -208,6 +209,18 @@ public sealed partial class NativeConnectionSetup
             return Result<NativeGitHubSetupTarget>.Fail(ErrorCode.Unavailable,
                 "The signed-in GitHub CLI account could not be verified. Sign in through gh and add the connection again; no account was switched.");
         return Result<NativeGitHubSetupTarget>.Ok(target with { Account = account.StandardOutput.Trim() });
+    }
+
+    private static bool ValidGitHubAccountTarget(NativeGitHubSetupTarget target, bool allowDiscovery = false)
+        => GitHubWorkspaceScope.TryCreate(new GitHubConfig { Host = target.Host, Repository = target.Repository }, out _, out _)
+            && (allowDiscovery && target.Account == "" || NativeWorkspaceSetup.ValidGitHubAccount(target.Account));
+
+    internal static bool ValidGitHubApp(NativeGitHubAppSetupTarget target)
+    {
+        if (target.Host != "github.com" || GitHubWorkspaceScope.NormalizeRepository(target.Repository) is null
+            || string.IsNullOrWhiteSpace(target.ClientId)) return false;
+        try { GitHubAppCredentialStore.ValidateSelection(target.ClientId, target.Identity); return true; }
+        catch (GitHubDeviceFlowException) { return false; }
     }
 
     private async Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request,
@@ -229,9 +242,13 @@ public sealed partial class NativeConnectionSetup
                     arguments = new(request.WorkspaceRoot, ado.Organization, ado.Project, ado.Team, ado.GitProject,
                         "ado", null, null, ado.BindingId, request.StoreFile, null);
                     break;
-                case NativeGitHubSetupTarget github:
+                case NativeGitHubSetupTarget github when ValidGitHubAccountTarget(github):
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "github",
                         github.Host, github.Repository, null, request.StoreFile, github.Account);
+                    break;
+                case NativeGitHubAppSetupTarget app when ValidGitHubApp(app):
+                    arguments = new(request.WorkspaceRoot, "", "", null, null, "github",
+                        app.Host, app.Repository, null, request.StoreFile, null, GitHubApp: app);
                     break;
                 case NativeTwigSetupTarget native when NativeDatabaseName.IsValid(native.Database):
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "twig",

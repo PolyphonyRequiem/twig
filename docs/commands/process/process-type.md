@@ -13,7 +13,7 @@ mutates: none
 Selects an actual discovered type reference (or qualified supported native name)
 and reports fields, states, transitions/rules and gaps. Unknown/ambiguous types
 fail; nothing defaults to Task, Bug, or another process-specific name.
-Structured callers use this route instead of active-context `states`.
+Use this route to inspect states for a specific type.
 
 ## Effects
 

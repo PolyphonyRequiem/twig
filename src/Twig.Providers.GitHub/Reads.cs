@@ -135,12 +135,16 @@ public sealed partial class GitHubProvider
         if (schema.Fields.Contains("milestone")) selection += " milestone { id }";
         if (schema.NativeRelations.Contains(Hierarchy)) selection += " parent { id repository { id owner { id } } }";
         var document = $"query($id: ID!) {{ node(id: $id) {{ __typename ... on Issue {{ {selection} }} }} }}";
-        var data = await Graph(bound, document,
-            json => json.WriteString("id", id), ct);
-        var node = Wire.Member(data, "node");
-        if (node.ValueKind == JsonValueKind.Null)
-            throw new GitHubFailure(new Error(ErrorCode.NotFound, "The exact issue is unavailable in this authenticated read.")
-                { Evidence = [$"item-unavailable:{id}"] });
+        async Task<JsonElement> ReadExactNode()
+        {
+            var data = await Graph(bound, document, json => json.WriteString("id", id), ct, exactIssue: true);
+            var exact = Wire.Member(data, "node");
+            if (exact.ValueKind == JsonValueKind.Null)
+                throw new GitHubFailure(new Error(ErrorCode.NotFound, "The exact issue is unavailable in this authenticated read.")
+                    { Evidence = [$"item-unavailable:{id}"] });
+            return exact;
+        }
+        var node = await ReadExactNode();
         if (Wire.Text(node, "__typename") != "Issue" || Wire.Text(node, "id") != id)
             throw Wire.Invalid("Native response did not identify the requested issue.");
         Repository(Wire.Member(node, "repository"));
@@ -186,8 +190,7 @@ public sealed partial class GitHubProvider
                 edges.Add(new(key, RelatedKey(blocked), Dependency, RelationshipOrigin.Provider));
         }
         if (edges.Any(e => e.From == e.To)) throw Wire.Invalid("Native relationship has identical endpoints.");
-        var check = await Graph(bound, document, json => json.WriteString("id", id), ct);
-        var after = Wire.Member(check, "node");
+        var after = await ReadExactNode();
         if (!JsonElement.DeepEquals(after, node))
             throw Wire.Refuse(ErrorCode.Conflict, "Issue changed during multi-request observation; no coherent acquisition is claimed.");
         var observation = Wire.Json(json =>

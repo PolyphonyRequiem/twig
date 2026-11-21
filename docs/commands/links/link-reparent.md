@@ -15,7 +15,7 @@ current Core relationship contract. Every invocation refuses before native HTTP.
 No existing parent is removed, no successor request is sent, and no retry is implied.
 
 ```
-twig link reparent <targetId> [child] [--id <n>] [--child <n>] [-o <format>]
+twig link reparent <targetId> --id <childId> [-o <format>]
 ```
 
 `targetId` is the proposed new parent; `child` (positional or `--child`) and
@@ -32,12 +32,12 @@ multi-operation proposal or fall back to the old writer.
 ## Examples
 
 ```text
-twig link reparent 5678
+twig link reparent 5678 --child 1234
 twig link reparent 5678 --id 1234 -o json
 ```
 
 Both report the unsupported replacement with exit `1`. Invalid targets,
-conflicting targets, missing machine targets and bare-ID output exit `2`.
+conflicting targets, missing targets and bare-ID output exit `2`.
 For an item that has **no parent**, use [`link parent`](./link-parent.md).
 An explicit [`link unparent`](./link-unparent.md) is a separate, independently
 verified removal, not a transactional replacement workflow.

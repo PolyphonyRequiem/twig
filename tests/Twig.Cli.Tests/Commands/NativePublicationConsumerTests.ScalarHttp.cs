@@ -124,6 +124,7 @@ public sealed partial class NativePublicationConsumerTests
                 ["ticket"] = form["ticket"]!.DeepClone(), ["fields"] = new JsonArray(fields),
             };
             await Ok("/context", HttpMethod.Put, new JsonObject { ["root"] = fixture.Root });
+            await Ok("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench });
             var view = await Ok($"/benches/{fixture.Bench:D}", HttpMethod.Get);
             var source = view["sources"]!.AsArray().Single()!;
             source["provider"]!.GetValue<string>().ShouldBe("ado");

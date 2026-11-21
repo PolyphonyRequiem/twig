@@ -17,11 +17,9 @@ twig show --local-id <original-uuidv7> -o json
 
 ## Behavior
 
-Reads the retained item without changing active context. A cache miss fails
+Reads the retained item by positional ID or `--id`. A cache miss fails
 unless `--refresh` explicitly permits native lookup/read. Refresh updates the
-mirror but does not publish drafts. Human output may omit the ID to use the
-active item; structured output requires an explicit positional ID or `--id`.
-Conflicting targets refuse.
+mirror but does not publish drafts. Missing or conflicting targets refuse.
 
 `--fields` selects exact retained fields; unknown/absent data is not fabricated.
 `--sections` is currently refused. An unprojected `--tree` uses the targeted
@@ -42,5 +40,5 @@ fields; it is not the former provider-snapshot or captured detail envelope.
 ## Failure modes
 
 Uncached, ambiguous, invalid, unavailable, or cross-connection targets fail.
-Missing structured target is a usage error. An unpublished seed cannot be
+An omitted target is a usage error. An unpublished seed cannot be
 refreshed. Check the exit code as well as output.

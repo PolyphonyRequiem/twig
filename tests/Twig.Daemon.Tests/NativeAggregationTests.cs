@@ -33,7 +33,8 @@ internal static class NativeAggregationTests
             var bRoot = Path.Combine(root, "chosen population");
             var otherRoot = Path.Combine(root, "unchosen sibling");
             Directory.CreateDirectory(aRoot); Directory.CreateDirectory(bRoot); Directory.CreateDirectory(otherRoot);
-            var fieldsA = FieldValues.Empty.Set("System.Title", FieldValue.String("Synthetic A"));
+            var fieldsA = FieldValues.Empty.Set("System.Title", FieldValue.String("Synthetic A"))
+                .Set("System.AssignedTo", FieldValue.Identity("synthetic-actor"));
             var fieldsB = FieldValues.Empty.Set(GitHub.Title, FieldValue.String("Synthetic B")).Set(GitHub.Number, FieldValue.Integer(42));
             var itemA = new WorkItem(keyA, "Native.Task", fieldsA, new(keyA, "1"), true);
             var itemB = new WorkItem(keyB, "Native.Issue", fieldsB, new(keyB, "1"), true);
@@ -149,7 +150,11 @@ internal static class NativeAggregationTests
 
     private static NativeSourceObservation Observation(Connection connection, StoreSnapshot snapshot, string url)
         => new(new(connection, Guid.NewGuid(), "synthetic-actor", Guid.NewGuid().ToString("N")), snapshot, DateTimeOffset.UtcNow,
-            Result<ProcessSchema>.Ok(new(connection, [], [], webUrl: url)), DateTimeOffset.UtcNow);
+            Result<ProcessSchema>.Ok(new(connection, connection.Provider.Value == "ado"
+                ? [new ItemType("Native.Task", "System.State",
+                    [new("System.AssignedTo", FieldKind.Identity), new("System.Title", FieldKind.Text),
+                        new("System.State", FieldKind.Text)], [], [], [])]
+                : [], [], webUrl: url)), DateTimeOffset.UtcNow);
     private static async Task AutomaticView(string root, NativePanel panel, CatalogChanges changes, Guid benchId,
         NativePanelContext a, NativePanelContext b, Gateway gateway)
     {
@@ -202,14 +207,6 @@ internal static class NativeAggregationTests
         Check(sourceA["edges"]!.AsArray().Any(edge => edge!["to"]!.GetValue<string>()
             == sourceB["items"]![0]!["id"]!.GetValue<string>()),
             "An observed cross-source endpoint resolves to its exact visible item.");
-        gateway.Denied.Add(b.Root);
-        var degraded = await Read();
-        sourceA = degraded.Single(source => source["provider"]!.GetValue<string>() == "ado");
-        Check(sourceA["items"]!.AsArray().Count == 1
-            && degraded.Count(source => source["errorCode"] is not null) == 1
-            && sourceA["unresolvedReferences"]!.AsArray().Count == 2
-            && sourceA["unresolvedReferences"]!.AsArray().All(reference => reference!["reason"]!.GetValue<string>() == "ConnectionUnavailable"),
-            "Unavailable targets retain both links and source metadata without hiding healthy items or releasing denied cache.");
         using (var body = new StringContent(new JsonObject
             { ["benchId"] = benchId, ["read"] = true, ["draft"] = false, ["membership"] = false }.ToJsonString(),
             Encoding.UTF8, "application/json"))
@@ -230,14 +227,27 @@ internal static class NativeAggregationTests
                 "A missing unrelated source must not block a healthy MCP read: " + value);
             return value["result"]!["structuredContent"]!;
         }
+        // Capture complete membership first; an exact detail from A can still be
+        // observed if unrelated B becomes unavailable after the capture.
         var mcpBench = await Mcp("read_bench", new JsonObject());
+        gateway.Denied.Add(b.Root);
+        var degraded = await Read();
+        sourceA = degraded.Single(source => source["provider"]!.GetValue<string>() == "ado");
+        Check(sourceA["items"]!.AsArray().Count == 1
+            && degraded.Count(source => source["errorCode"] is not null) == 1
+            && sourceA["unresolvedReferences"]!.AsArray().Count == 2
+            && sourceA["unresolvedReferences"]!.AsArray().All(reference => reference!["reason"]!.GetValue<string>() == "ConnectionUnavailable"),
+            "Unavailable targets retain both links and source metadata without hiding healthy items or releasing denied cache.");
         var details = await Mcp("show_work_item_details", new JsonObject
         {
             ["snapshotId"] = mcpBench["snapshotId"]!.DeepClone(), ["sourceId"] = sourceA["sourceId"]!.DeepClone(),
-            ["itemId"] = sourceA["items"]![0]!["id"]!.DeepClone(), ["fields"] = new JsonArray()
+            ["itemId"] = sourceA["items"]![0]!["id"]!.DeepClone(), ["fields"] = new JsonArray(),
+            ["assignedToField"] = "System.AssignedTo"
         });
         Check(details["unresolvedReferences"]!.AsArray().Count == 0 && details["readOnly"]!.GetValue<bool>(),
             "Delegated details must not add unresolved references from the historical snapshot.");
+        Check(details["assignedProfiles"]!.AsArray().Single()!["id"]!.GetValue<string>() == "synthetic-actor",
+            "A healthy source's assignee remains readable when an unrelated source is denied.");
         gateway.Denied.Add(a.Root);
         Check((await Read()).All(source => source["errorCode"] is not null),
             "All unavailable connections still yield an explicit degraded Bench, not failed Bench selection or empty success.");
@@ -403,6 +413,14 @@ internal static class NativeAggregationTests
     private static void Check(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }
     private sealed class Gateway(Dictionary<string, NativeSourceObservation> observations) : INativeSourceGateway
     {
+        public async Task<Result<NativeSourceObservation>> ReadIdentityProfilesAsync(string root, NativeSourceStamp expected,
+            System.Collections.Immutable.ImmutableArray<string> identities, CancellationToken ct)
+        {
+            var read = await ReadAsync(root, expected, false, ct);
+            return read.IsSuccess ? Result<NativeSourceObservation>.Ok(read.Value with {
+                IdentityProfiles = [.. identities.Select(id => new IdentityProfile(id, "Synthetic actor", null, null))]
+            }) : read;
+        }
         public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
             => ReadAsync(root, expected, false, ct);
         public async Task<Result<System.Collections.Immutable.ImmutableArray<WorkItem>>> ObserveItemsAsync(

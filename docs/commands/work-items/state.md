@@ -19,7 +19,7 @@ supported category from the actual type. Already-in-state is an explicit no-op.
 Published targets use one revision-bound Core Batch transition, not automatic
 multi-hop chaining. A local seed state edit stays local.
 
-Single-item machine calls require `--id`; human calls can use active context.
+Name the item with `--id` in every output format.
 A state-only change cannot satisfy missing close-gate fields: use one
 [`batch`](batch.md) or explicit proposal operation carrying the transition and
 all coupled fields together.

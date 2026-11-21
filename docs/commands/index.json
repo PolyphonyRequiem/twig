@@ -8,60 +8,12 @@
     "path": "getting-started/init.md"
   },
   {
-    "command": "refresh",
-    "group": "getting-started",
-    "summary": "Deprecated alias for pull-only sync of the selected Core Bench.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "getting-started/refresh.md"
-  },
-  {
-    "command": "sync",
-    "group": "getting-started",
-    "summary": "Save eligible existing-item drafts, then pull the selected Bench; pull-only never saves.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "getting-started/sync.md"
-  },
-  {
     "command": "tree",
     "group": "views",
     "summary": "Render one qualified cached hierarchy, optionally with explicit refresh.",
     "stability": "stable",
     "mutates": "local",
     "path": "views/tree.md"
-  },
-  {
-    "command": "area",
-    "group": "workspace",
-    "summary": "Deprecated alias for workspace area.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/area-deprecated.md"
-  },
-  {
-    "command": "area add",
-    "group": "workspace",
-    "summary": "Deprecated alias for shared planning area editing.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-add-deprecated.md"
-  },
-  {
-    "command": "area list",
-    "group": "workspace",
-    "summary": "Deprecated alias for reading shared planning area conditions.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/area-list-deprecated.md"
-  },
-  {
-    "command": "area remove",
-    "group": "workspace",
-    "summary": "Deprecated alias for shared planning area removal.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-remove-deprecated.md"
   },
   {
     "command": "area sync",
@@ -74,50 +26,10 @@
   {
     "command": "workspace",
     "group": "workspace",
-    "summary": "Read static selected Bench membership, or explicitly pull it without saving drafts.",
+    "summary": "Read an explicitly named Bench, optionally refreshing observations without saving drafts.",
     "stability": "stable",
     "mutates": "local",
     "path": "workspace/workspace.md"
-  },
-  {
-    "command": "workspace sync",
-    "group": "workspace",
-    "summary": "Read static selected Bench membership, or explicitly pull it without saving drafts.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/workspace.md"
-  },
-  {
-    "command": "workspace area",
-    "group": "workspace",
-    "summary": "Read the current Bench view over shared native planning rules.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/area.md"
-  },
-  {
-    "command": "workspace area add",
-    "group": "workspace",
-    "summary": "Add or update an area condition within one shared native planning rule.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-add.md"
-  },
-  {
-    "command": "workspace area list",
-    "group": "workspace",
-    "summary": "Read shared current-connection area rule conditions and exact/under semantics.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/area-list.md"
-  },
-  {
-    "command": "workspace area remove",
-    "group": "workspace",
-    "summary": "Remove an exact area condition from one shared native planning rule.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/area-remove.md"
   },
   {
     "command": "workspace area sync",
@@ -144,59 +56,11 @@
     "path": "workspace/exclusions.md"
   },
   {
-    "command": "workspace sprint add",
-    "group": "workspace",
-    "summary": "Add iteration intent to one shared native planning rule.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/sprint-add.md"
-  },
-  {
-    "command": "workspace sprint list",
-    "group": "workspace",
-    "summary": "Read retained iteration expressions and their exact rule/team scope.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "workspace/sprint-list.md"
-  },
-  {
-    "command": "workspace sprint remove",
-    "group": "workspace",
-    "summary": "Remove an exact retained iteration expression from one shared rule.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/sprint-remove.md"
-  },
-  {
-    "command": "workspace track",
-    "group": "workspace",
-    "summary": "Retain an explicit connection-qualified item pin in the selected shared Bench.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/track.md"
-  },
-  {
-    "command": "workspace track-tree",
-    "group": "workspace",
-    "summary": "Retain a discovered-hierarchy subtree selector in the selected Bench.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/track-tree.md"
-  },
-  {
-    "command": "workspace untrack",
-    "group": "workspace",
-    "summary": "Remove exact single/subtree selectors without deleting inherited membership or drafts.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "workspace/untrack.md"
-  },
-  {
     "command": "ws",
     "group": "workspace",
-    "summary": "Alias for static selected Core Bench presentation.",
+    "summary": "Alias for reading or refreshing an explicitly named Bench.",
     "stability": "stable",
-    "mutates": "none",
+    "mutates": "local",
     "path": "workspace/ws.md"
   },
   {
@@ -218,18 +82,10 @@
   {
     "command": "bench list",
     "group": "bench",
-    "summary": "List user-wide Benches, marking the current worktree's selection.",
+    "summary": "List user-wide Bench definitions without selecting a Bench.",
     "stability": "stable",
     "mutates": "none",
     "path": "bench/list.md"
-  },
-  {
-    "command": "bench switch",
-    "group": "bench",
-    "summary": "Select an existing shared Bench in this initialized worktree.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "bench/switch.md"
   },
   {
     "command": "query",
@@ -238,14 +94,6 @@
     "stability": "stable",
     "mutates": "local",
     "path": "context/query.md"
-  },
-  {
-    "command": "set",
-    "group": "context",
-    "summary": "Change the local human active-item pointer without claiming work.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "context/set.md"
   },
   {
     "command": "show",
@@ -262,38 +110,6 @@
     "stability": "stable",
     "mutates": "none",
     "path": "context/show-batch.md"
-  },
-  {
-    "command": "nav down",
-    "group": "navigation",
-    "summary": "Select a discovered child by unambiguous ID or title pattern.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-down.md"
-  },
-  {
-    "command": "nav next",
-    "group": "navigation",
-    "summary": "Select the next sibling in the retained numeric ordering.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-next.md"
-  },
-  {
-    "command": "nav prev",
-    "group": "navigation",
-    "summary": "Select the previous sibling in the retained numeric ordering.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-prev.md"
-  },
-  {
-    "command": "nav up",
-    "group": "navigation",
-    "summary": "Select the active item's unique discovered parent.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "navigation/nav-up.md"
   },
   {
     "command": "process",
@@ -318,14 +134,6 @@
     "stability": "stable",
     "mutates": "local",
     "path": "process/process-description.md"
-  },
-  {
-    "command": "states",
-    "group": "process",
-    "summary": "Human active-item state convenience; machine callers name a type.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "process/states.md"
   },
   {
     "command": "batch",
@@ -786,7 +594,7 @@
   {
     "command": "bench",
     "group": "bench",
-    "summary": "List user-wide Benches, marking the current worktree's selection.",
+    "summary": "List user-wide Bench definitions without selecting a Bench.",
     "stability": "stable",
     "mutates": "none",
     "path": "bench/list.md"

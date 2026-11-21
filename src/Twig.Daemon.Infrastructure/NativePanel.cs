@@ -395,10 +395,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         finally { gate.Release(); }
     }
 
-    public Task<Result<NativeSourceObservation>> SelectAsync(NativePanelContext context, Guid? expected, Guid? next, CancellationToken ct)
-        => sources.NativeAsync(context.Root, token => gateway.SelectBenchAsync(context.Root, context.Stamp, expected, next, token), ct);
-
-    public Task<Result<NativeSourceObservation>> ReadSelectionAsync(NativePanelContext context, CancellationToken ct)
+    public Task<Result<NativeSourceObservation>> ReadAdmittedSourceAsync(NativePanelContext context, CancellationToken ct)
         => sources.NativeAsync(context.Root, token => gateway.ReadAsync(context.Root, context.Stamp, false, token), ct);
     public Task<Result<SourceObservation>> RecheckAsync(NativePanelContext context, CancellationToken ct)
         => sources.RecheckAsync(context.Source, ct);

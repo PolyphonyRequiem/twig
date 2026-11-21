@@ -12,8 +12,7 @@ using Twig.Store.Sqlite;
 
 namespace Twig.Commands;
 
-internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory renderers, ITelemetryClient? telemetry = null,
-    CoreWorkspaceFactory? factory = null)
+internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory renderers, ITelemetryClient? telemetry = null)
 {
     internal async Task<int> ExecuteAsync(string action, string? name, string output, CancellationToken ct,
         string? newName = null, string? confirm = null, string? expectBench = null, string? expectContents = null,
@@ -55,18 +54,6 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
                 return Error("--expect-bench requires a canonical Bench GUID.", 2);
             if (expectContents is not null && (expectContents.Length != 64 || !expectContents.All(Uri.IsHexDigit)))
                 return Error("--expect-contents requires the complete contents digest from a management listing.", 2);
-            Guid? current = null;
-            if (action == "list" && factory is not null)
-            {
-                var opened = await factory.OpenAsync(ct);
-                if (!opened.IsSuccess) return Error(opened.Error.Message);
-                using var handle = opened.Value;
-                var snapshot = await handle.Workspace.BenchSnapshotAsync(ct);
-                if (!snapshot.IsSuccess) return Error(snapshot.Error.Message);
-                var context = await handle.Workspace.Context.ReadAsync(ct);
-                if (!context.IsSuccess) return Error(context.Error.Message);
-                current = context.Value.BenchId;
-            }
             var read = await store.ReadAsync(ct);
             if (!read.IsSuccess) return Error(read.Error.Message);
             if (action == "list")
@@ -83,7 +70,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
                     {
                         writer.WriteStartObject(); writer.WriteNumber("version", 3);
                         writer.WriteString("storeId", read.Value.InstanceId); writer.WriteNumber("revision", read.Value.Revision);
-                        if (current is { } selected) writer.WriteString("currentBenchId", selected); else writer.WriteNull("currentBenchId");
+                        writer.WriteNull("currentBenchId");
                         writer.WriteStartArray("benches");
                         foreach (var bench in read.Value.Benches)
                         {
@@ -101,10 +88,9 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
                 {
                     ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
                     ["revision"] = RenderCell.Integer(bench.Revision), ["selectorCount"] = RenderCell.Integer(bench.Selectors.Length),
-                    ["isCurrent"] = RenderCell.Boolean(current == bench.Id),
                 })).ToArray();
                 renderers.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Table("User-wide Benches",
-                    [new("name", "Bench"), new("id", "ID"), new("isCurrent", "Current"), new("revision", "Revision"), new("selectorCount", "Pins")], rows)]));
+                    [new("name", "Bench"), new("id", "ID"), new("revision", "Revision"), new("selectorCount", "Pins")], rows)]));
                 return 0;
             }
             if (string.IsNullOrWhiteSpace(name) || name != name.Trim())

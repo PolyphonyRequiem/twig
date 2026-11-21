@@ -1,19 +1,3 @@
----
-command: area add
-group: workspace
-summary: Deprecated alias for shared planning area editing.
-stability: stable
-mutates: local
----
+# `twig area add` (retired)
 
-# `twig area add`
-
-## Behavior
-
-Deprecated alias for [`workspace area add`](area-add.md).
-The same native shared-rule, ambiguity and revision checks apply; this does not
-restore the old split-configuration path.
-
-## Effects
-
-Local shared planning-rule CAS, never provider item publication.
+To inspect or change shared planning rules, name the Bench in [`bench rules`, `bench rule add` or `bench rule remove`](../bench/planning.md). To read membership, use [`twig workspace --bench MyWork`](workspace.md).

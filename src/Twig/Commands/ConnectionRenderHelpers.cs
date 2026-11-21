@@ -34,6 +34,10 @@ internal static class ConnectionRenderHelpers
         new("target", "target"),
         new("credentialKind", "credential kind"),
         new("credential", "user credential"),
+        new("organization", "exact ADO org"),
+        new("project", "exact ADO project"),
+        new("bindingId", "ADO binding"),
+        new("clientId", "App client ID"),
         new("ready", "bound"),
     ];
 
@@ -45,6 +49,10 @@ internal static class ConnectionRenderHelpers
             ["target"] = RenderCell.String(connection.Requirement.Target),
             ["credentialKind"] = RenderCell.String(connection.Credential?.Kind ?? ""),
             ["credential"] = RenderCell.String(connection.Credential?.Selector ?? ""),
+            ["organization"] = RenderCell.String(connection.Organization ?? ""),
+            ["project"] = RenderCell.String(connection.Project ?? ""),
+            ["bindingId"] = RenderCell.String(connection.BindingId ?? ""),
+            ["clientId"] = RenderCell.String(connection.Credential?.ClientId ?? ""),
             ["ready"] = RenderCell.Boolean(connection.Requirement.Provider == "twig" || connection.Credential is not null),
         };
 

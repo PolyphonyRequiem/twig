@@ -20,12 +20,11 @@ The [getting-started guide](../getting-started.md) covers provider setup.
 | Task | Commands and effects |
 | --- | --- |
 | [Control the server](system/server.md) | `server start` starts or reuses the selected instance; `server status` observes without starting; `server stop` explicitly shuts it down |
-| [Initialize](getting-started/README.md) | `init` creates fresh local state; `sync` can save drafts before pulling; `refresh` / `sync --pull-only` only pull |
-| [Read and find](context/README.md) | `show`, `show-batch` are cached by default; `show --refresh` and `query` can perform provider reads; `set` changes human active context |
+| [Initialize](getting-started/README.md) | `init` creates fresh local state |
+| [Read and find](context/README.md) | `show`, `show-batch` are cached by default; `show --refresh` and `query` can perform provider reads |
 | [View a hierarchy](views/README.md) | Targeted `tree` / `show --tree`; not GitHub-qualified |
-| [Navigate](navigation/README.md) | Human `nav up/down/next/prev`; changes local context and can acquire missing observations |
-| [Manage Benches](bench/README.md) | Shared user-wide metadata, pins/rules and explicit ADO planning discovery |
-| [View workspace](workspace/README.md) | Static membership, local exclusions, pins, and retained planning rules |
+| [Manage Benches](bench/README.md) | Shared user-wide definitions, named rules and explicit ADO planning discovery |
+| [View workspace](workspace/README.md) | `workspace --bench <name-or-id>`, optional refresh and local exclusions |
 | [Inspect schema](process/README.md) | `process`, `process <type>`, `process description`; provider discovery, no work-item mutation |
 | [Change items](work-items/README.md) | `update`, `state`, `note`, `batch`, `patch`, `edit` can publish; `discard` removes eligible local intent |
 | [Relationships](links/README.md) | Qualified ADO native links and explicitly local-only association routes; reparent is refused |
@@ -42,13 +41,13 @@ Single-item mutations require **`--id`**. Structured `show` and targeted `tree`
 need a positional ID or `--id`; conflicting targets refuse. Original seed UUID
 reads use `show --local-id <uuid> -o json`.
 
-Do not use active-item selection as a script target. Structured `set`, navigation,
-`states`, and seed publication are refused. Structured seed creation must choose
+There is no current item or Bench in the CLI. Human commands require explicit
+targets too; they cannot borrow a viewer's focus. Seed creation must choose
 `--parent <id>` or `--no-parent`. Use `process <type>` for explicit schema reads.
 File-scoped proposal operations are already explicitly bound.
 
-Machine workspace output excludes implicit active-item relationships but keeps
-explicit Bench scope and drafts. Parse complete actual JSON, not terminal output
+`workspace --bench <name-or-id>` reports that Bench's scope and protected drafts.
+Parse complete actual JSON, not terminal output
 or a truncated display. Inspect both exit status and application/journal outcomes.
 
 ## Retired surfaces
@@ -61,7 +60,8 @@ These are not experimental alternatives or compatibility routes:
 | Quick `new`, bare `seed` | `seed new`, then explicit validation/publication |
 | `delete` | No qualified CLI deletion route |
 | `history`, `tree-set`, `tree --all`, `sprint`, live/full-backlog views | Cached `show`, explicit refresh, bounded queries, static workspace or targeted tree; no equivalent whole-history export |
-| Bare interactive `nav`, history/back/fore and top-level navigation aliases | `nav up/down/next/prev` only |
+| `set`, `nav` (all directions), back/forward, `states` | `show <id>`, targeted `tree <id>` or `process <type>` |
+| `bench switch`, contextual `sync` and `refresh` | `workspace --bench <name-or-id>`; add `--refresh` for a supported pull without saving drafts |
 | `bench browser/detail/discussion/configuration`, captured `draft` envelopes | Separate native daemon host; not a CLI envelope fallback |
 | `policy assess/reconcile`, `proposal latest/seed/reconcile` | Current file-scoped proposal lifecycle; no automatic repair/seed-export replacement |
 | `process layout`, old complete process descriptor | `process description` reports acquired Core schema and explicit gaps |
@@ -78,8 +78,7 @@ links into runnable obsolete recipes.
 The hidden `save` handler also remains declared but is rejected by top-level
 command discovery, including `save --help`. It is not a usable standalone CLI
 route in this build. Existing-item `update`/`edit` save their own changes;
-ordinary `sync` can save eligible remote drafts before pulling and therefore
-must not be treated as a harmless read workaround.
+a Bench refresh does not save pending edits.
 
 `index.json` is the machine-readable current reference mapping, not a promise of
 runtime permission or a replacement for the installed command's help.

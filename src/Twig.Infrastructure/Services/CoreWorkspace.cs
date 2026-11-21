@@ -26,7 +26,6 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic;
     internal string NativeActor => nativeActor;
     internal string WorktreeRoot => worktreeRoot;
-    internal CoreHostContext Context => new(worktreeRoot, connection, storeInstance);
     internal Task<Result<WorkspaceViewRules>> ViewRulesAsync(CancellationToken ct)
         => sharedBenches is not null ? sharedBenches.ReadViewRulesAsync(worktreeRoot, connection, ct)
             : Task.FromResult(Result<WorkspaceViewRules>.Ok(new(0, [])));
@@ -290,19 +289,16 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             observed.ObservedAt, observed.Team)) : Result<PlanningBrowse>.Fail(saved.Error);
     }
 
-    internal async Task<Result<CoreBenchPull>> PullBenchAsync(string? expectedBench, bool includeActiveContext,
-        int depthUp, int depthDown, int depthSideways, CancellationToken ct)
+    internal async Task<Result<CoreBenchPull>> PullBenchAsync(Bench expected, int depthUp, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
-        var context = await Context.ReadAsync(ct).ConfigureAwait(false);
-        if (!context.IsSuccess) return Result<CoreBenchPull>.Fail(context.Error);
         var initial = await BenchSnapshotAsync(ct).ConfigureAwait(false);
         if (!initial.IsSuccess) return Result<CoreBenchPull>.Fail(initial.Error);
-        var bench = initial.Value.Benches.SingleOrDefault(value => value.Id == context.Value.BenchId);
+        var bench = initial.Value.Benches.SingleOrDefault(value => value.Id == expected.Id);
         if (bench is null)
-            return Result<CoreBenchPull>.Fail(ErrorCode.NotFound, "Select an existing Core Bench before pulling its scope.");
-        if (expectedBench is not null && (!Guid.TryParse(expectedBench, out var expectedId) || expectedId != bench.Id))
-            return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "The captured current Bench changed; no scope was pulled.");
+            return Result<CoreBenchPull>.Fail(ErrorCode.NotFound, "The specified Bench does not exist; no scope was pulled.");
+        if (!SameBench(bench, expected))
+            return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "The specified Bench changed before the pull; no scope was pulled.");
         var schema = await SchemaAsync(ct).ConfigureAwait(false);
         if (!schema.IsSuccess) return Result<CoreBenchPull>.Fail(schema.Error);
         var planning = await PlanningCalendarsAsync(ct).ConfigureAwait(false);
@@ -334,9 +330,6 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 return Result<CoreBenchPull>.Fail(ErrorCode.Unavailable, "The selected Bench query was not exhausted; earlier observations remain cached.");
             fetched.UnionWith(queried.Value.Items.Select(item => item.Key));
         }
-        ItemKey? active = includeActiveContext && context.Value.Position >= 0
-            ? context.Value.History[context.Value.Position].Resolve(connection) : null;
-        if (active is not null) targets.Add(Resolve(initial.Value, active));
         foreach (var key in targets)
         {
             var observed = await Fetch(key).ConfigureAwait(false);
@@ -348,20 +341,15 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             if (!schema.Value.Relations.Any(kind => kind.Reference == selector.HierarchyRelation
                 && kind.Shape == RelationShape.Hierarchy && kind.Directed))
                 return Result<CoreBenchPull>.Fail(ErrorCode.Unsupported, "The subtree selector's declared hierarchy is unavailable.");
-            var expanded = await Children(selector.Item!, selector.HierarchyRelation!, int.MaxValue, true).ConfigureAwait(false);
+            var expanded = await FetchSubtree(selector.Item!, selector.HierarchyRelation!).ConfigureAwait(false);
             if (!expanded.IsSuccess) return Result<CoreBenchPull>.Fail(expanded.Error);
         }
         var hierarchies = schema.Value.Relations.Where(kind => kind.Shape == RelationShape.Hierarchy && kind.Directed).ToArray();
-        if (hierarchies.Length > 1 && (depthUp > 0 || active is not null && (depthDown > 0 || depthSideways > 0)))
+        if (hierarchies.Length > 1 && depthUp > 0)
             return Result<CoreBenchPull>.Fail(ErrorCode.Unsupported, "Automatic context expansion requires one discovered hierarchy; no kind was guessed.");
         if (hierarchies.Length == 1)
         {
             var hierarchy = hierarchies[0].Reference;
-            if (active is not null)
-            {
-                var expanded = await Children(active, hierarchy, Math.Max(0, depthDown), false).ConfigureAwait(false);
-                if (!expanded.IsSuccess) return Result<CoreBenchPull>.Fail(expanded.Error);
-            }
             var roots = fetched.Concat(targets).Distinct().ToArray();
             foreach (var root in roots)
             {
@@ -382,27 +370,15 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                     if (!observed.IsSuccess) return Result<CoreBenchPull>.Fail(observed.Error);
                 }
             }
-            if (active is not null && depthSideways > 0)
-            {
-                var state = await SnapshotAsync(ct).ConfigureAwait(false);
-                if (!state.IsSuccess) return Result<CoreBenchPull>.Fail(state.Error);
-                foreach (var parent in ParentKeys(state.Value, Resolve(state.Value, active), hierarchy))
-                {
-                    var expanded = await Children(parent, hierarchy, depthSideways, false).ConfigureAwait(false);
-                    if (!expanded.IsSuccess) return Result<CoreBenchPull>.Fail(expanded.Error);
-                }
-            }
         }
         var final = await BenchSnapshotAsync(ct).ConfigureAwait(false);
         if (!final.IsSuccess) return Result<CoreBenchPull>.Fail(final.Error);
         memberships = await MembershipsAsync(ct).ConfigureAwait(false);
         if (!memberships.IsSuccess) return Result<CoreBenchPull>.Fail(memberships.Error);
         schema = Result<ProcessSchema>.Ok(schema.Value with { Memberships = memberships.Value });
-        var finalContext = await Context.ReadAsync(ct).ConfigureAwait(false);
-        if (!finalContext.IsSuccess) return Result<CoreBenchPull>.Fail(finalContext.Error);
         var retained = final.Value.Benches.SingleOrDefault(value => value.Id == bench.Id);
-        if (finalContext.Value.BenchId != bench.Id || retained is null || !SameBench(bench, retained))
-            return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "Bench selection or selectors changed during pull; newer scope and cached observations were preserved.");
+        if (retained is null || !SameBench(bench, retained))
+            return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "The specified Bench changed during pull; newer scope and cached observations were preserved.");
         members.UnionWith(final.Value.Drafts.Select(draft => Resolve(final.Value, draft.Key)));
         foreach (var selector in bench.Selectors.Where(value => value.Kind == SelectorKind.Query
             && (value.Connection is null || value.Connection == connection)))
@@ -434,25 +410,24 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return Result<bool>.Ok(true);
         }
 
-        async Task<Result<bool>> Children(ItemKey root, string hierarchy, int maximumDepth, bool asMembers)
+        async Task<Result<bool>> FetchSubtree(ItemKey root, string hierarchy)
         {
-            var queue = new Queue<(ItemKey Key, int Depth)>();
+            var queue = new Queue<ItemKey>();
             var visited = new HashSet<ItemKey>();
-            queue.Enqueue((root, 0));
+            queue.Enqueue(root);
             while (queue.TryDequeue(out var entry))
             {
                 var state = await SnapshotAsync(ct).ConfigureAwait(false);
                 if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
-                var key = Resolve(state.Value, entry.Key);
+                var key = Resolve(state.Value, entry);
                 if (!visited.Add(key)) return Result<bool>.Fail(ErrorCode.Conflict, "A hierarchy cycle or repeated descendant prevents a complete subtree pull.");
                 var observed = await Fetch(key).ConfigureAwait(false);
                 if (!observed.IsSuccess) return observed;
-                if (asMembers) members.Add(key);
-                if (entry.Depth >= maximumDepth) continue;
+                members.Add(key);
                 state = await SnapshotAsync(ct).ConfigureAwait(false);
                 if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
                 foreach (var child in ChildKeys(state.Value, key, hierarchy))
-                    queue.Enqueue((child, entry.Depth + 1));
+                    queue.Enqueue(child);
             }
             return Result<bool>.Ok(true);
         }
@@ -469,9 +444,10 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             .Select(edge => Resolve(state, edge.From)).Concat(state.Drafts.Where(draft => draft.Key == child
                 && draft.Parent is not null && draft.ParentRelation == hierarchy).Select(draft => Resolve(state, draft.Parent!))).Distinct();
 
-    private static bool SameBench(Bench left, Bench right) => left.Id == right.Id && left.Name == right.Name
+    internal static bool SameBench(Bench left, Bench right) => left.Id == right.Id && left.Name == right.Name && left.Revision == right.Revision
+        && left.Connections.SequenceEqual(right.Connections)
         && left.Selectors.Length == right.Selectors.Length && left.Selectors.Zip(right.Selectors).All(pair =>
-            pair.First.Kind == pair.Second.Kind && pair.First.Item == pair.Second.Item
+            pair.First.Kind == pair.Second.Kind && pair.First.Item == pair.Second.Item && pair.First.Connection == pair.Second.Connection
             && pair.First.HierarchyRelation == pair.Second.HierarchyRelation
             && (pair.First.Query is null ? pair.Second.Query is null
                 : pair.Second.Query is not null && Model.QueryBytes(pair.First.Query).SequenceEqual(Model.QueryBytes(pair.Second.Query))));

@@ -50,10 +50,10 @@ twig connection list --provider ado --org contoso --project MyProject -o json
 twig init contoso MyProject
 ```
 
-`init` uses the identity bound to the matching registered connection, not an
-endpoint default or the last login. `init --binding <binding-id>` selects an
-existing matching binding for a **fresh** checkout without changing the registered
-connection's selection.
+Binding a second identity adds a candidate; it never changes an existing pin.
+When multiple identities match, `init --binding <binding-id>`
+selects an existing matching binding for a **fresh** checkout without changing
+the registered connection's selection. The last login is not a selection.
 
 ## GitHub
 

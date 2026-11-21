@@ -10,12 +10,17 @@ namespace Twig.Infrastructure.Services;
 
 internal sealed record NativeWorkspaceSetupArguments(string WorkspaceRoot, string Organization, string Project,
     string? Team, string? GitProject, string? Provider, string? Host, string? Repository,
-    string? Binding, string? StoreFile, string? Account, string? GlobalDisplayPath = null, string? Database = null);
+    string? Binding, string? StoreFile, string? Account, string? GlobalDisplayPath = null, string? Database = null,
+    NativeGitHubAppSetupTarget? GitHubApp = null);
 internal sealed record NativeCreationReceipt(CoreWorkspaceDocument Document, NativeSourceStamp Source, string? NativeDatabase = null);
 
 internal static class NativeWorkspaceSetup
 {
     private const string RetryGuidance = "Stop active setup and inspect the preserved checkout-local .twig state. Move it aside only if it is disposable, or retry in a fresh worktree. Keep source, credentials and any remote-write evidence; use a new custom Core store path if any SQLite files exist.";
+
+    internal static bool ValidGitHubAccount(string? account)
+        => !string.IsNullOrWhiteSpace(account) && account.Length <= 256 && !account.StartsWith('-')
+            && !account.Any(char.IsWhiteSpace) && !account.Any(char.IsControl);
 
     internal static async Task<Result<NativeCreationReceipt>> InitializeAsync(NativeWorkspaceSetupArguments args,
         Func<IConnectionBindingService> lazyBindings, NativeSetupEffects effects, CancellationToken ct,
@@ -58,6 +63,9 @@ internal static class NativeWorkspaceSetup
             if (hasManifest && kind != config.ResolveWorkItemProviderKind())
                 return Fail("Provider conflicts with the existing twig.json declaration; no configuration was changed.", 2);
             config.Provider = kind;
+            if (args.GitHubApp is { } app && (kind != "github" || args.Account is not null
+                || args.Host != app.Host || args.Repository != app.Repository || !NativeConnectionSetup.ValidGitHubApp(app)))
+                return Fail("Choose one named gh account or one explicit github.com App identity and client ID.", 2);
             if (kind != "twig" && args.Database is not null)
                 return Fail("--database requires --provider twig. --core-store selects the separate client store.", 2);
             if (kind == "github")
@@ -65,8 +73,7 @@ internal static class NativeWorkspaceSetup
                 if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
                     || args.GitProject is not null || args.Binding is not null)
                     return Fail("GitHub init uses --host, --repository and --account, not ADO coordinates/team/git-project/binding.", 2);
-                if (args.Account is not null && (string.IsNullOrWhiteSpace(args.Account) || args.Account != args.Account.Trim()
-                    || args.Account.Any(char.IsWhiteSpace) || args.Account.Any(char.IsControl) || args.Account.StartsWith('-')))
+                if (args.Account is not null && !ValidGitHubAccount(args.Account))
                     return Fail("--account must name an explicit gh account; the active gh account and ambient tokens are never inferred.", 2);
                 if (hasManifest && (args.Host is not null && args.Host != config.GitHub?.Host
                     || args.Repository is not null && args.Repository != config.GitHub?.Repository))
@@ -77,6 +84,15 @@ internal static class NativeWorkspaceSetup
                 {
                     config.GitHubAccount = args.Account;
                     config.GitHubCredentialSource = "gh";
+                    config.GitHubOAuthIdentity = null;
+                    config.GitHubAppClientId = null;
+                }
+                else if (args.GitHubApp is { } selected)
+                {
+                    config.GitHubCredentialSource = "github-app";
+                    config.GitHubOAuthIdentity = selected.Identity;
+                    config.GitHubAppClientId = selected.ClientId;
+                    config.GitHubAccount = null;
                 }
             }
             else if (kind == "twig")
@@ -99,8 +115,7 @@ internal static class NativeWorkspaceSetup
                 if (hasManifest && args.Organization.Length == 0 && args.Project.Length == 0)
                     args = args with { Organization = config.Organization, Project = config.Project };
                 if (NativeSetupEnrollment.AdoProblem(args.Organization, args.Project) is { } adoProblem) return Fail(adoProblem, 2);
-                if (hasManifest && (!string.Equals(args.Organization, config.Organization, StringComparison.OrdinalIgnoreCase)
-                    || !string.Equals(args.Project, config.Project, StringComparison.OrdinalIgnoreCase)
+                if (hasManifest && (args.Organization != config.Organization || args.Project != config.Project
                     || args.Team is not null && args.Team != config.Team || args.GitProject is not null && args.GitProject != config.Git.Project))
                     return Fail("ADO coordinates conflict with the existing twig.json declaration.", 2);
                 config.Organization = args.Organization;
@@ -115,19 +130,37 @@ internal static class NativeWorkspaceSetup
             effects.Phase = NativeSetupPhase.Initialization;
             effects.Before(NativeSetupEffectKind.NativeHome);
             var bindings = lazyBindings();
-            if (kind == "ado" && args.Binding is null || kind == "github" && args.Account is null
+            // An explicit device connection survives workspace setup failure. Registering it
+            // does not admit the checkout; workspace initialization still requires the lease.
+            if (kind == "github" && (args.Account is not null || args.GitHubApp is not null)
+                || kind == "twig" && args.Database is not null)
+            {
+                var requirement = ProviderConnectionRequirement.FromConfiguration(config);
+                var catalog = new DeviceConnectionCatalog(bindings.RegistryPath);
+                effects.Before(NativeSetupEffectKind.ConnectionRegistration);
+                if (kind == "github")
+                {
+                    var credential = args.GitHubApp is { } selection
+                        ? new ProviderConnectionCredential("github-app", selection.Identity, selection.ClientId)
+                        : new ProviderConnectionCredential("gh", args.Account!);
+                    effects.Before(NativeSetupEffectKind.ConnectionBinding);
+                    await catalog.RegisterGitHubAsync(requirement, credential, ct).ConfigureAwait(false);
+                    effects.Confirm(NativeSetupEffectKind.ConnectionBinding);
+                }
+                else await catalog.AddAsync(requirement, ct).ConfigureAwait(false);
+                effects.Confirm(NativeSetupEffectKind.ConnectionRegistration);
+            }
+            else if (kind == "ado" && args.Binding is null || kind == "github"
                 || kind == "twig" && hasManifest && args.Database is null)
             {
                 try
                 {
                     var requirement = ProviderConnectionRequirement.FromConfiguration(config);
-                    var registered = await new ProviderConnectionRegistry(bindings.RegistryPath)
-                        .RequireAsync(requirement, ct).ConfigureAwait(false);
+                    var registered = await new DeviceConnectionCatalog(bindings.RegistryPath)
+                        .RequireAsync(requirement, ct, config.Organization, config.Project).ConfigureAwait(false);
                     if (kind == "ado")
                     {
-                        var selected = await bindings.CreateBindingAsync(config.Organization, config.Project,
-                            registered.Credential!.Selector, makeDefault: false, ct).ConfigureAwait(false);
-                        args = args with { Binding = selected.BindingId };
+                        args = args with { Binding = registered.BindingId ?? throw new InvalidOperationException("No exact ADO binding was selected.") };
                     }
                     else if (kind == "github")
                     {

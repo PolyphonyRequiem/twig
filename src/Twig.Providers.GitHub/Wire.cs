@@ -66,14 +66,28 @@ internal static class Wire
         json.WriteStartObject("variables"); variables?.Invoke(json); json.WriteEndObject(); json.WriteEndObject();
     });
 
-    internal static JsonElement Data(JsonElement root)
+    internal static JsonElement Data(JsonElement root, bool exactIssue = false)
     {
-        if (root.TryGetProperty("errors", out var errors)
-            && (errors.ValueKind != JsonValueKind.Array || errors.GetArrayLength() != 0))
-            throw Invalid("GraphQL returned errors or partial data; runtime availability is not established.");
         var data = Member(root, "data");
+        if (root.TryGetProperty("errors", out var errors))
+        {
+            var exactNull = exactIssue && data.ValueKind == JsonValueKind.Object
+                && data.TryGetProperty("node", out var node) && node.ValueKind == JsonValueKind.Null;
+            if (errors.ValueKind != JsonValueKind.Array
+                || errors.GetArrayLength() != 0 && !(exactNull &&
+                    (errors.EnumerateArray().All(error => IsNodeError(error, "NOT_FOUND"))
+                     || errors.GetArrayLength() == 1 && IsNodeError(errors[0], "FORBIDDEN"))))
+                throw Invalid("GraphQL returned errors or partial data; runtime availability is not established.");
+        }
         return data.ValueKind == JsonValueKind.Object ? data : throw Invalid("GraphQL data is unavailable.");
     }
+
+    private static bool IsNodeError(JsonElement error, string expected) =>
+        error.ValueKind == JsonValueKind.Object
+        && error.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.ValueEquals(expected)
+        && error.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String
+        && error.TryGetProperty("path", out var path) && path.ValueKind == JsonValueKind.Array && path.GetArrayLength() == 1
+        && path[0].ValueKind == JsonValueKind.String && path[0].ValueEquals("node");
 
     internal static async Task<byte[]> Response(HttpResponseMessage response, CancellationToken ct)
     {

@@ -63,6 +63,7 @@ public sealed partial class NativePublicationConsumerTests
             }
             var admitted = await Send("/context", HttpMethod.Put, new JsonObject { ["root"] = fixture.Root });
             admitted.Status.ShouldBe(HttpStatusCode.OK, admitted.Body.ToJsonString());
+            (await Send("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench })).Status.ShouldBe(HttpStatusCode.OK);
             var view = await Send($"/benches/{fixture.Bench:D}", HttpMethod.Get);
             view.Status.ShouldBe(HttpStatusCode.OK, view.Body.ToJsonString());
             view.Body["sources"]![0]!["items"]!.AsArray().Count.ShouldBe(2);
@@ -87,7 +88,6 @@ public sealed partial class NativePublicationConsumerTests
             var beforeOnline = gateway.OnlineReads;
             var beforeHttp = _transport.TotalRequests;
             var beforeCaptures = await Captures();
-            var beforeSelections = gateway.SelectionWrites;
             using var events = changes.Subscribe(out var reader);
             gateway.HoldOnline();
             try
@@ -129,7 +129,6 @@ public sealed partial class NativePublicationConsumerTests
                 _transport.TotalRequests.ShouldBe(beforeHttp, "Presentation must not acquire provider/schema/membership HTTP.");
                 (await Captures()).ShouldBe(beforeCaptures, "Presentation must not create native captures.");
                 HumanPatchAttempts.ShouldBe(0, "Presentation never publishes.");
-                gateway.SelectionWrites.ShouldBe(beforeSelections, "Presentation never writes native selection.");
                 while (reader.TryRead(out _)) { }
                 changes.Publish(5);
                 changes.PublishPresentation();
@@ -156,7 +155,6 @@ public sealed partial class NativePublicationConsumerTests
         internal int LocalReads { get; private set; }
         internal int SchemaReads { get; private set; }
         internal int OnlineReads { get; private set; }
-        internal int SelectionWrites { get; private set; }
         internal int PreparedEditors { get; private set; }
         internal int ExistingEditors { get; private set; }
         internal int PlanReviews { get; private set; }
@@ -199,13 +197,6 @@ public sealed partial class NativePublicationConsumerTests
         public Task<Result<ImmutableArray<WorkItem>>> ObserveItemsAsync(string root, NativeSourceStamp expected,
             ImmutableArray<ItemKey> keys, CancellationToken ct)
             => NativeSourceReader.ObserveItemsAsync(root, expected, keys, fixture.ConfigureHumanEditor, ct);
-
-        public Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected,
-            Guid? previous, Guid? next, CancellationToken ct)
-        {
-            SelectionWrites++;
-            return fixture.SelectHumanBenchAsync(root, expected, previous, next, ct);
-        }
 
         public Task<Result<NativeItemEditor>> OpenEditorAsync(string root, Guid bench,
             NativeSourceStamp expected, CancellationToken ct)

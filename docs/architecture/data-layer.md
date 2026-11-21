@@ -11,7 +11,6 @@ Twig's current data path uses `Twig.Core` and `Twig.Store.Sqlite`, not the forme
 | `.twig/core.db` (default) | Workspace client mirror, typed drafts, proposals, operation journal and permanent creation mappings |
 | Native user registry and private credentials | Registered connection/identity metadata and separate private credential material |
 | User-wide `benches.db` | Shared Bench definitions, rules, source dependencies and repository bindings |
-| Worktree `core-context.json` | Local active-item history and Bench selection |
 | `native-databases/database-<name>.db` beside the user registry | One authoritative Twig-native database per explicit name, with independent stable source identity, items, revisions and creation evidence |
 | Daemon private data directory | Daemon identity/instance guard, endpoint metadata, presentation sessions and native evidence |
 
@@ -30,7 +29,9 @@ database identities. The old singleton authority is not adopted or migrated.
 
 ## Reads and drafts
 
-`show` reads retained items by default; `--refresh` explicitly asks the provider.
+`twig show <id>` reads a retained item; `--refresh` explicitly asks the provider.
+`twig workspace --bench MyWork` reads that Bench, not a worktree selection.
+Adding `--refresh` refreshes that Bench's scope without publishing drafts.
 Cached observations are not proof of present access or current remote values.
 Typed local drafts remain separate from observations. A read or refresh must not
 silently publish drafts, erase local intent, or turn missing observations into

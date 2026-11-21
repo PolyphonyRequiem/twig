@@ -8,12 +8,12 @@
 | [`seed chain`](seed-chain.md) | Retained ADO ordered creation intent |
 | [`seed link`](seed-link.md), [`unlink`](seed-unlink.md), [`links`](seed-links.md) | Local creation-link intent, not provider acknowledgements |
 | [`seed validate`](seed-validate.md) | Evaluate publication prerequisites |
-| [`seed publish`](seed-publish.md) | Human explicit preview/confirmation and publication |
+| [`seed publish`](seed-publish.md) | Human-only publication of one negative ID or explicit `--all`; `--dry-run` previews |
 | [`seed reconcile`](seed-reconcile.md) | Inspect original publication evidence, never blind create replay |
 | [`seed discard`](seed-discard.md) | Discard eligible local unpublished intent |
 
 Use the actual returned negative alias/UUID, not a predicted `-1`.
-Machine creation must choose `--parent` or `--no-parent`; GitHub and Twig-native
+Every `seed new` call must choose `--parent <id>` or `--no-parent`; GitHub and Twig-native
 creation require `--no-parent`. Structured publication is refused.
 Bare `twig seed` is retired; use `seed new`.
 

@@ -141,6 +141,7 @@ public sealed partial class NativePublicationConsumerTests
             }
 
             await Ok("/context", HttpMethod.Put, new JsonObject { ["root"] = fixture.Root });
+            await Ok("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench });
             var view = await View();
             var source = view["sources"]!.AsArray().Single()!;
             source["errorCode"].ShouldBeNull();

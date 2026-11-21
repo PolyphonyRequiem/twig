@@ -1,18 +1,18 @@
 ---
 command: ws
 group: workspace
-summary: Alias for static selected Core Bench presentation.
+summary: Alias for reading or refreshing an explicitly named Bench.
 stability: stable
-mutates: none
+mutates: local
 ---
 
 # `twig ws`
 
 ## Behavior
 
-Alias for [`workspace`](workspace.md), with the same explicit selection,
-cached membership and machine-output boundary. Not a live backlog route.
+Use `twig ws --bench MyWork` to inspect cached membership. Add `--refresh` to
+pull permitted members on supported providers, exactly as with [`workspace`](workspace.md).
 
 ## Effects
 
-Cached inspection only, no draft flush or work-item publication.
+Refresh may update cached observations. Neither form saves drafts or publishes work items.

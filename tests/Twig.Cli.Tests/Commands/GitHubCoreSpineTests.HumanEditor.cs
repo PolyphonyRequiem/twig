@@ -216,7 +216,6 @@ public sealed partial class GitHubCoreSpineTests
             var bench = (await user.SaveAsync(new(Guid.NewGuid(), "GitHub editor fixture",
                 [new(SelectorKind.Pin, KeyFor(source.Source), connection: source.Source.Connection)]), 0)).Value;
             Host = (Native.Root, Native._bindings.RegistryPath, bench.Id, source.Source);
-            (await SelectBenchAsync(null, bench.Id, default)).IsSuccess.ShouldBeTrue();
             Writes.ShouldBe(0);
             return Host;
         }
@@ -236,10 +235,6 @@ public sealed partial class GitHubCoreSpineTests
             => NativeSourceReader.ReadAsync(root, expected, schema, Configure, ct);
         public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected, CancellationToken ct)
             => NativeSourceReader.ReadOnlineAsync(root, expected, Configure, ct);
-        public Task<Result<NativeSourceObservation>> SelectBenchAsync(Guid? previous, Guid? next, CancellationToken ct)
-            => SelectBenchAsync(Host.Root, Host.Stamp, previous, next, ct);
-        public Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
-            => NativeSourceReader.SelectBenchAsync(root, expected, previous, next, Configure, ct);
         public Task<Result<NativePlanReview>> ReviewAsync(string root, Guid bench, ImmutableArray<NativePlanSource> sources, CancellationToken ct)
             => NativePlanReview.ReviewAsync(root, bench, sources, Configure, ct);
         public Task<Result<NativePlanReview>> OpenReviewAsync(string root, string digest, CancellationToken ct)

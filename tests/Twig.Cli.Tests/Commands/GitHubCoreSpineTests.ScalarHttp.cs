@@ -117,6 +117,7 @@ public sealed partial class GitHubCoreSpineTests
                 ["ticket"] = form["ticket"]!.DeepClone(), ["fields"] = new JsonArray(fields),
             };
             await Ok("/context", HttpMethod.Put, new JsonObject { ["root"] = fixture.Root });
+            await Ok("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench });
             var view = await Ok($"/benches/{fixture.Bench:D}", HttpMethod.Get);
             var source = view["sources"]!.AsArray().Single()!;
             source["provider"]!.GetValue<string>().ShouldBe("github");
@@ -318,8 +319,6 @@ public sealed partial class GitHubCoreSpineTests
         public Task<Result<NativeSourceObservation>> ReadOnlineAsync(string root, NativeSourceStamp expected,
             CancellationToken ct) => fixture.ReadOnlineAsync(root, expected, ct);
 
-        public Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected,
-            Guid? previous, Guid? next, CancellationToken ct) => fixture.SelectBenchAsync(root, expected, previous, next, ct);
 
         public Task<Result<NativeItemEditor>> OpenEditorAsync(string root, Guid bench,
             NativeSourceStamp expected, CancellationToken ct) => fixture.OpenAsync(root, bench, expected, ct);

@@ -107,6 +107,7 @@ public sealed partial class NativePublicationConsumerTests
                 };
             }
             await Ok("/context", new JsonObject { ["root"] = fixture.Root }, HttpMethod.Put);
+            await Ok("/selection", new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench }, HttpMethod.Put);
             var view = await Ok($"/benches/{fixture.Bench:D}", method: HttpMethod.Get);
             var source = view["sources"]!.AsArray().Single()!;
             var target = source["items"]!.AsArray().Single(item => item!["locator"]!.GetValue<string>() == "42")!;

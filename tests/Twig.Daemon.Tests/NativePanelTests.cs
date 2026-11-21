@@ -221,8 +221,6 @@ internal static partial class NativePanelTests
                 "Bench selection is an explicit native context operation.");
             var otherRoot = Path.Combine(directory, "population context");
             Directory.CreateDirectory(otherRoot);
-            var otherBench = Required(await cli.SaveAsync(new(Guid.NewGuid(), "Other context selection", []), 0));
-            gateway.SeedSelection(otherRoot, otherBench.Id);
             Check((await Send("PUT", prefix + "/population-context", new JsonObject { ["root"] = otherRoot })).Status == 200,
                 "Choose an independent population connection.");
             gateway.ReadRoots.Clear();
@@ -230,10 +228,8 @@ internal static partial class NativePanelTests
                 "The picker reads the explicitly selected population context.");
             Check((await Send("GET", prefix + "/session")).Body!["preferences"]!["benchId"]!.GetValue<string>() == bench.Id.ToString("D"),
                 "Population source choice must not switch the view's CLI selection.");
-            Check(gateway.Selection(otherRoot) == otherBench.Id, "Population must not select the target Bench in the source worktree.");
             Check((await Send("PUT", prefix + "/population-context", new JsonObject { ["root"] = directory })).Status == 200,
                 "Explicitly return population to the viewing connection without relying on an implicit fallback.");
-            Required(await cli.DeleteAsync(otherBench.Id, otherBench.Revision));
             var view = await Send("GET", prefix + $"/benches/{bench.Id:D}");
             Check(view.Status == 200, "Native Bench projection.");
             Check(view.Body!["sources"]![0]!["label"]!.GetValue<string>().Contains("Example project", StringComparison.Ordinal)
@@ -446,9 +442,6 @@ internal static partial class NativePanelTests
                 """{"authorization":"Bearer SYNTHETIC_SECRET_MUST_NOT_LOG","value":"SYNTHETIC_ITEM_CONTENT_MUST_NOT_LOG"}""").ToImmutableArray()
             : [];
         internal List<string> ReadRoots { get; } = [];
-        private readonly Dictionary<string, Guid?> selections = new(StringComparer.Ordinal);
-        internal void SeedSelection(string root, Guid id) => selections[root] = id;
-        internal Guid? Selection(string root) => selections.GetValueOrDefault(root);
         private PlanningMetadata? planning;
         private readonly Dictionary<string, PlanningMetadata> calendars = new(StringComparer.Ordinal);
         private readonly Dictionary<string, NativePlanningSourcesCache> catalogues = new(StringComparer.Ordinal);
@@ -534,16 +527,8 @@ internal static partial class NativePanelTests
                     [new("Synthetic.Hierarchy", RelationShape.Hierarchy, true)], DiagnosticMessages, webUrl: "https://dev.azure.com/synthetic/project/")
                     { Planning = planning, PlanningCalendars = calendars.Values.ToImmutableArray(), Memberships = memberships.ToImmutableArray() }) : null,
                 observeSchema ? DateTimeOffset.UtcNow : null) { WorkspaceExclusions = DiagnosticFixture ? [] : [new(SelectorKind.Pin, key, connection: connection)],
-                    SelectedBenchId = selections.GetValueOrDefault(root), Planning = planning,
+                    Planning = planning,
                     PlanningCalendars = calendars.Values.ToImmutableArray(), Memberships = memberships.ToImmutableArray() }));
-        }
-        public async Task<Result<NativeSourceObservation>> SelectBenchAsync(string root, NativeSourceStamp expected, Guid? previous, Guid? next, CancellationToken ct)
-        {
-            var observed = await ReadAsync(root, expected, false, ct);
-            if (!observed.IsSuccess) return observed;
-            if (selections.GetValueOrDefault(root) != previous) return Result<NativeSourceObservation>.Fail(ErrorCode.Conflict, "Synthetic native selection changed.");
-            selections[root] = next;
-            return Result<NativeSourceObservation>.Ok(observed.Value with { SelectedBenchId = next });
         }
         public Task<Result<NativeSourceObservation>> RefreshPlanningAsync(string root, NativeSourceStamp expected, CancellationToken ct)
         {

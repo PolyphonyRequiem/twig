@@ -42,7 +42,9 @@ host models use source-generated metadata. The daemon is a separate self-contain
 Windows application, not the AOT CLI renamed or launched in a UI mode.
 
 Twig owns daemon source and delivery. The independently packaged
-`twig-bench-canvas` owns presentation assets. Hosts do not gain publication
+`twig-bench-canvas` owns presentation assets. Item and Bench selection belongs
+to the native daemon/Canvas session or view; it never supplies a CLI target.
+The CLI renders static views, not a TUI. Hosts do not gain publication
 authority from opening a view or receiving an SDK acknowledgement.
 See [daemon architecture and operation](../daemon.md).
 

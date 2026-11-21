@@ -60,7 +60,10 @@ public sealed partial class NativePublicationConsumerTests
                 services.AddTwigWorkspaceServices(root, args, Path.Combine(Home, "display.json"));
             }).ShouldBe(1);
             using var json = JsonDocument.Parse(error.ToString());
-            json.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("Core workspace");
+            var expected = route is ["workspace", "area" or "sprint", "add", _]
+                ? $"Unsupported: workspace {route[1]} or its UI envelope is retired"
+                : "Core workspace";
+            json.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain(expected);
             Directory.Exists(Path.Combine(root, ".twig")).ShouldBeFalse();
             _transport.TotalRequests.ShouldBe(0);
         }

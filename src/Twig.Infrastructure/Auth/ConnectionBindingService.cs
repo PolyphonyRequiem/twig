@@ -303,12 +303,20 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         return result;
     }
 
-    public async Task<IdentityBinding> CreateBindingAsync(
+    public Task<IdentityBinding> CreateBindingAsync(
         string organization,
         string project,
         string identityName,
         bool makeDefault,
         CancellationToken ct = default)
+        => CreateAdoBindingAsync(organization, project, identityName, makeDefault, allowDeclaration: true, ct);
+
+    public Task<IdentityBinding> BindRegisteredAdoAsync(
+        string organization, string project, string identity, CancellationToken ct = default)
+        => CreateAdoBindingAsync(organization, project, identity, makeDefault: false, allowDeclaration: false, ct);
+
+    private async Task<IdentityBinding> CreateAdoBindingAsync(
+        string organization, string project, string identityName, bool makeDefault, bool allowDeclaration, CancellationToken ct)
     {
         ThrowIfDisposed();
         if (string.IsNullOrWhiteSpace(organization))
@@ -318,61 +326,47 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
         if (string.IsNullOrWhiteSpace(identityName))
             throw new ArgumentException("identityName must be non-empty.", nameof(identityName));
 
-        _setupEffects?.Before(NativeSetupEffectKind.Registry);
-        var identityRes = await _registry.FindIdentityByNameAsync(identityName.Trim(), ct).ConfigureAwait(false);
-        if ((!identityRes.IsSuccess && identityRes.Error.Code != Twig.Core.ErrorCode.NotFound))
-            throw new NativeSetupException(identityRes.Error with { Message = $"Registry refused identity lookup: {identityRes.Error.Message}" });
-        _setupEffects?.Confirm(NativeSetupEffectKind.Registry);
-        var identity = identityRes.Optional()
-            ?? throw new NativeSetupException(new(Twig.Core.ErrorCode.NotFound,
-                $"No identity named '{identityName}' is registered. Run 'twig auth login --identity {identityName}' first."));
-        EnsurePatAuthority(ToIdentity(identity), organization);
-
+        var requirement = ProviderConnectionRequirement.Create("ado", organization, project);
         var connectionRef = ConnectionRefResolver.Compute(organization, project);
-
-        // Keep the connections row in sync. Not FK-depended-on from the binding
-        // tables, but downstream join/report code expects a row for every
-        // referenced connection_ref.
-        _setupEffects?.Before(NativeSetupEffectKind.ConnectionRegistration);
-        var upsertConn = await _registry.EnsureBindingConnectionAsync(connectionRef, organization, project, ct).ConfigureAwait(false);
-        if (!upsertConn.IsSuccess) throw new NativeSetupException(upsertConn.Error with { Message = $"Registry refused connection upsert: {upsertConn.Error.Message}" });
-        _setupEffects?.Confirm(NativeSetupEffectKind.ConnectionRegistration);
-
-        var now = _clock.GetUtcNow();
-        var bindingId = ComputeBindingId(connectionRef, identity.IdentityId);
-        var pending = new BindingRow(
-            BindingId: bindingId,
-            ConnectionRef: connectionRef,
-            IdentityId: identity.IdentityId,
-            Revision: 1,
-            CreatedAt: now,
-            UpdatedAt: now);
-        _setupEffects?.Before(NativeSetupEffectKind.ConnectionBinding);
-        var upsert = await _registry.InsertOrGetBindingAsync(pending, ct).ConfigureAwait(false);
-        if (!upsert.IsSuccess) throw new NativeSetupException(upsert.Error with { Message = $"Registry refused binding insert: {upsert.Error.Message}" });
-        _setupEffects?.Confirm(NativeSetupEffectKind.ConnectionBinding);
-        var row = upsert.Value;
-
-        if (makeDefault)
+        _setupEffects?.Before(NativeSetupEffectKind.Registry);
+        var result = await _registry.ExecuteWriteAsync<BindingRow>(async (db, tx) =>
         {
-            var defaultRow = new DefaultBindingRow(
-                ConnectionRef: connectionRef,
-                BindingId: row.BindingId,
-                Revision: row.Revision,
-                UpdatedAt: now);
-            var setDefault = await _registry.UpsertDefaultBindingAsync(defaultRow, ct).ConfigureAwait(false);
-            if (!setDefault.IsSuccess)
-            {
-                if (string.Equals(setDefault.Error.Message, "default-binding-exists", StringComparison.Ordinal))
-                {
-                    throw new InvalidOperationException(
-                        $"A different default binding is already set for {organization}/{project}; refusing to replace it.");
-                }
-                throw new InvalidOperationException($"Registry refused default binding: {setDefault.Error.Message}");
-            }
-        }
+            _setupEffects?.Confirm(NativeSetupEffectKind.Registry);
+            var lookup = await SqliteSystemWorktreeRegistry.FindIdentityByNameAsync(db, tx, identityName.Trim(), ct).ConfigureAwait(false);
+            if (!lookup.IsSuccess && lookup.Error.Code != Twig.Core.ErrorCode.NotFound)
+                return NativeResults.Fail<BindingRow>(lookup.Error);
+            var identity = lookup.Optional() ?? throw new NativeSetupException(new(Twig.Core.ErrorCode.NotFound,
+                $"No identity named '{identityName}' is registered. Run 'twig auth login --identity {identityName}' first."));
+            EnsurePatAuthority(ToIdentity(identity), organization);
 
-        return ToBinding(row);
+            _setupEffects?.Before(NativeSetupEffectKind.ConnectionRegistration);
+            var endpoint = await _registry.EnsureBindingConnectionAsync(db, tx, connectionRef, organization, project,
+                requirement, allowDeclaration, ct).ConfigureAwait(false);
+            if (!endpoint.IsSuccess) return NativeResults.Fail<BindingRow>(endpoint.Error);
+
+            _setupEffects?.Before(NativeSetupEffectKind.ConnectionBinding);
+            var now = _clock.GetUtcNow();
+            var pending = new BindingRow(ComputeBindingId(connectionRef, identity.IdentityId), connectionRef, identity.IdentityId, 1, now, now);
+            var binding = await SqliteSystemWorktreeRegistry.InsertOrGetBindingAsync(db, tx, pending, ct).ConfigureAwait(false);
+            if (makeDefault && binding.IsSuccess)
+            {
+                var row = binding.Value;
+                var selected = await SqliteSystemWorktreeRegistry.UpsertDefaultBindingAsync(db, tx,
+                    new(connectionRef, row.BindingId, row.Revision, now), ct).ConfigureAwait(false);
+                if (!selected.IsSuccess) return NativeResults.Fail<BindingRow>(selected.Error);
+            }
+            return binding;
+        }, ct).ConfigureAwait(false);
+
+        if (!result.IsSuccess)
+        {
+            if (result.Error.Message == "default-binding-exists")
+                throw new InvalidOperationException($"A different default binding is already set for {organization}/{project}. Identity transitions are deliberate guarded management operations and not a side effect of 'twig connection bind --default'.");
+            throw new NativeSetupException(result.Error);
+        }
+        _setupEffects?.Confirm(NativeSetupEffectKind.ConnectionRegistration);
+        _setupEffects?.Confirm(NativeSetupEffectKind.ConnectionBinding);
+        return ToBinding(result.Value);
     }
 
     public async Task<IReadOnlyList<IdentityBinding>> ListBindingsAsync(

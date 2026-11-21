@@ -36,37 +36,6 @@ internal sealed class ProcessCommand(
         return 0;
     }
 
-    public async Task<int> ExecuteStatesAsync(
-        string outputFormat = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-    {
-        if (OutputFormats.Normalize(outputFormat) != "human")
-            return Error(outputFormat, "Structured states is refused. Use 'twig process <type>' with an explicit type.", 2);
-        if (factory is null) return Error(outputFormat, WorkspaceRequired);
-        var opened = await factory.OpenAsync(ct);
-        if (!opened.IsSuccess) return Error(outputFormat, opened.Error.Message);
-        using var handle = opened.Value;
-        var workspace = handle.Workspace;
-        var context = await workspace.Context.ReadAsync(ct);
-        if (!context.IsSuccess) return Error(outputFormat, context.Error.Message);
-        if (context.Value.Position < 0)
-            return Error(outputFormat, "No active Core item is selected. Use 'twig set <id>' or 'twig process <type>'.");
-        var snapshot = await workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(outputFormat, snapshot.Error.Message);
-        var key = context.Value.History[context.Value.Position].Resolve(workspace.Connection);
-        key = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
-        var type = key.IsLocal
-            ? snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == key)?.Type
-            : snapshot.Value.Items.SingleOrDefault(item => item.Key == key)?.Type;
-        if (type is null)
-            return Error(outputFormat, "The active item's type is not cached. Use 'twig show <id> --refresh' or 'twig process <type>'.");
-        var discovered = await workspace.SchemaAsync(ct);
-        if (!discovered.IsSuccess) return Error(outputFormat, discovered.Error.Message);
-        var definition = FindType(discovered.Value, type);
-        if (definition is null) return Error(outputFormat, $"Unknown work-item type '{type}' in the discovered schema.");
-        rendererFactory.GetRenderer(outputFormat).Render(new([TypeDocument(definition)]));
-        return 0;
-    }
-
     internal const string WorkspaceRequired =
         "Process schema inspection requires an explicitly initialized Core workspace. "
         + "Legacy and unpinned override targets are not qualified; no ambient process was substituted. "

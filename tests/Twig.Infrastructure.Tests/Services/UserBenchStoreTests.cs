@@ -90,7 +90,7 @@ public sealed class UserBenchStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task OneUserWideDefinitionRetainsAllPinKindsWhileContextSelectionsAreIndependent()
+    public async Task WorktreesShareBenchDefinitionsWithoutCopyingThemToNativeStores()
     {
         Directory.CreateDirectory(directory);
         var a = await Native("repo");
@@ -107,15 +107,7 @@ public sealed class UserBenchStoreTests : IDisposable
         var reopened = Required(await Store.ReadAsync());
         reopened.Benches.Single().Revision.ShouldBe(1);
         BenchCodec.Serialize(reopened.Benches.Single()).ShouldBe(BenchCodec.Serialize(saved));
-        var second = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Another collection", []), 0));
-        var contextA = new CoreHostContext(a.Root, ado, a.Store.InstanceId);
-        var contextB = new CoreHostContext(b.Root, ado, b.Store.InstanceId);
-        var beforeA = Required(await contextA.ReadAsync(default));
-        var beforeB = Required(await contextB.ReadAsync(default));
-        Required(await contextA.WriteAsync(beforeA, beforeA with { BenchId = saved.Id }, default));
-        Required(await contextB.WriteAsync(beforeB, beforeB with { BenchId = second.Id }, default));
-        Required(await contextA.ReadAsync(default)).BenchId.ShouldBe(saved.Id);
-        Required(await contextB.ReadAsync(default)).BenchId.ShouldBe(second.Id);
+        Required(await Store.SaveAsync(new(Guid.NewGuid(), "Another collection", []), 0));
         var viewA = Required(await Store.View(a.Store, a.Root, a.Store.InstanceId).ReadAsync(ado, default));
         var viewB = Required(await Store.View(b.Store, b.Root, b.Store.InstanceId).ReadAsync(ado, default));
         viewA.Benches.Select(value => value.Id).ShouldBe(viewB.Benches.Select(value => value.Id));

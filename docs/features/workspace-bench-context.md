@@ -5,28 +5,25 @@
 | Concept | Meaning |
 | --- | --- |
 | Connection | A particular provider source and admitted identity, with immutable source coordinates checked at runtime |
-| Workspace | A Git worktree's initialized Core client store and local context; also the name of the static `workspace` view command |
+| Workspace | A Git worktree's initialized Core client store; `workspace --bench <name-or-id>` reads one Bench in that store |
 | Bench | A named, durable, **user-wide** selection of work, independent of any one repository |
-| Active item | A local focus pointer, not assignment, ownership, or a work claim |
 
 One Bench can retain selectors from multiple connections. The CLI and daemon
 share Bench definitions in the native user store; viewers must not maintain a
 second authoritative copy.
 
-## Create, select, and pin
+## Create and inspect a Bench
 
 ```sh
 twig bench create MyWork
 twig bench list
-twig bench switch MyWork
-twig workspace track 12345
-twig workspace
+twig workspace --bench MyWork
 ```
 
 Creating does not select a Bench. No automatic repository-derived default is
 created. Metadata create/list/rename/delete works without an initialized
-workspace; selecting and contextual pin operations require an admitted Core
-workspace. Rename preserves the identity and rules.
+workspace; reading item membership requires an admitted Core workspace.
+Rename preserves the identity and rules.
 
 A pin selects one item; a subtree selector and a typed query express different
 intent. Area and iteration predicates remain rules, not frozen lists of today's
@@ -36,27 +33,22 @@ Bench selector or discarding a draft.
 ## Reads, pulls, and planning
 
 Workspace output is a cached projection. A connection-scoped CLI view is not a
-complete cross-connection refresh. `workspace sync` pulls permitted current Bench
-selector members without flushing edits; ordinary `sync` can save pending edits
-before pulling. Use `sync --pull-only` when publication is not intended.
+complete cross-connection refresh. `twig workspace --bench MyWork --refresh`
+pulls permitted selector members for that Bench without flushing edits.
 
 The retained ADO planning surface includes `bench rules`, `bench rule add/remove`,
-`bench planning show/refresh`, `bench sources`, `bench browse`, and
-`workspace area` / `workspace sprint` management. Use each route's `--help` for
+`bench planning show/refresh`, `bench sources` and `bench browse`.
+Use each route's `--help` for
 typed inputs and revision preconditions. These are native planning/static read
 routes, not restoration of the retired live Bench browser or captured UI envelopes.
 They are not promises of GitHub parity.
 
 ## Local context versus shared intent
 
-`twig set <id>` selects an active item for human CLI convenience. It does not
-assign, claim, or exclusively lock the work. A worktree's Bench selection and
-active-item history do not switch another worktree's selection.
-
-Machine calls must not rely on that pointer. Structured `show`/targeted `tree`
-need explicit targets, and single-item mutations require `--id`. Structured
-workspace output excludes active-item expansion while preserving explicit Bench
-scope and drafts. Structured `set`, navigation, and seed publication are refused.
+The CLI has no current item or current Bench. `twig show 12345` addresses an
+item in this invocation; it cannot set a target for the next one. A named
+Bench read includes its permitted selector scope and protected local drafts,
+not extra relationships around an item in a viewer.
 
 The daemon uses isolated view profiles and explicit source admission. Repository
 bindings can constrain available sources without rewriting shared Bench intent.

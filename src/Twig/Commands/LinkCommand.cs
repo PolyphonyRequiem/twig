@@ -80,12 +80,13 @@ internal sealed class LinkCommand(
             if (format == "ids") return Error(format, "Bare IDs discard relationship and journal evidence. Use -o json or -o minimal.", 2);
             if (new[] { id, child, positionalChild }.Where(value => value.HasValue).Distinct().Count() > 1)
                 return Error(format, "Conflicting --id and child targets; no relationship was changed.", 2);
-            var explicitId = child ?? id ?? positionalChild;
+            if ((child ?? id ?? positionalChild) is not int explicitId)
+                return Error(format, "An explicit source work item ID is required.", 2);
             if (explicitId is <= 0 || targetId is <= 0)
                 return Error(format, "Published link targets must be positive native IDs. Use seed link for unpublished seeds.", 2);
             if (kind is not ("parent" or "unparent" or "reparent" or "predecessor" or "successor" or "related"))
                 return Error(format, "Supported unlink types: predecessor, successor, related. Use link unparent for hierarchy.", 2);
-            if (explicitId is not null && explicitId == targetId)
+            if (explicitId == targetId)
                 return Error(format, "Cannot link a work item to itself.", 2);
             if (id is null && format != "human")
                 return Error(format, "Structured relationship operations require an explicit --id option; --child alone is not machine authorization.", 2);
@@ -101,24 +102,7 @@ internal sealed class LinkCommand(
             var workspace = handle.Workspace;
             if (workspace.Connection.Provider.Value != "ado")
                 return Error(format, "Native CLI relationships are qualified only for the admitted ADO workspace.");
-            ItemKey source;
-            if (explicitId.HasValue) source = Key(explicitId.Value);
-            else
-            {
-                var context = await workspace.Context.ReadAsync(ct);
-                if (!context.IsSuccess) return Error(format, context.Error.Message);
-                if (context.Value.Position < 0)
-                    return Error(format, "No active Core item is selected. Run 'twig set <id>' or pass --id.");
-                source = context.Value.History[context.Value.Position].Resolve(workspace.Connection);
-                if (source.IsLocal)
-                {
-                    var captured = await workspace.SnapshotAsync(ct);
-                    if (!captured.IsSuccess) return Error(format, captured.Error.Message);
-                    source = captured.Value.Mappings.FirstOrDefault(mapping => mapping.Local == source)?.Remote ?? source;
-                }
-                if (source.IsLocal || !source.BelongsTo(workspace.Connection))
-                    return Error(format, "Select a published native item or pass --id. Unpublished links belong to seed link.");
-            }
+            var source = Key(explicitId);
             if (targetId.HasValue && source == Key(targetId.Value))
                 return Error(format, "Cannot link a work item to itself.", 2);
             var schema = await workspace.SchemaAsync(ct);

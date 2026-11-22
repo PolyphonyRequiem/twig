@@ -75,7 +75,7 @@ public sealed class NativeConnectionSetupTests
     {
         var runner = new GitHub.GhCliTokenSourceTests.FakeRunner(new(BoundedProcessOutcome.Exited, 0, """
             {"hosts":{"github.com":[
-              {"state":"success","active":false,"login":"second-user","tokenSource":"synthetic"},
+              {"state":"success","active":false,"login":"second-user_org","tokenSource":"synthetic"},
               {"state":"success","active":true,"login":"first-user"},
               {"state":"success","active":false,"login":"First-User"},
               {"state":"error","active":false,"login":"expired"},
@@ -84,13 +84,16 @@ public sealed class NativeConnectionSetupTests
             """));
         var setup = new NativeConnectionSetup(_ => throw new InvalidOperationException(), processes: runner);
         var result = await setup.ListGitHubAccountsAsync(default);
-        result.Value.ShouldBe([new("first-user", true), new("second-user", false)]);
-        runner.Calls.Single().Arguments.ShouldBe(["auth", "status", "--hostname", "github.com", "--json", "hosts"]);
+        result.Value.ShouldBe([new("first-user", true), new("second-user_org", false)]);
+        runner.Calls.Single().Arguments.ShouldBe(["auth", "status", "--hostname", "github.com", "--json", "hosts", "--no-refresh"]);
         runner.ExcludedEnvironment.ShouldBe(["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]);
     }
 
     [Theory]
     [InlineData("""{"hosts":{}}""", 0, true)]
+    [InlineData("""{"hosts":{"github.com":[{"state":"timeout","active":true,"login":"fixture"}]}}""", 0, false)]
+    [InlineData("""{"hosts":{"github.com":[{"state":"error","error":"HTTP 503: unavailable","active":true,"login":"fixture"}]}}""", 0, false)]
+    [InlineData("""{"hosts":{"github.com":[{"state":"error","error":"HTTP 401: Bad credentials","active":true,"login":"fixture"}]}}""", 0, true)]
     [InlineData("private-output", 0, false)]
     [InlineData("private-output", 1, false)]
     public async Task GitHubAccountListDistinguishesNoAccountsFromCliFailure(string output, int exitCode, bool empty)

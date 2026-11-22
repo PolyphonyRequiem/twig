@@ -74,18 +74,33 @@ the last-known or unobserved provider data remain distinct.
 ## Plans
 
 The [glossary](../../GLOSSARY.md#plans) uses **Plan** for a defined set of
-intended work-item changes. Presenting a plan as a proposal does not create
-another domain concept. User-directed approval and confirmation are outside
-Twig's work-management domain.
+intended work-item changes. Local edits and seeds are editable intent; a Plan
+captures exact operations. The operation journal records what happened when
+those operations were applied. Previewing a Plan does not execute it, and a
+provider acknowledgement is not a verified outcome.
 
-The current implementation still calls this concept `Proposal`, prefers the
-`proposal` CLI group over its `plan` aliases, and requires digest confirmation.
-These are implementation gaps, not domain definitions.
-[Plan terminology alignment](https://github.com/PolyphonyRequiem/twig/issues/703)
-and [approval/confirmation removal](https://github.com/PolyphonyRequiem/twig/issues/704)
-track the follow-up. Removing that machinery must preserve independently
-justified access controls, intent integrity, concurrency checks and evidence
-about uncertain writes, not replace it with another approval workflow.
+Each executable Core Plan binds to one connection. A Bench Plan session can
+assemble operations for several connections; it does not make them a single
+atomic change.
+
+`plan apply --file` explicitly requests execution of the named Plan. Preview is
+optional, and apply has no separate confirmation step. This does not remove
+access, integrity, concurrency, or journal checks. See
+[change plans](../features/plans.md) for the lifecycle.
+
+## Benches and workspaces
+
+A [Bench](../../GLOSSARY.md#benches) owns rules, not work items or a fixed
+result list. A workspace limits what it can read or act on; a native view can
+select a Bench, but selection grants no write authority.
+
+For example, a Bench can include rules for an Azure DevOps connection and a
+GitHub connection. A CLI workspace admitted to Azure DevOps shows only its
+connection's projection. An exclusion in that workspace leaves the shared
+Bench unchanged; retained local intent can still appear, marked as excluded.
+A missing GitHub row does not mean the GitHub rule was removed, and an
+unobserved field is not evidence that a query rule failed to match. See the
+[Bench ownership contract](clean-core-contract.md#user-wide-bench-ownership).
 
 ## Execution boundary
 

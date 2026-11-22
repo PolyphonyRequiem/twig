@@ -1,4 +1,7 @@
-# Twig glossary
+# Twig work management
+
+Twig's work-management language covers provider work items, unpublished intent,
+and how people organize and change that work.
 
 ## Work Item Identity
 
@@ -25,12 +28,13 @@ The full identity of a work item: its provider, resource scope, and native ID.
 
 **Connection**:
 The means of accessing a provider at a particular destination under a particular identity.
+_Avoid_: Provider, resource scope.
 
 **Local ID**:
 The durable identity of a seed, independent of its seed alias.
 
 **Seed alias**:
-A shorthand for addressing a seed in the CLI, distinct from its local ID.
+A shorthand for addressing a seed, distinct from its local ID.
 _Avoid_: Native ID.
 
 **Revision**:
@@ -84,5 +88,20 @@ _Avoid_: Draft baseline.
 ## Plans
 
 **Plan**:
-A defined set of intended work-item changes.
+A defined set of intended work-item changes, distinct from editable local intent and from the outcome of applying those changes.
 _Avoid_: Proposal.
+
+## Benches
+
+**Bench**:
+A named, user-owned set of rules for gathering work across one or more connections.
+_Avoid_: Workspace, when referring to the Bench itself.
+
+**Bench rule**:
+A criterion for including work in a Bench, such as a pin or a query.
+
+**Bench membership**:
+The work resolved from a Bench's rules against available observations, not the rules themselves.
+
+**Workspace exclusion**:
+A workspace-specific rule for omitting work from a Bench view without changing the Bench's rules.

@@ -668,7 +668,7 @@ sealed class SyntheticGateway : INativeSourceGateway
         {
             Source = stamp,
             Snapshot = new(Version, items, Observation.Snapshot.Relationships,
-                drafts: Observation.Snapshot.Drafts, benches: Observation.Snapshot.Benches),
+                retainedItems: Observation.Snapshot.RetainedItems, benches: Observation.Snapshot.Benches),
             Schema = observeSchema ? Result<ProcessSchema>.Ok(new(stamp.Connection, Observation.Schema!.Value.Types,
                 Observation.Schema.Value.Relations, Observation.Schema.Value.Gaps, Observation.Schema.Value.WebUrl)) : null,
             SchemaObservedAt = observeSchema ? DateTimeOffset.UtcNow : null,

@@ -61,7 +61,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             var selection = new SourceSelection(context.Source.Id, context.Source.Binding,
                 bench.Selectors.Where(value => value.Connection == context.Stamp.Connection).ToImmutableArray());
             var editable = owned.Value.Where(value => value.Ready && value.Publication is null && value.Draft is not null)
-                .Select(value => value.Draft!).ToImmutableArray();
+                .Select(value => (RetainedItem)value.Draft!).ToImmutableArray();
             var receipts = owned.Value.Where(value => !value.Ready || value.Publication is not null || value.Draft is null)
                 .Select(value => value.Item).ToImmutableArray();
             var view = SourceProjection.CreateOwnedSeeds(new(bench.Id, bench.Name, bench.Revision, [selection]), selection,
@@ -135,7 +135,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.OfType<NativePanelContext>().ToImmutableArray());
     }
     public Task<Result<NativePlanStatus>> ReadPlanAsync(Guid benchId, CancellationToken ct) => definitions.ReadPlanStatusAsync(benchId, ct);
-    public Task<Result<ImmutableArray<Draft>>> ReadPlanDraftsAsync(NativePlanStatus plan, NativePanelContext context, Guid scope, CancellationToken ct)
+    public Task<Result<ImmutableArray<RetainedItem>>> ReadPlanDraftsAsync(NativePlanStatus plan, NativePanelContext context, Guid scope, CancellationToken ct)
         => sources.NativeAsync(context.Root, token => definitions.ReadPlanDraftsAsync(plan.UserInstance, plan.BenchId,
             plan.Revision, scope, context.Root, context.Stamp, token), ct);
     public Task<Result<NativePlanStatus>> ChangePlanModeAsync(Guid instance, Guid benchId, long benchRevision,
@@ -289,13 +289,13 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                 var normalDebt = 0;
                 if (plan.Value.Enabled)
                 {
-                    normalDebt = observation.Snapshot.Drafts.Length;
+                    normalDebt = observation.Snapshot.RetainedItems.Length;
                     var scope = plan.Value.Sources.SingleOrDefault(value => value.Source.Connection == connection);
-                    var drafts = scope is null ? Result<ImmutableArray<Draft>>.Ok([])
+                    var drafts = scope is null ? Result<ImmutableArray<RetainedItem>>.Ok([])
                         : await definitions.ReadPlanDraftsAsync(plan.Value.UserInstance, benchId, plan.Value.Revision,
                             scope.Id, context.Root, context.Stamp, timeout.Token).ConfigureAwait(false);
                     if (!drafts.IsSuccess) return Failed(drafts.Error);
-                    var baselines = drafts.Value.Where(draft => draft.Baseline is not null).Select(draft => draft.Baseline!).ToArray();
+                    var baselines = drafts.Value.OfType<LocalEdits>().Select(edits => edits.EditBaseline).ToArray();
                     observation = observation with { Snapshot = new(observation.Snapshot.Version,
                         observation.Snapshot.Items.Concat(baselines.Where(baseline =>
                             !observation.Snapshot.Items.Any(item => item.Key == baseline.Key))),

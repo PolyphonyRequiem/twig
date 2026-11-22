@@ -34,25 +34,25 @@ public sealed partial class UserBenchStore
             : Result<NativePlanStatus>.Fail(plan.Error);
     }
 
-    public async Task<Result<ImmutableArray<Draft>>> ReadPlanDraftsAsync(Guid expectedInstance, Guid benchId,
+    public async Task<Result<ImmutableArray<RetainedItem>>> ReadPlanDraftsAsync(Guid expectedInstance, Guid benchId,
         long expectedPlanRevision, Guid scopeId, string originRoot, NativeSourceStamp source, CancellationToken ct = default)
     {
         var plan = await ReadPlanAsync(benchId, ct).ConfigureAwait(false);
-        if (!plan.IsSuccess) return Result<ImmutableArray<Draft>>.Fail(plan.Error);
+        if (!plan.IsSuccess) return Result<ImmutableArray<RetainedItem>>.Fail(plan.Error);
         if (!plan.Value.PlanMode)
-            return Result<ImmutableArray<Draft>>.Fail(ErrorCode.Conflict, "Reopen the exact Plan mode before displaying its staged intent.");
+            return Result<ImmutableArray<RetainedItem>>.Fail(ErrorCode.Conflict, "Reopen the exact Plan mode before displaying its staged intent.");
         var opened = await OpenPlanScopeAsync(expectedInstance, benchId, expectedPlanRevision, scopeId, originRoot, source, ct).ConfigureAwait(false);
-        if (!opened.IsSuccess) return Result<ImmutableArray<Draft>>.Fail(opened.Error);
+        if (!opened.IsSuccess) return Result<ImmutableArray<RetainedItem>>.Fail(opened.Error);
         var snapshot = await opened.Value.ReadAsync(source.Connection, ct).ConfigureAwait(false);
-        if (!snapshot.IsSuccess) return Result<ImmutableArray<Draft>>.Fail(snapshot.Error);
-        foreach (var seed in snapshot.Value.Drafts.Where(draft => draft.Key.IsLocal))
+        if (!snapshot.IsSuccess) return Result<ImmutableArray<RetainedItem>>.Fail(snapshot.Error);
+        foreach (var seed in snapshot.Value.RetainedItems.Where(draft => draft.Key.IsLocal))
         {
             var owner = await ReadPlanSeedOwnerAsync(seed.Key.LocalId, ct).ConfigureAwait(false);
-            if (!owner.IsSuccess) return Result<ImmutableArray<Draft>>.Fail(owner.Error);
+            if (!owner.IsSuccess) return Result<ImmutableArray<RetainedItem>>.Fail(owner.Error);
             if (owner.Value.BenchId != benchId || owner.Value.PlanId != plan.Value.Id || owner.Value.ScopeId != scopeId)
-                return Result<ImmutableArray<Draft>>.Fail(ErrorCode.Conflict, "A local seed belongs to another exact Plan scope.");
+                return Result<ImmutableArray<RetainedItem>>.Fail(ErrorCode.Conflict, "A local seed belongs to another exact Plan scope.");
         }
-        return Result<ImmutableArray<Draft>>.Ok(snapshot.Value.Drafts);
+        return Result<ImmutableArray<RetainedItem>>.Ok(snapshot.Value.RetainedItems);
     }
 
     private static NativePlanStatus Status(Guid instance, long benchRevision, NativeBenchPlan plan)

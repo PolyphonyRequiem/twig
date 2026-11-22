@@ -107,7 +107,7 @@ public static partial class Core
                 }
                 continue;
             }
-            if (!store.Items.Any(i => i.Key == selector.Item) && !store.Drafts.Any(d => d.Key == selector.Item))
+            if (!store.Items.Any(i => i.Key == selector.Item) && !store.RetainedItems.Any(d => d.Key == selector.Item))
                 return Result<ImmutableArray<ItemKey>>.Fail(ErrorCode.Unavailable, "A pinned item is not available locally.");
             selected.Add(selector.Item!);
             if (selector.Kind == SelectorKind.Pin) continue;

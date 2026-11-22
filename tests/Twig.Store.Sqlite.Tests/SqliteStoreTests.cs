@@ -51,19 +51,19 @@ public sealed class SqliteStoreTests : IDisposable
     }
 
     private static StoreSnapshot Next(StoreSnapshot s, IEnumerable<WorkItem>? items = null,
-        IEnumerable<Relationship>? relationships = null, IEnumerable<Draft>? drafts = null,
+        IEnumerable<Relationship>? relationships = null, IEnumerable<RetainedItem>? retainedItems = null,
         IEnumerable<Proposal>? proposals = null, IEnumerable<JournalEntry>? journal = null,
         IEnumerable<PublishMapping>? mappings = null, IEnumerable<Bench>? benches = null)
-        => new(s.Version + 1, items ?? s.Items, relationships ?? s.Relationships, drafts ?? s.Drafts,
+        => new(s.Version + 1, items ?? s.Items, relationships ?? s.Relationships, retainedItems ?? s.RetainedItems,
             proposals ?? s.Proposals, journal ?? s.Journal, mappings ?? s.Mappings, benches ?? s.Benches);
 
     private static FieldValues Fields(params (string Name, FieldValue Value)[] fields)
         => new(fields.Select(f => KeyValuePair.Create(f.Name, f.Value)));
     private static WorkItem Item(string token = "opaque\"rev/000:xyz", FieldValues? fields = null)
         => new(Remote, "type-ref", fields ?? Fields(("title", FieldValue.String("original"))), new Revision(Remote, token), true);
-    private static Draft Seed() => new(Local, "type-ref", null, Fields(("title", FieldValue.String("seed"))));
+    private static Seed Seed() => new(Local, "type-ref", Fields(("title", FieldValue.String("seed"))));
     private static Proposal Creation(long version = 0, string schema = "schema") => new(Connection, schema, version,
-        [new("create", OpKind.Create, Local, fields: Seed().Changes, type: Seed().Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+        [new("create", OpKind.Create, Local, fields: Seed().Fields, type: Seed().Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
     private static JournalEntry Planned(Proposal p, int ordinal = 0) => JournalEntry.Planned(p.Digest, ordinal);
     private static Receipt Receipt(JournalEntry row, OpStatus status, ItemKey? published = null)
         => new(row.Digest, row.Operation, row.Attempt, status, [$"attributable {status} evidence", "preserve order"],
@@ -89,7 +89,7 @@ public sealed class SqliteStoreTests : IDisposable
         var initial = await Read(store);
         var proposal = Creation();
         var planned = Planned(proposal);
-        await Commit(store, initial, Next(initial, drafts: [Seed()], proposals: [proposal], journal: [planned]));
+        await Commit(store, initial, Next(initial, retainedItems: [Seed()], proposals: [proposal], journal: [planned]));
         var retained = await Read(store);
         await Commit(store, retained, Next(retained, journal: [planned.Begin(Guid.NewGuid()).Value]));
         var replacementPath = Path.Combine(_directory, "replacement.db");
@@ -102,7 +102,7 @@ public sealed class SqliteStoreTests : IDisposable
         (await SqliteStore.OpenAsync(Database, expectedInstance: store.InstanceId)).Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
         var original = (await SqliteStore.OpenAsync(preserved, expectedInstance: store.InstanceId)).Value;
         (await Read(original)).Journal.Single().Status.ShouldBe(OpStatus.Applying);
-        (await Read(original)).Drafts.Single().Key.ShouldBe(Local);
+        (await Read(original)).RetainedItems.Single().Key.ShouldBe(Local);
         original.InstanceId.ShouldBe(store.InstanceId);
     }
 
@@ -122,7 +122,7 @@ public sealed class SqliteStoreTests : IDisposable
             ("raw", FieldValue.Raw("{ \"keep\": [null, 1.00] }", "provider/unknown")));
         var resource = new ResourceLink("native-resource", "https://example.test/a%2Fb", "", null);
         var baseline = new WorkItem(Remote, "type-ref", fields, Item().Revision, true, [resource], true);
-        var remoteDraft = new Draft(Remote, "type-ref", baseline, Fields(("null", FieldValue.String("")), ("clear", FieldValue.Null)));
+        var remoteDraft = new LocalEdits(Remote, "type-ref", baseline, Fields(("null", FieldValue.String("")), ("clear", FieldValue.Null)));
         var bench = new Bench(Guid.NewGuid(), "deliberate view",
             [new(SelectorKind.Pin, Local), new(SelectorKind.Subtree, Remote, hierarchyRelation: "parent"),
                 new(SelectorKind.Query, query: new(QueryKind.And, children: [
@@ -136,7 +136,7 @@ public sealed class SqliteStoreTests : IDisposable
             new WorkItem(ItemKey.Remote(Provider, "case/scope", Remote.NativeId!), "type-ref", FieldValues.Empty, null),
             new WorkItem(ItemKey.Remote(new ProviderId("another"), Connection.ResourceScope, Remote.NativeId!), "type-ref", FieldValues.Empty, null),
         };
-        await Commit(store, initial, Next(initial, items: identities, drafts: [Seed(), remoteDraft], benches: [bench]));
+        await Commit(store, initial, Next(initial, items: identities, retainedItems: [Seed(), remoteDraft], benches: [bench]));
         var reopened = await Read(await Open());
         reopened.Items.Select(i => i.Key).ShouldBe(identities.Select(i => i.Key));
         var item = reopened.Items[0];
@@ -149,10 +149,10 @@ public sealed class SqliteStoreTests : IDisposable
         item.ResourcesComplete.ShouldBeTrue();
         item.Resources.ShouldBe([resource]);
         reopened.Items[1].Revision.ShouldBeNull();
-        reopened.Drafts[0].Baseline.ShouldBeNull();
-        reopened.Drafts[1].Baseline!.Fields.ShouldBe(fields);
-        reopened.Drafts[1].Baseline!.Revision.ShouldBe(baseline.Revision);
-        reopened.Drafts[1].Changes.ShouldBe(remoteDraft.Changes);
+        reopened.RetainedItems[0].ShouldBeOfType<Seed>();
+        reopened.RetainedItems[1].ShouldBeOfType<LocalEdits>().EditBaseline.Fields.ShouldBe(fields);
+        reopened.RetainedItems[1].ShouldBeOfType<LocalEdits>().EditBaseline.Revision.ShouldBe(baseline.Revision);
+        reopened.RetainedItems[1].Fields.ShouldBe(remoteDraft.Fields);
         reopened.Benches[0].Id.ShouldBe(bench.Id);
         reopened.Benches[0].Name.ShouldBe(bench.Name);
         var query = reopened.Benches[0].Selectors[2].Query!;
@@ -278,7 +278,7 @@ public sealed class SqliteStoreTests : IDisposable
             new("html-comment", OpKind.Comment, Remote, Item().Revision, body: FieldValue.RichText("<p>exact</p>", FieldKind.Html)),
             new("delete", OpKind.Delete, Other, new Revision(Other, "separate-opaque")),
         ]);
-        await Commit(store, new(0), new(1, drafts: [Seed()], proposals: [proposal],
+        await Commit(store, new(0), new(1, retainedItems: [Seed()], proposals: [proposal],
             journal: proposal.Operations.Select((_, ordinal) => Planned(proposal, ordinal))));
         var retained = (await Read(await Open())).Proposals.Single();
         retained.Digest.ShouldBe(proposal.Digest);
@@ -296,7 +296,7 @@ public sealed class SqliteStoreTests : IDisposable
     {
         var first = await Create();
         var proposal = Creation();
-        await Commit(first, new(0), new(1, drafts: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
+        await Commit(first, new(0), new(1, retainedItems: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
         var second = await Open();
         var observed1 = await Read(first);
         var observed2 = await Read(second);
@@ -330,7 +330,7 @@ public sealed class SqliteStoreTests : IDisposable
         var proposal = Creation();
         var seed = Seed();
         var bench = new Bench(Guid.NewGuid(), "pin local alias", [new(SelectorKind.Pin, Local)]);
-        await Commit(store, new(0), new(1, drafts: [seed], proposals: [proposal], journal: [Planned(proposal)], benches: [bench]));
+        await Commit(store, new(0), new(1, retainedItems: [seed], proposals: [proposal], journal: [Planned(proposal)], benches: [bench]));
         var imported = await Read(await Open());
         var applying = imported.Journal[0].Begin(Guid.NewGuid()).Value;
         await Commit(store, imported, Next(imported, journal: [applying]));
@@ -370,7 +370,7 @@ public sealed class SqliteStoreTests : IDisposable
         readback.Journal[0].Receipts.Select(r => r.Status).ShouldBe([OpStatus.Applied, OpStatus.Verified]);
         readback.Journal[0].Receipts[0].Evidence.ShouldBe(applied.Receipts[0].Evidence);
         readback.Items[0].Revision!.Token.ShouldBe("verified:opaque");
-        readback.Drafts[0].Key.ShouldBe(Local);
+        readback.RetainedItems[0].Key.ShouldBe(Local);
         readback.Benches[0].Selectors[0].Item.ShouldBe(Local);
         (await store.CommitAsync(Connection, readback.Version, Next(readback, mappings: []), default)).Error.Code.ShouldBe(ErrorCode.Conflict);
         var rewritten = new PublishMapping(Local, Other, proposal.Digest, 0);
@@ -379,7 +379,7 @@ public sealed class SqliteStoreTests : IDisposable
         var refreshed = await Read(await Open());
         refreshed.Mappings[0].ShouldBe(mapping);
         refreshed.Journal[0].Status.ShouldBe(OpStatus.Verified);
-        refreshed.Drafts[0].Key.ShouldBe(Local);
+        refreshed.RetainedItems[0].Key.ShouldBe(Local);
         refreshed.Benches[0].Id.ShouldBe(bench.Id);
     }
 
@@ -392,7 +392,7 @@ public sealed class SqliteStoreTests : IDisposable
     {
         var store = await Create();
         var proposal = Creation();
-        await Commit(store, new(0), new(1, drafts: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
+        await Commit(store, new(0), new(1, retainedItems: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
         var imported = await Read(store);
         var applying = imported.Journal[0].Begin(Guid.NewGuid()).Value;
         await Commit(store, imported, Next(imported, journal: [applying]));
@@ -428,7 +428,7 @@ public sealed class SqliteStoreTests : IDisposable
     {
         var store = await Create();
         var proposal = Creation();
-        await Commit(store, new(0), new(1, drafts: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
+        await Commit(store, new(0), new(1, retainedItems: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
         var imported = await Read(store);
         await Commit(store, imported, Next(imported, journal: [imported.Journal[0].Begin(Guid.NewGuid()).Value]));
         var applying = await Read(store);
@@ -453,7 +453,7 @@ public sealed class SqliteStoreTests : IDisposable
         var store = await Create();
         var local = new Relationship(Remote, Other, "related", RelationshipOrigin.Local, 1);
         var provider = new Relationship(Remote, Other, "related", RelationshipOrigin.Provider);
-        await Commit(store, new(0), new(1, items: [Item()], relationships: [local, provider], drafts: [Seed()]));
+        await Commit(store, new(0), new(1, items: [Item()], relationships: [local, provider], retainedItems: [Seed()]));
         var before = await Read(await Open());
         before.Relationships.Select(r => r.Origin).ShouldBe([RelationshipOrigin.Local, RelationshipOrigin.Provider]);
         var tombstone = local with { Deleted = true, LocalVersion = 2 };
@@ -466,7 +466,7 @@ public sealed class SqliteStoreTests : IDisposable
         await Commit(store, deleted, Next(deleted, items: [Item("new mirror")], relationships: [tombstone]));
         var refreshed = await Read(await Open());
         refreshed.Relationships.Single().ShouldBe(tombstone);
-        refreshed.Drafts.Single().Key.ShouldBe(Local);
+        refreshed.RetainedItems.Single().Key.ShouldBe(Local);
         await Commit(store, refreshed, Next(refreshed, relationships: [tombstone with { Deleted = false, LocalVersion = 3 }]));
         (await Read(await Open())).Relationships.Single().LocalVersion.ShouldBe(3);
     }
@@ -482,7 +482,7 @@ public sealed class SqliteStoreTests : IDisposable
     {
         var store = await Create();
         var proposal = Creation();
-        await Commit(store, new(0), new(1, drafts: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
+        await Commit(store, new(0), new(1, retainedItems: [Seed()], proposals: [proposal], journal: [Planned(proposal)]));
         var expression = corruption switch
         {
             "unknown" => "json_set(document, '$.Unexpected', 1)",

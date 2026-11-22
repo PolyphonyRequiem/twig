@@ -7,7 +7,7 @@ using Model = Twig.Core.Core;
 
 namespace Twig.Infrastructure.Services;
 
-internal sealed record NativeEditorItem(WorkItem Observation, Draft? Draft, long StoreVersion,
+internal sealed record NativeEditorItem(WorkItem Observation, RetainedItem? Draft, long StoreVersion,
     NativeEditorCapture? Capture, EditorEvaluation Evaluation);
 
 /// <summary>Native-only authoring session. Cached guidance never grants publication authority.</summary>
@@ -105,7 +105,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             return await Workspace.ReadAsync(key, ct, metadata).ConfigureAwait(false);
         var stored = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<WorkItem>.Fail(stored.Error);
-        var seed = stored.Value.Drafts.SingleOrDefault(draft => draft.Key == key);
+        var seed = stored.Value.RetainedItems.SingleOrDefault(draft => draft.Key == key);
         return seed is null ? Result<WorkItem>.Fail(plan.PlanMode ? ErrorCode.NotFound : ErrorCode.Unsupported,
             "The exact owned seed is unavailable in this native store/mode; other Plan or CLI debt was not adopted.")
             : Result<WorkItem>.Ok(new(key, seed.Type, FieldValues.Empty, null, true));
@@ -154,10 +154,10 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (matches.SingleOrDefault() is { } retained
             && (retained.Origin != origin || !NativePathComparer.Instance.Equals(retained.Root, factory.WorkspaceRoot)))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Retained intent belongs to another native authority/origin; it was not adopted.");
-        var draft = stored.Drafts.SingleOrDefault(value => value.Key == observed.Key);
+        var draft = stored.RetainedItems.SingleOrDefault(value => value.Key == observed.Key);
         if (observed.Key.IsLocal && !plan.PlanMode && matches.SingleOrDefault() is { } owner && owner.BenchId != bench.Id)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The normal seed is owned by another exact Bench; its capture was not adopted.");
-        var evaluation = Model.EvaluateEditorFields(metadata.Schema, draft?.Baseline ?? observed, draft?.Changes ?? FieldValues.Empty,
+        var evaluation = Model.EvaluateEditorFields(metadata.Schema, (draft as LocalEdits)?.EditBaseline ?? observed, draft?.Fields ?? FieldValues.Empty,
             Workspace.Capabilities.AtomicFieldBatches, draft?.Type);
         return evaluation.IsSuccess ? Result<NativeEditorItem>.Ok(new(observed, draft, stored.Version, matches.SingleOrDefault(), evaluation.Value))
             : Result<NativeEditorItem>.Fail(evaluation.Error);
@@ -183,7 +183,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
                 && current.Value.Proposals.Single(value => value.Digest == row.Digest).Operations[row.Operation].Item == item.Observation.Key))
                 return Result<NativeEditorItem>.Fail(ErrorCode.Indeterminate, "An original creation attempt protects this UUID; no replacement intent was staged.");
             if (type is not null && type != item.Observation.Type || relationships is { IsEmpty: false }
-                || item.Draft is { } seed && (seed.Parent is not null || seed.ParentRelation is not null
+                || item.Draft is Seed seed && (seed.Parent is not null || seed.ParentRelation is not null
                     || seed.Resource is not null || !seed.Links.IsEmpty))
                 return Result<NativeEditorItem>.Fail(ErrorCode.Unsupported, "Normal seeds support one explicit type and scalar fields only, without parent, links or resources.");
         }
@@ -195,7 +195,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
                 return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The permanent seed belongs to another exact native scope.");
         }
         if (current.Value.Version != item.StoreVersion || Workspace.DraftFingerprint(item.Draft)
-            != Workspace.DraftFingerprint(current.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)))
+            != Workspace.DraftFingerprint(current.Value.RetainedItems.SingleOrDefault(value => value.Key == item.Observation.Key)))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The opened native/draft version changed; no intent was overwritten.");
         if (item.Capture is { Ready: true } owned && owned.DraftFingerprint != Workspace.DraftFingerprint(item.Draft))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Protected captured debt differs from Core; explicit recovery/review is required before restaging.");
@@ -205,21 +205,23 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "An incomplete durable capture needs explicit native recovery; all intent remains protected.");
         if (priorIntent is not null && priorIntent.SchemaFingerprint != metadata.Schema.Fingerprint)
             return Result<NativeEditorItem>.Fail(ErrorCode.SchemaChanged, "Retained intent has another captured schema; no metadata was silently replaced.");
-        var links = relationships ?? (item.Observation.Key.IsLocal ? item.Draft?.Links ?? [] : old?.Links ?? []);
+        var priorSeed = item.Draft as Seed;
+        var links = relationships ?? (item.Observation.Key.IsLocal ? priorSeed?.Links ?? [] : old?.Links ?? []);
         if (links.Length > 128 || fields.Count > 256)
             return Result<NativeEditorItem>.Fail(ErrorCode.InvalidInput, "Native editor field/relationship bounds exceeded.");
         if (!item.Observation.Key.IsLocal && old is { Links.IsEmpty: false } && old.ExpectedRevision != item.Observation.Revision)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Retained relationship intent has an older baseline; it was not silently rebased.");
-        var desired = new Draft(item.Observation.Key, type ?? item.Draft?.Type ?? item.Observation.Type,
-            item.Observation.Key.IsLocal ? null : item.Draft?.Baseline ?? item.Observation,
-            (item.Draft?.Changes ?? FieldValues.Empty).Overlay(fields), item.Draft?.Parent, item.Draft?.ParentRelation,
-            item.Draft?.Resource, item.Observation.Key.IsLocal ? links : []);
+        var desiredType = type ?? item.Draft?.Type ?? item.Observation.Type;
+        var desiredFields = (item.Draft?.Fields ?? FieldValues.Empty).Overlay(fields);
+        RetainedItem desired = item.Observation.Key.IsLocal
+            ? new Seed(item.Observation.Key, desiredType, desiredFields, priorSeed?.Parent, priorSeed?.ParentRelation, priorSeed?.Resource, links)
+            : new LocalEdits(item.Observation.Key, desiredType, (item.Draft as LocalEdits)?.EditBaseline ?? item.Observation, desiredFields);
         var endpoints = ImmutableArray.CreateBuilder<NativeEditorEndpoint>();
         foreach (var endpoint in links.Select(link => link.Other).Distinct())
         {
             if (endpoint.IsLocal)
             {
-                var draft = current.Value.Drafts.SingleOrDefault(value => value.Key == endpoint);
+                var draft = current.Value.RetainedItems.SingleOrDefault(value => value.Key == endpoint);
                 if (draft is null) return Result<NativeEditorItem>.Fail(ErrorCode.NotFound, "An exact relationship seed endpoint is missing.");
                 if (plan.PlanMode)
                 {
@@ -237,7 +239,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
                 var endpointSnapshot = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
                 if (!endpointSnapshot.IsSuccess) return Result<NativeEditorItem>.Fail(endpointSnapshot.Error);
                 endpoints.Add(new(CleanCoreAdoAccess.ItemText(endpoint), read.Value.Revision?.Token,
-                    Workspace.DraftFingerprint(endpointSnapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint))));
+                    Workspace.DraftFingerprint(endpointSnapshot.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint))));
             }
         }
         if (relationships is null && item.Capture is { } previous && !previous.Endpoints.SequenceEqual(endpoints))
@@ -249,13 +251,13 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (expectedEndpoints is { } witnessed && links.Select(link => link.Other).Distinct().Any(endpoint =>
             !witnessed.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint)
                 && proof.Revision == beforeStage.Value.Items.SingleOrDefault(value => value.Key == endpoint)?.Revision?.Token
-                && proof.DraftFingerprint == Workspace.DraftFingerprint(beforeStage.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint)))))
+                && proof.DraftFingerprint == Workspace.DraftFingerprint(beforeStage.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint)))))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The displayed endpoint evidence changed before capture reservation; no intent was overwritten.");
-        if (Workspace.DraftFingerprint(beforeStage.Value.Drafts.SingleOrDefault(value => value.Key == desired.Key))
+        if (Workspace.DraftFingerprint(beforeStage.Value.RetainedItems.SingleOrDefault(value => value.Key == desired.Key))
             != Workspace.DraftFingerprint(item.Draft))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Draft intent changed while endpoint evidence was captured.");
         var op = new Op("intent", desired.Key.IsLocal ? OpKind.Create : OpKind.Batch, desired.Key, item.Observation.Revision,
-            desired.Changes, desired.Type, desired.Parent, desired.ParentRelation, resource: desired.Resource, links: links,
+            desired.Fields, desired.Type, priorSeed?.Parent, priorSeed?.ParentRelation, resource: priorSeed?.Resource, links: links,
             concurrency: desired.Key.IsLocal ? ConcurrencyMode.ObservedNonAtomic : Workspace.Concurrency);
         var intent = Encoding.UTF8.GetString(Model.ProposalBytes(new(Workspace.Connection, metadata.Schema.Fingerprint, beforeStage.Value.Version, [op])));
         var capture = new NativeEditorCapture(item.Capture?.Id ?? Guid.NewGuid(), (item.Capture?.Revision ?? 0) + 1,
@@ -267,11 +269,11 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!retained.IsSuccess) return Result<NativeEditorItem>.Fail(retained.Error);
         var admission = await user.AdmitCaptureStageAsync(capture, null, ct).ConfigureAwait(false);
         if (!admission.IsSuccess) return Result<NativeEditorItem>.Fail(admission.Error);
-        var staged = desired.Key.IsLocal
-            ? await Workspace.StageSeedAsync(desired.Type, fields, ct, desired.Key.LocalId,
-                desired.Parent, desired.ParentRelation, desired.Resource, links).ConfigureAwait(false)
-            : await Workspace.StageEditAsync(desired.Key, fields, ct, type, item.Observation, beforeStage.Value.Version).ConfigureAwait(false);
-        if (!staged.IsSuccess) return Result<NativeEditorItem>.Fail(staged.Error);
+        var stageError = desired is Seed desiredSeed
+            ? StageError(await Workspace.StageSeedAsync(desired.Type, fields, ct, desired.Key.LocalId,
+                desiredSeed.Parent, desiredSeed.ParentRelation, desiredSeed.Resource, links).ConfigureAwait(false))
+            : StageError(await Workspace.StageEditAsync(desired.Key, fields, ct, type, item.Observation, beforeStage.Value.Version).ConfigureAwait(false));
+        if (stageError is not null) return Result<NativeEditorItem>.Fail(stageError);
         var after = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!after.IsSuccess) return Result<NativeEditorItem>.Fail(after.Error);
         var observedStage = await user.AdmitCaptureStageAsync(capture, after.Value.Version, ct).ConfigureAwait(false);
@@ -297,7 +299,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (capture is not { Ready: true, Settled: false } || !captures.Value.Any(value => value.SameAs(capture))
             || capture.Origin != origin || stored.Value.Version != item.StoreVersion
             || capture.PlanMode || !NativePathComparer.Instance.Equals(capture.Root, factory.WorkspaceRoot)
-            || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
+            || Workspace.DraftFingerprint(stored.Value.RetainedItems.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The exact normal capture, source or native/draft revision changed.");
         if (capture.UserInstance != library.InstanceId || capture.BenchId != bench.Id || capture.BenchRevision != bench.Revision
             || capture.PlanId != plan.Id || capture.PlanRevision != plan.Revision)
@@ -354,7 +356,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
         if (capture is not { Ready: false, Settled: false } || capture.Origin != origin
             || stored.Value.Version <= capture.StoreVersion
-            || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
+            || Workspace.DraftFingerprint(stored.Value.RetainedItems.SingleOrDefault(value => value.Key == item.Observation.Key)) != capture.DraftFingerprint)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "No exact durable native draft proves this interrupted capture; every artifact remains protected.");
         var witnessed = await user.AdmitCaptureStageAsync(capture, stored.Value.Version, ct).ConfigureAwait(false);
         if (!witnessed.IsSuccess) return Result<NativeEditorItem>.Fail(witnessed.Error);
@@ -374,7 +376,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!stored.IsSuccess) return Result<NativeEditorItem>.Fail(stored.Error);
         if (pending is not { Ready: false, Settled: false, Cancelled: false } || pending.Origin != origin
             || stored.Value.Version < pending.StoreVersion
-            || Workspace.DraftFingerprint(stored.Value.Drafts.SingleOrDefault(value => value.Key == item.Observation.Key)) != pending.BeforeFingerprint)
+            || Workspace.DraftFingerprint(stored.Value.RetainedItems.SingleOrDefault(value => value.Key == item.Observation.Key)) != pending.BeforeFingerprint)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The exact before-state is not present; interrupted intent remains protected.");
         if (cancel)
         {
@@ -382,20 +384,23 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             return cancelled.IsSuccess ? await Item(item.Observation, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(cancelled.Error);
         }
         var intent = UserBenchStore.ParseIntent(pending.IntentJson).Operations.Single();
-        var candidate = new Draft(intent.Item, intent.Type ?? item.Observation.Type,
-            intent.Item.IsLocal ? null : item.Draft?.Baseline ?? item.Observation, intent.Fields,
-            intent.Other, intent.Relation, intent.Resource, intent.Item.IsLocal ? intent.Links : []);
+        var candidateType = intent.Type ?? item.Observation.Type;
+        RetainedItem candidate = intent.Item.IsLocal
+            ? new Seed(intent.Item, candidateType, intent.Fields, intent.Other, intent.Relation, intent.Resource, intent.Links)
+            : new LocalEdits(intent.Item, candidateType, (item.Draft as LocalEdits)?.EditBaseline ?? item.Observation, intent.Fields);
         if (Workspace.DraftFingerprint(candidate) != pending.DraftFingerprint)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Fresh baseline differs from exact retained intent; review is required.");
         var admitted = await user.AdmitCaptureStageAsync(pending, null, ct).ConfigureAwait(false);
         if (!admitted.IsSuccess) return Result<NativeEditorItem>.Fail(admitted.Error);
-        var stage = intent.Item.IsLocal
-            ? await Workspace.StageSeedAsync(candidate.Type, candidate.Changes, ct, intent.Item.LocalId,
-                candidate.Parent, candidate.ParentRelation, candidate.Resource, candidate.Links).ConfigureAwait(false)
-            : await Workspace.StageEditAsync(intent.Item, candidate.Changes, ct, candidate.Type, item.Observation,
-                stored.Value.Version).ConfigureAwait(false);
-        return stage.IsSuccess ? await RecoverCaptureAsync(item, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(stage.Error);
+        var stageError = candidate is Seed candidateSeed
+            ? StageError(await Workspace.StageSeedAsync(candidate.Type, candidate.Fields, ct, intent.Item.LocalId,
+                candidateSeed.Parent, candidateSeed.ParentRelation, candidateSeed.Resource, candidateSeed.Links).ConfigureAwait(false))
+            : StageError(await Workspace.StageEditAsync(intent.Item, candidate.Fields, ct, candidate.Type, item.Observation,
+                stored.Value.Version).ConfigureAwait(false));
+        return stageError is null ? await RecoverCaptureAsync(item, ct).ConfigureAwait(false) : Result<NativeEditorItem>.Fail(stageError);
     }
+
+    private static Error? StageError<T>(Result<T> result) => result.IsSuccess ? null : result.Error;
 
     internal async Task<Result<bool>> ValidateAsync(CancellationToken ct)
     {

@@ -100,7 +100,7 @@ internal sealed class LocalRelationshipCommand(
                 var ids = edges.Select(edge =>
                 {
                     var neighbor = Logical(state, Logical(state, edge.From) == key ? edge.To : edge.From);
-                    if (neighbor.IsLocal && (!state.Drafts.Any(draft => draft.Key == neighbor && draft.Baseline is null)
+                    if (neighbor.IsLocal && (!state.RetainedItems.OfType<Seed>().Any(seed => seed.Key == neighbor)
                         || CoreHostContext.KnownLocalKeys(state).Count(value =>
                             CoreHostContext.LocalAlias(value) == CoreHostContext.LocalAlias(neighbor)) != 1))
                         return Result<int>.Fail(ErrorCode.Conflict, "The neighbor alias has no unique live seed evidence.");
@@ -141,7 +141,7 @@ internal sealed class LocalRelationshipCommand(
         }
         else key = ItemKey.Local(Guid.ParseExact(text, "D"));
         var mapped = Logical(stored.Value, key);
-        return stored.Value.Drafts.Any(draft => draft.Key == key && draft.Baseline is null)
+        return stored.Value.RetainedItems.OfType<Seed>().Any(seed => seed.Key == key)
             || mapped != key && mapped.BelongsTo(workspace.Connection) && stored.Value.Items.Any(item => item.Key == mapped)
             ? Result<ItemKey>.Ok(key)
             : Result<ItemKey>.Fail(ErrorCode.Unavailable, "The UUID has no live seed or original Verified publication with an observed native endpoint.");

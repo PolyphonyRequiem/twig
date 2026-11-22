@@ -107,11 +107,11 @@ public sealed partial class NativeItemEditor : IDisposable
     private Result<bool> SupportedItem(NativeEditorItem item)
     {
         var intent = item.Capture is { } retained ? UserBenchStore.ParseIntent(retained.IntentJson).Operations.Single() : null;
-        if (item.Draft is { } draft && (draft.Type != item.Observation.Type || draft.Parent is not null
-            || draft.ParentRelation is not null || draft.Resource is not null || !draft.Links.IsEmpty)
+        if (item.Draft is { } draft && (draft.Type != item.Observation.Type || draft is Seed seed && (seed.Parent is not null
+            || seed.ParentRelation is not null || seed.Resource is not null || !seed.Links.IsEmpty))
             || intent is not null && (intent.Type is not null && intent.Type != item.Observation.Type
                 || intent.Other is not null || intent.Relation is not null || intent.Resource is not null || intent.Body is not null)
-            || GitHub && ((item.Draft?.Changes ?? FieldValues.Empty).Any(field => !GitHubScalar(field.Key))
+            || GitHub && ((item.Draft?.Fields ?? FieldValues.Empty).Any(field => !GitHubScalar(field.Key))
                 || intent is not null && intent.Fields.Any(field => !GitHubScalar(field.Key))))
             return Result<bool>.Fail(ErrorCode.Unsupported, "Protected type, collection, creation or resource intent is unsupported; nothing was adopted or dropped.");
         if (item.Draft is not null && item.Capture is null)
@@ -263,17 +263,17 @@ public sealed partial class NativeItemEditor : IDisposable
         finally { gate.Release(); }
     }
 
-    public async Task<Result<ImmutableArray<Draft>>> ReadPlanDraftsAsync(CancellationToken ct = default)
+    public async Task<Result<ImmutableArray<RetainedItem>>> ReadPlanDraftsAsync(CancellationToken ct = default)
     {
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (!PlanMode) return Result<ImmutableArray<Draft>>.Fail(ErrorCode.Conflict, "This editor is outside Plan mode.");
+            if (!PlanMode) return Result<ImmutableArray<RetainedItem>>.Fail(ErrorCode.Conflict, "This editor is outside Plan mode.");
             var valid = await editor.ValidateAsync(ct).ConfigureAwait(false);
-            if (!valid.IsSuccess) return Result<ImmutableArray<Draft>>.Fail(valid.Error);
+            if (!valid.IsSuccess) return Result<ImmutableArray<RetainedItem>>.Fail(valid.Error);
             var snapshot = await editor.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
-            return snapshot.IsSuccess ? Result<ImmutableArray<Draft>>.Ok(snapshot.Value.Drafts)
-                : Result<ImmutableArray<Draft>>.Fail(snapshot.Error);
+            return snapshot.IsSuccess ? Result<ImmutableArray<RetainedItem>>.Ok(snapshot.Value.RetainedItems)
+                : Result<ImmutableArray<RetainedItem>>.Fail(snapshot.Error);
         }
         finally { gate.Release(); }
     }
@@ -281,8 +281,8 @@ public sealed partial class NativeItemEditor : IDisposable
     private Result<NativeEditForm> Form(Guid ticket, NativeEditorItem item, FieldValues changes)
     {
         if (changes.Count > 64) return Result<NativeEditForm>.Fail(ErrorCode.InvalidInput, "Too many edited fields.");
-        var draft = (item.Draft?.Changes ?? FieldValues.Empty).Overlay(changes);
-        var baseline = item.Draft?.Baseline ?? item.Observation;
+        var draft = (item.Draft?.Fields ?? FieldValues.Empty).Overlay(changes);
+        var baseline = (item.Draft as LocalEdits)?.EditBaseline ?? item.Observation;
         var evaluated = Model.EvaluateEditorFields(editor.Metadata.Schema, baseline, draft,
             editor.Workspace.Capabilities.AtomicFieldBatches);
         if (!evaluated.IsSuccess) return Result<NativeEditForm>.Fail(evaluated.Error);

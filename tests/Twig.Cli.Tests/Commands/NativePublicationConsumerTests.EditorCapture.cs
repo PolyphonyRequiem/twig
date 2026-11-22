@@ -45,7 +45,7 @@ public sealed partial class NativePublicationConsumerTests
         saved.Value.EffectsVerified.ShouldBeTrue();
         _transport.PatchAttempts.ShouldBe(1);
         _transport.TitleOf(42).ShouldBe("exact normal title");
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.ShouldBeEmpty();
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.ShouldBeEmpty();
     }
 
     [Fact]
@@ -70,8 +70,8 @@ public sealed partial class NativePublicationConsumerTests
         var item = (await plan.SelectAsync(key, default)).Value;
         var staged = await plan.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("Plan only")), null, null, default);
         staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("normal only");
-        (await plan.Workspace.SnapshotAsync(default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("Plan only");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("normal only");
+        (await plan.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("Plan only");
         _transport.PatchAttempts.ShouldBe(0);
         (await plan.SaveAsync(staged.Value, default)).IsSuccess.ShouldBeFalse();
         (await user.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, plan.Plan.Revision, false)).IsSuccess.ShouldBeTrue();
@@ -85,7 +85,7 @@ public sealed partial class NativePublicationConsumerTests
         save.IsSuccess.ShouldBeTrue(save.IsSuccess ? "" : save.Error.Message);
         save.Value.Error.ShouldBeNull();
         _transport.TitleOf(42).ShouldBe("normal only");
-        (await plan.Workspace.SnapshotAsync(default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("Plan only");
+        (await plan.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("Plan only");
     }
 
     private ServiceProvider EditorServices(string root)

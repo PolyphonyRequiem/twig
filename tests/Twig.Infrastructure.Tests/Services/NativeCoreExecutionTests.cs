@@ -153,7 +153,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var before = Required(await store.ReadAsync(connection, default));
         var acknowledged = Required(before.Journal.Single().Record(new(create.Proposal.Digest, 0, create.Attempt,
             OpStatus.Applied, ["attributed synthetic create ACK"], publishedKey: remote)));
-        Required(await store.CommitAsync(connection, before.Version, new(before.Version + 1, drafts: before.Drafts,
+        Required(await store.CommitAsync(connection, before.Version, new(before.Version + 1, retainedItems: before.RetainedItems,
             proposals: before.Proposals, journal: [acknowledged], mappings: [new(uuid, remote, create.Proposal.Digest, 0)]), default));
         if (deletedReferences)
         {
@@ -419,16 +419,16 @@ public sealed class NativeCoreExecutionTests : IDisposable
     {
         var store = Required(await SqliteStore.OpenAsync(source.DatabasePath, expectedInstance: source.Instance));
         var fields = FieldValues.Empty.Set("System.Title", FieldValue.String("authored"));
-        var draft = key.IsLocal ? new Draft(key, "Native.Type", null, fields) : null;
+        var draft = key.IsLocal ? new Seed(key, "Native.Type", fields) : null;
         var op = key.IsLocal ? new Op("create", OpKind.Create, key, fields: fields, type: "Native.Type", concurrency: ConcurrencyMode.ObservedNonAtomic)
             : new Op("edit", OpKind.Batch, key, new(key, "revision"), fields);
         var proposal = new Proposal(source.Connection, "schema", 0, [op]);
         var planned = JournalEntry.Planned(proposal.Digest, 0);
-        Required(await store.CommitAsync(source.Connection, 0, new(1, drafts: draft is null ? [] : [draft],
+        Required(await store.CommitAsync(source.Connection, 0, new(1, retainedItems: draft is null ? [] : [draft],
             proposals: [proposal], journal: [planned]), default));
         if (status == OpStatus.Planned) return (proposal, Guid.NewGuid());
         var row = Required(planned.Begin(Guid.NewGuid()));
-        Required(await store.CommitAsync(source.Connection, 1, new(2, drafts: draft is null ? [] : [draft],
+        Required(await store.CommitAsync(source.Connection, 1, new(2, retainedItems: draft is null ? [] : [draft],
             proposals: [proposal], journal: [row]), default));
         if (status != OpStatus.Applying)
         {
@@ -438,7 +438,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
             if (hasAcknowledgement)
             {
                 row = Required(row.Record(new(proposal.Digest, 0, row.Attempt, OpStatus.Applied, ["synthetic ACK"], publishedKey: published)));
-                Required(await store.CommitAsync(source.Connection, 2, new(3, drafts: draft is null ? [] : [draft],
+                Required(await store.CommitAsync(source.Connection, 2, new(3, retainedItems: draft is null ? [] : [draft],
                     proposals: [proposal], journal: [row], mappings: published is null ? [] : [new(key, published, proposal.Digest, 0)]), default));
             }
             row = Required(row.Record(new(proposal.Digest, 0, row.Attempt, status,
@@ -446,7 +446,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
                 publishedKey: published, error: status is OpStatus.Indeterminate or OpStatus.Partial ? new(ErrorCode.Indeterminate, "unknown or partial")
                     : status == OpStatus.Failed ? new(ErrorCode.PolicyViolation, "rejected before dispatch") : null)));
             var version = hasAcknowledgement ? 3 : 2;
-            Required(await store.CommitAsync(source.Connection, version, new(version + 1, drafts: draft is null ? [] : [draft],
+            Required(await store.CommitAsync(source.Connection, version, new(version + 1, retainedItems: draft is null ? [] : [draft],
                 proposals: [proposal], journal: [row], mappings: published is null ? [] : [new(key, published, proposal.Digest, 0)]), default));
         }
         return (proposal, row.Attempt);

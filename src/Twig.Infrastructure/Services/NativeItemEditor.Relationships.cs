@@ -56,7 +56,7 @@ public sealed partial class NativeItemEditor
             if (snapshot.Value.Version != item.StoreVersion)
                 return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The endpoint draft evidence changed while opening the qualified ticket.");
             var proof = new NativeEditorEndpoint(CleanCoreAdoAccess.ItemText(other), endpoint.Value.Revision?.Token,
-                editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == other)));
+                editor.Workspace.DraftFingerprint(snapshot.Value.RetainedItems.SingleOrDefault(draft => draft.Key == other)));
             var form = await RelationshipFormAsync(ticket, item, endpoint.Value, ct).ConfigureAwait(false);
             if (!form.IsSuccess) return form;
             items[ticket] = item;
@@ -128,14 +128,14 @@ public sealed partial class NativeItemEditor
         if (target.Value.Revision != item.Observation.Revision)
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "The captured relationship target changed; original intent was not restaged.");
         var prepared = await editor.Workspace.PrepareAsync([new("relationship", OpKind.Batch, item.Observation.Key,
-            item.Observation.Revision, (item.Draft?.Changes ?? FieldValues.Empty).Overlay(changes),
+            item.Observation.Revision, (item.Draft?.Fields ?? FieldValues.Empty).Overlay(changes),
             links: intent, concurrency: editor.Workspace.Concurrency)], ct).ConfigureAwait(false);
         if (!prepared.IsSuccess) return Result<NativeEditorItem>.Fail(prepared.Error);
         if (prepared.Value.SchemaFingerprint != editor.Metadata.Schema.Fingerprint)
             return Result<NativeEditorItem>.Fail(ErrorCode.SchemaChanged, "The relationship editor metadata changed; reopen the exact source.");
         var snapshot = await editor.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<NativeEditorItem>.Fail(snapshot.Error);
-        if (editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == item.Observation.Key))
+        if (editor.Workspace.DraftFingerprint(snapshot.Value.RetainedItems.SingleOrDefault(draft => draft.Key == item.Observation.Key))
             != editor.Workspace.DraftFingerprint(item.Draft))
             return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Independent draft debt changed during relationship review.");
         var staged = await editor.StageAsync(item with { StoreVersion = snapshot.Value.Version }, changes, null, intent, ct,
@@ -156,12 +156,12 @@ public sealed partial class NativeItemEditor
             return Result<NativeRelationshipForm>.Fail(ErrorCode.Unavailable, "Complete incident evidence for both explicit endpoints is required.");
         if (relationshipEndpoints.TryGetValue(ticket, out var displayed)
             && (displayed.Proof.Revision != endpoint.Revision.Token
-                || displayed.Proof.DraftFingerprint != editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint.Key))))
+                || displayed.Proof.DraftFingerprint != editor.Workspace.DraftFingerprint(snapshot.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint.Key))))
             return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The qualified ticket's original endpoint draft evidence changed; no newer proof was adopted.");
         if (item.Capture is { } retained && !UserBenchStore.ParseIntent(retained.IntentJson).Operations.Single().Links.IsEmpty
             && !retained.Endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint.Key)
                 && proof.Revision == endpoint.Revision.Token
-                && proof.DraftFingerprint == editor.Workspace.DraftFingerprint(snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint.Key))))
+                && proof.DraftFingerprint == editor.Workspace.DraftFingerprint(snapshot.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint.Key))))
             return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The original captured endpoint draft evidence changed; no debt was adopted.");
         var schema = editor.Metadata.Schema;
         var capabilities = editor.Workspace.Capabilities;
@@ -188,7 +188,7 @@ public sealed partial class NativeItemEditor
         return Result<NativeRelationshipForm>.Ok(new(form.Value with
         {
             InputBaseline = form.Value.InputBaseline + ":" + editor.Workspace.DraftFingerprint(
-                snapshot.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint.Key)),
+                snapshot.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint.Key)),
         }, item.Observation, endpoint, relations, choices.ToImmutable(), intent,
             snapshot.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider && !edge.Deleted
                 && (edge.From == item.Observation.Key || edge.To == item.Observation.Key || edge.From == endpoint.Key || edge.To == endpoint.Key)).ToImmutableArray()));

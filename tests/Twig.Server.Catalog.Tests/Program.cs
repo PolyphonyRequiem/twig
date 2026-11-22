@@ -273,9 +273,9 @@ var tests = new (string Name, Func<Task> Run)[]
         var item = Synthetic.Item(source, "42", FieldValues.Empty.Set("Demo.Workflow", FieldValue.String("Example active")));
         var local = ItemKey.Local(Guid.NewGuid());
         var outside = ItemKey.Local(Guid.NewGuid());
-        var draft = new Draft(item.Key, item.Type, item, FieldValues.Empty.Set("Demo.Workflow", FieldValue.Null));
-        var debt = new Draft(outside, item.Type, null, FieldValues.Empty.Set("Demo.Workflow", FieldValue.String("Example active")));
-        var observation = Synthetic.Observation(source, [item], drafts: [draft, debt],
+        var draft = new LocalEdits(item.Key, item.Type, item, FieldValues.Empty.Set("Demo.Workflow", FieldValue.Null));
+        var debt = new Seed(outside, item.Type, FieldValues.Empty.Set("Demo.Workflow", FieldValue.String("Example active")));
+        var observation = Synthetic.Observation(source, [item], retainedItems: [draft, debt],
             mappings: [new(local, item.Key, "synthetic-digest", 0)]);
         var selection = new SourceSelection(source.Id, source.Binding, [new(SelectorKind.Pin, local)]);
         var projected = Required(SourceProjection.Create(new(Guid.NewGuid(), "Mapped synthetic", 1, [selection]), selection, observation));
@@ -432,13 +432,13 @@ static class Synthetic
     public static SourceSelection All(RegisteredSource source)
         => new(source.Id, source.Binding, [new(SelectorKind.Query, query: new(QueryKind.All))]);
     public static SourceObservation Observation(RegisteredSource source, WorkItem[] items, Relationship[]? edges = null,
-        Draft[]? drafts = null, PublishMapping[]? mappings = null, CoreBench[]? benches = null)
+        RetainedItem[]? retainedItems = null, PublishMapping[]? mappings = null, CoreBench[]? benches = null)
     {
         var type = new ItemType("SyntheticWork", "Demo.Workflow",
             [new("Demo.Workflow", FieldKind.Text), new("Demo.Flag", FieldKind.Boolean), new("Demo.Tags", FieldKind.StringList)],
             [new("Example active", StateCategory.InProgress)], [],
             [new("Demo.Tags", RuleAction.Allowed, [], [FieldValue.Strings(["a", "b"]), FieldValue.Strings([])])]);
-        return new(source.Binding, new(5, items, edges, drafts, mappings: mappings, benches: benches),
+        return new(source.Binding, new(5, items, edges, retainedItems, mappings: mappings, benches: benches),
             new(source.Binding.Connection, [type], [new("Demo.Parent", RelationShape.Hierarchy, true)]),
             DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, ObservationMode.OnlineMetadata);
     }

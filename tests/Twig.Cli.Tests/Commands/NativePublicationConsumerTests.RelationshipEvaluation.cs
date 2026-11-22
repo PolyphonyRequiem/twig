@@ -37,15 +37,15 @@ public sealed partial class NativePublicationConsumerTests
         if (retained)
             (await editor.StageRelationshipsAsync(form.Fields.Ticket, FieldValues.Empty, [link])).IsSuccess.ShouldBeTrue();
         var before = (await origin.Workspace.SnapshotAsync(default)).Value;
-        var draftFingerprint = origin.Workspace.DraftFingerprint(before.Drafts.SingleOrDefault(draft => draft.Key == key));
+        var draftFingerprint = origin.Workspace.DraftFingerprint(before.RetainedItems.SingleOrDefault(draft => draft.Key == key));
         var capture = (await user.ReadEditorCapturesAsync(default)).Value.SingleOrDefault();
         if (retained)
         {
             capture.ShouldNotBeNull().Ready.ShouldBeTrue();
             UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links.ShouldBe([link]);
-            before.Drafts.ShouldHaveSingleItem().Changes.Count.ShouldBe(0);
+            before.RetainedItems.ShouldHaveSingleItem().Fields.Count.ShouldBe(0);
         }
-        else { capture.ShouldBeNull(); before.Drafts.ShouldBeEmpty(); }
+        else { capture.ShouldBeNull(); before.RetainedItems.ShouldBeEmpty(); }
         var changes = FieldValues.Empty.Set(type.StateField, FieldValue.String(done));
         var expected = Twig.Core.Core.EvaluateEditorFields(schema, form.Target, changes, true).Value;
         expected.Fields.Single(field => field.Definition.Reference == gate).Required.ShouldBeTrue();
@@ -65,7 +65,7 @@ public sealed partial class NativePublicationConsumerTests
         (await editor.SaveAsync(form.Fields.Ticket, complete)).Error.Code.ShouldBe(ErrorCode.Unsupported);
         var after = (await origin.Workspace.SnapshotAsync(default)).Value;
         after.Version.ShouldBe(before.Version, "Field evaluation must not stage, recapture, prepare or update the Core store.");
-        origin.Workspace.DraftFingerprint(after.Drafts.SingleOrDefault(draft => draft.Key == key)).ShouldBe(draftFingerprint);
+        origin.Workspace.DraftFingerprint(after.RetainedItems.SingleOrDefault(draft => draft.Key == key)).ShouldBe(draftFingerprint);
         after.Proposals.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         after.Items.Single(item => item.Key == key).Fields[type.StateField].Text.ShouldBe(doing);
@@ -108,8 +108,8 @@ public sealed partial class NativePublicationConsumerTests
         evaluated.IsSuccess.ShouldBeFalse(damage);
         var after = (await origin.Workspace.SnapshotAsync(default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Drafts.Select(draft => origin.Workspace.DraftFingerprint(draft))
-            .ShouldBe(before.Drafts.Select(draft => origin.Workspace.DraftFingerprint(draft)));
+        after.RetainedItems.Select(draft => origin.Workspace.DraftFingerprint(draft))
+            .ShouldBe(before.RetainedItems.Select(draft => origin.Workspace.DraftFingerprint(draft)));
         after.Proposals.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();

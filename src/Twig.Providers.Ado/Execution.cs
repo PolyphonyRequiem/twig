@@ -474,7 +474,7 @@ public sealed partial class AdoProvider
     private static StoreSnapshot Copy(StoreSnapshot store, long version, IEnumerable<WorkItem>? items = null,
         IEnumerable<Relationship>? relationships = null, IEnumerable<Proposal>? proposals = null,
         IEnumerable<JournalEntry>? journal = null, IEnumerable<PublishMapping>? mappings = null)
-        => new(version, items ?? store.Items, relationships ?? store.Relationships, store.Drafts,
+        => new(version, items ?? store.Items, relationships ?? store.Relationships, store.RetainedItems,
             proposals ?? store.Proposals, journal ?? store.Journal, mappings ?? store.Mappings, store.Benches);
 
     private static bool SameReceipt(Receipt a, Receipt b) => a.Digest == b.Digest && a.Operation == b.Operation

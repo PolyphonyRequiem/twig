@@ -53,7 +53,7 @@ internal sealed partial class CoreWorkspace
             if (ordinal is null || !snapshot.Journal.Any(row =>
                 row.Digest == proposal.Digest && row.Operation == ordinal && row.Status == OpStatus.Verified))
                 return Result<bool>.Fail(ErrorCode.Indeterminate, "Only attributable original Verified operations can settle local draft intent.");
-            var draft = snapshot.Drafts.SingleOrDefault(value => value.Key == capture.Key);
+            var draft = snapshot.RetainedItems.SingleOrDefault(value => value.Key == capture.Key);
             if (draft is not null && DraftFingerprint(draft) != capture.Fingerprint)
                 return Result<bool>.Fail(ErrorCode.Conflict, "Remote effects verified; newer native draft intent was preserved.");
             if (capture.Key.IsLocal && !snapshot.Mappings.Any(mapping =>
@@ -61,9 +61,9 @@ internal sealed partial class CoreWorkspace
                 return Result<bool>.Fail(ErrorCode.Indeterminate, "The original Verified seed mapping is required; its UUID was not recreated.");
         }
         var keys = captures.Select(capture => capture.Key).ToHashSet();
-        if (!snapshot.Drafts.Any(draft => keys.Contains(draft.Key))) return Result<bool>.Ok(true);
+        if (!snapshot.RetainedItems.Any(draft => keys.Contains(draft.Key))) return Result<bool>.Ok(true);
         var settled = await store.CommitAsync(connection, snapshot.Version,
-            Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(draft => !keys.Contains(draft.Key))), ct).ConfigureAwait(false);
+            Copy(snapshot, snapshot.Version + 1, retainedItems: snapshot.RetainedItems.Where(draft => !keys.Contains(draft.Key))), ct).ConfigureAwait(false);
         return settled.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(settled.Error);
     }
 }

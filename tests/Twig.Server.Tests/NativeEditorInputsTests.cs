@@ -54,7 +54,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         observed.Values!.Fields[0].Value.Value.GetString().ShouldBe("private incomplete input");
         var after = (await handle.Workspace.SnapshotAsync(default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Drafts.ShouldBe(before.Drafts);
+        after.RetainedItems.ShouldBe(before.RetainedItems);
         JournalEvidence(after).ShouldBe(JournalEvidence(before));
         (await definitions.ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
 
@@ -130,13 +130,13 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         await Send(HttpMethod.Post, "editor/close", new EditorCloseBody(staged.Ticket));
         var after = (await handle.Workspace.SnapshotAsync(default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Drafts.ShouldBe(before.Drafts);
+        after.RetainedItems.ShouldBe(before.RetainedItems);
         JournalEvidence(after).ShouldBe(JournalEvidence(before));
         (await definitions.ReadEditorCapturesAsync(default)).Value.Select(value => (value.Id, value.Revision, value.Settled))
             .ShouldBe(captures.Select(value => (value.Id, value.Revision, value.Settled)));
         (await Open(planMode: true)).Inputs!.Status.ShouldBe("Discarded");
-        (await ownerSession.Editor.Native!.ReadPlanDraftsAsync()).Value.Select(draft => (draft.Key, draft.Changes[NativeProvider.Title].Text))
-            .ShouldBe(drafts.Select(draft => (draft.Key, draft.Changes[NativeProvider.Title].Text)));
+        (await ownerSession.Editor.Native!.ReadPlanDraftsAsync()).Value.Select(draft => (draft.Key, draft.Fields[NativeProvider.Title].Text))
+            .ShouldBe(drafts.Select(draft => (draft.Key, draft.Fields[NativeProvider.Title].Text)));
     }
 
     [Fact]
@@ -163,7 +163,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         await Send(HttpMethod.Post, "editor/close", new EditorCloseBody(next.Ticket));
         var after = (await handle.Workspace.SnapshotAsync(default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Drafts.ShouldBe(before.Drafts);
+        after.RetainedItems.ShouldBe(before.RetainedItems);
         JournalEvidence(after).ShouldBe(JournalEvidence(before));
         (await definitions.ReadEditorCapturesAsync(default)).Value.Select(value => (value.Id, value.Revision, value.Settled))
             .ShouldBe(captures.Select(value => (value.Id, value.Revision, value.Settled)));

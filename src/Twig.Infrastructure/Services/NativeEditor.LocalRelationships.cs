@@ -143,7 +143,7 @@ internal sealed partial class NativeEditor
             return Result<NativeLocalRelationshipSelection>.Fail(ErrorCode.Indeterminate, "An original unresolved effect protects this local pair; no replacement review.");
         var endpoints = new[] { target.Value.Observation, endpoint.Value.Observation }.Select(item =>
             new NativeEditorEndpoint(CleanCoreAdoAccess.ItemText(item.Key), item.Revision?.Token,
-                Workspace.DraftFingerprint(state.Value.Drafts.SingleOrDefault(draft => draft.Key == item.Key)))).ToImmutableArray();
+                Workspace.DraftFingerprint(state.Value.RetainedItems.SingleOrDefault(draft => draft.Key == item.Key)))).ToImmutableArray();
         var selection = new NativeLocalRelationshipSelection(target.Value, endpoint.Value, state.Value.Version, pair.Value, endpoints);
         var coherent = await CheckLocalEndpointEvidenceAsync(selection, state.Value, ct).ConfigureAwait(false);
         return coherent.IsSuccess ? Result<NativeLocalRelationshipSelection>.Ok(selection)
@@ -170,7 +170,7 @@ internal sealed partial class NativeEditor
         if (!read.Value.Complete || read.Value.Items.Length != 2
             || selection.Endpoints.Any(endpoint => !read.Value.Items.Any(item => item.RelationshipsComplete
                 && CleanCoreAdoAccess.ItemText(item.Key) == endpoint.Key && item.Revision?.Token == endpoint.Revision)
-                || Workspace.DraftFingerprint(state.Drafts.SingleOrDefault(draft =>
+                || Workspace.DraftFingerprint(state.RetainedItems.SingleOrDefault(draft =>
                     CleanCoreAdoAccess.ItemText(draft.Key) == endpoint.Key)) != endpoint.DraftFingerprint))
             return Result<bool>.Fail(ErrorCode.Conflict, "The displayed local endpoint or scalar draft evidence changed; no recapture.");
         var valid = await ValidateAsync(ct).ConfigureAwait(false);

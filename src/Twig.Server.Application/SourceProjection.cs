@@ -8,15 +8,15 @@ namespace Bench.Application;
 public static class SourceProjection
 {
     public static Result<SourceView> CreateOwnedSeeds(BenchDefinition definition, SourceSelection selection,
-        SourceObservation observation, ImmutableArray<Draft> editable, ImmutableArray<ItemKey> receipts, CancellationToken ct)
+        SourceObservation observation, ImmutableArray<RetainedItem> editable, ImmutableArray<ItemKey> receipts, CancellationToken ct)
     {
-        if (editable.Any(draft => !draft.Key.IsLocal || draft.Baseline is not null
-            || !observation.Snapshot.Drafts.Contains(draft) || receipts.Contains(draft.Key)
+        if (editable.Any(draft => draft is not Seed
+            || !observation.Snapshot.RetainedItems.Contains(draft) || receipts.Contains(draft.Key)
             || observation.Snapshot.Mappings.Any(mapping => mapping.Local == draft.Key)))
             return Result<SourceView>.Fail(ErrorCode.Conflict, "Owned seed and cached draft observations changed; reload the same native source.");
         var store = observation.Snapshot;
         var projected = observation with { Snapshot = new(store.Version, store.Items, store.Relationships,
-            store.Drafts.Where(draft => !receipts.Contains(draft.Key)), store.Proposals, store.Journal, store.Mappings, store.Benches) };
+            store.RetainedItems.Where(draft => !receipts.Contains(draft.Key)), store.Proposals, store.Journal, store.Mappings, store.Benches) };
         var temporary = new SourceSelection(selection.SourceId, selection.Binding, selection.Selectors.AddRange(editable.Select(draft =>
             new Selector(SelectorKind.Pin, draft.Key, connection: selection.Binding.Connection))));
         return Create(definition, temporary, projected, ct);
@@ -36,18 +36,18 @@ public static class SourceProjection
                 .SelectMany(edge => new[] { edge.From, edge.To }).ToHashSet();
             store = new(store.Version, store.Items.Where(item => !withheld.Contains(item.Key)),
                 store.Relationships.Where(edge => !withheld.Contains(edge.From) && !withheld.Contains(edge.To)),
-                store.Drafts.Where(draft => !withheld.Contains(draft.Key) && (draft.Parent is null || !withheld.Contains(draft.Parent))
-                    && draft.Links.All(link => !withheld.Contains(link.Other))),
+                store.RetainedItems.Where(draft => !withheld.Contains(draft.Key) && (draft is not Seed seed || (seed.Parent is null || !withheld.Contains(seed.Parent))
+                    && seed.Links.All(link => !withheld.Contains(link.Other)))),
                 store.Proposals, store.Journal, store.Mappings.Where(mapping => !withheld.Contains(mapping.Remote)), store.Benches);
             store = new(store.Version, store.Items.Select(item => incomplete.Contains(item.Key) && item.RelationshipsComplete
                 ? new WorkItem(item.Key, item.Type, item.Fields, item.Revision, false, item.Resources, item.ResourcesComplete)
-                : item), store.Relationships, store.Drafts, store.Proposals, store.Journal, store.Mappings, store.Benches);
+                : item), store.Relationships, store.RetainedItems, store.Proposals, store.Journal, store.Mappings, store.Benches);
             schema = schema with { Memberships = schema.Memberships.Select(membership =>
                 membership with { Items = membership.Items.Where(key => !withheld.Contains(key)).ToImmutableArray() }).ToImmutableArray() };
         }
         if (selection.Binding != observation.Binding || schema.Connection != selection.Binding.Connection)
             return Result<SourceView>.Fail(ErrorCode.Conflict, "Source observation does not match the frozen binding.");
-        if (store.Items.Length + store.Drafts.Length > 10000 || store.Relationships.Length > 20000)
+        if (store.Items.Length + store.RetainedItems.Length > 10000 || store.Relationships.Length > 20000)
             return Result<SourceView>.Fail(ErrorCode.Partial, "The source exceeds the viewer's bounded evidence budget.");
         long work = 0, characters = 0;
         foreach (var selector in selection.Selectors)
@@ -60,11 +60,11 @@ public static class SourceProjection
             }
             work += selector.Kind == SelectorKind.Subtree
                 ? (long)store.Items.Length * (store.Items.Length + store.Relationships.Length)
-                : nodes * (store.Items.Length + store.Drafts.Length);
+                : nodes * (store.Items.Length + store.RetainedItems.Length);
             if (work > 10_000_000) return Result<SourceView>.Fail(ErrorCode.Partial, "Membership evaluation exceeds the bounded comparison budget.");
         }
-        foreach (var fields in store.Items.Select(i => i.Fields).Concat(store.Drafts.Select(d => d.Changes))
-            .Concat(store.Drafts.Where(d => d.Baseline is not null).Select(d => d.Baseline!.Fields)))
+        foreach (var fields in store.Items.Select(i => i.Fields).Concat(store.RetainedItems.Select(d => d.Fields))
+            .Concat(store.RetainedItems.OfType<LocalEdits>().Select(d => d.EditBaseline.Fields)))
         foreach (var field in fields)
         {
             characters += field.Key.Length + (field.Value.Text?.Length ?? 0) + 32;
@@ -80,23 +80,23 @@ public static class SourceProjection
         var normalizedSelectors = selection.Selectors.Where(s => s.Item is null || !withheld.Contains(s.Item)).Select(s => s.Item is null ? s
             : new Selector(s.Kind, Resolve(s.Item), hierarchyRelation: s.HierarchyRelation));
         var normalizedEdges = store.Relationships.Select(e => e with { From = Resolve(e.From), To = Resolve(e.To) }).ToArray();
-        var normalized = new StoreSnapshot(store.Version, store.Items, normalizedEdges, store.Drafts,
+        var normalized = new StoreSnapshot(store.Version, store.Items, normalizedEdges, store.RetainedItems,
             store.Proposals, store.Journal, store.Mappings, store.Benches);
         var members = Model.ResolveBench(new(definition.Id, definition.Name, normalizedSelectors), normalized, schema, observation.CacheReadAt);
         ct.ThrowIfCancellationRequested();
         if (!members.IsSuccess) return Result<SourceView>.Fail(members.Error);
         var selected = members.Value.Select(Resolve).ToHashSet();
-        var candidates = selected.Concat(store.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
+        var candidates = selected.Concat(store.RetainedItems.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
         var exclusions = observation.WorkspaceExclusions.Where(rule => rule.Item is null || !withheld.Contains(rule.Item)).Select(rule => rule.Item is null ? rule
             : new Selector(rule.Kind, Resolve(rule.Item), hierarchyRelation: rule.HierarchyRelation, connection: rule.Connection));
         var visible = Model.ApplyViewExclusions(candidates, exclusions, normalized, schema, observation.CacheReadAt);
         if (!visible.IsSuccess) return Result<SourceView>.Fail(visible.Error);
         var displayed = visible.Value.ToHashSet();
         var rows = ImmutableArray.CreateBuilder<ItemView>();
-        foreach (var key in displayed.Concat(store.Drafts.Select(d => Resolve(d.Key))).Distinct())
+        foreach (var key in displayed.Concat(store.RetainedItems.Select(d => Resolve(d.Key))).Distinct())
         {
             var item = store.Items.SingleOrDefault(i => i.Key == key);
-            var drafts = store.Drafts.Where(d => Resolve(d.Key) == key).ToArray();
+            var drafts = store.RetainedItems.Where(d => Resolve(d.Key) == key).ToArray();
             if (drafts.Length > 1)
                 return Result<SourceView>.Fail(ErrorCode.Conflict, "Several retained drafts resolve to one native item.");
             var draft = drafts.SingleOrDefault();
@@ -104,9 +104,9 @@ public static class SourceProjection
             if (type is null)
                 return Result<SourceView>.Fail(ErrorCode.Unavailable, "A selected member has no local item or draft evidence.");
             rows.Add(new(new(selection.SourceId, key), type, selected.Contains(key), draft is not null,
-                item?.RelationshipsComplete == true, item?.Fields ?? draft?.Baseline?.Fields ?? FieldValues.Empty,
-                draft?.Changes ?? FieldValues.Empty, schema.Types.SingleOrDefault(t => t.Reference == type)?.StateField)
-                { IsExcluded = !displayed.Contains(key), Revision = item?.Revision?.Token ?? draft?.Baseline?.Revision?.Token });
+                item?.RelationshipsComplete == true, item?.Fields ?? (draft as LocalEdits)?.EditBaseline?.Fields ?? FieldValues.Empty,
+                draft?.Fields ?? FieldValues.Empty, schema.Types.SingleOrDefault(t => t.Reference == type)?.StateField)
+                { IsExcluded = !displayed.Contains(key), Revision = item?.Revision?.Token ?? (draft as LocalEdits)?.EditBaseline?.Revision?.Token });
         }
         var notes = schema.Gaps.Concat(schema.Types.SelectMany(type => type.Gaps)).ToList();
         if (!withheld.IsEmpty)
@@ -172,11 +172,11 @@ public static class SourceProjection
         HashSet<ItemKey> members, Func<ItemKey, ItemKey> resolve)
     {
         QualifiedItem Qualified(ItemKey key) => new(source, resolve(key));
-        var visible = members.Concat(store.Drafts.Select(d => resolve(d.Key))).ToHashSet();
+        var visible = members.Concat(store.RetainedItems.Select(d => resolve(d.Key))).ToHashSet();
         var evidence = store.Relationships.Where(e => visible.Contains(resolve(e.From)) || visible.Contains(resolve(e.To)))
             .Select(e => new HierarchyEdge(Qualified(e.From), Qualified(e.To),
             e.Kind, e.Origin, e.LocalVersion, e.Deleted, false)).ToList();
-        foreach (var draft in store.Drafts.Where(d => d.Parent is not null
+        foreach (var draft in store.RetainedItems.OfType<Seed>().Where(d => d.Parent is not null
             && !store.Mappings.Any(m => m.Local == d.Key)))
             evidence.Add(new(Qualified(draft.Parent!), Qualified(draft.Key), draft.ParentRelation!,
                 RelationshipOrigin.Local, store.Version, false, true));

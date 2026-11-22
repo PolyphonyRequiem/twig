@@ -32,7 +32,7 @@ public sealed partial class NativePublicationConsumerTests
             var staged = await capture.StageAsync(selected, FieldValues.Empty, null,
                 [new(other, "Native.DependencyForward", true)], default);
             staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
-            staged.Value.Draft.ShouldNotBeNull().Links.ShouldBeEmpty();
+            staged.Value.Draft.ShouldBeOfType<LocalEdits>();
             UserBenchStore.ParseIntent(staged.Value.Capture!.IntentJson).Operations.Single().Links
                 .ShouldBe([new CreationLink(other, "Native.DependencyForward", true)]);
         }

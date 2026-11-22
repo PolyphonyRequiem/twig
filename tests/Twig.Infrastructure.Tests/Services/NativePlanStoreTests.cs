@@ -213,19 +213,19 @@ public sealed class NativePlanStoreTests : IDisposable
         var owner = Required(await User.ReadPlanSeedOwnerAsync(key.LocalId));
         var store = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, owned.Revision, scope.Id, root, source));
         var fields = new FieldValues([KeyValuePair.Create("github.title", FieldValue.String("Seed"))]);
-        var draft = new Draft(key, "github.issue", null, fields);
+        var draft = new Seed(key, "github.issue", fields);
         var proposal = new Proposal(connection, "schema", 0, [new("create", OpKind.Create, key, fields: fields,
             type: draft.Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
         var planned = JournalEntry.Planned(proposal.Digest, 0);
-        Required(await store.CommitAsync(connection, 0, new(1, drafts: [draft], proposals: [proposal], journal: [planned]), default));
+        Required(await store.CommitAsync(connection, 0, new(1, retainedItems: [draft], proposals: [proposal], journal: [planned]), default));
         var applying = Required(planned.Begin(Guid.NewGuid()));
-        Required(await store.CommitAsync(connection, 1, new(2, drafts: [draft], proposals: [proposal], journal: [applying]), default));
+        Required(await store.CommitAsync(connection, 1, new(2, retainedItems: [draft], proposals: [proposal], journal: [applying]), default));
         var published = ItemKey.Remote(connection.Provider, connection.ResourceScope, "I_published");
         var revision = new Revision(published, "observed-published-revision");
         var mapping = new PublishMapping(key, published, proposal.Digest, 0);
         var applied = Required(applying.Record(new(proposal.Digest, 0, applying.Attempt, OpStatus.Applied,
             ["synthetic attributed acknowledgement"], revision, published)));
-        Required(await store.CommitAsync(connection, 2, new(3, drafts: [draft], proposals: [proposal],
+        Required(await store.CommitAsync(connection, 2, new(3, retainedItems: [draft], proposals: [proposal],
             journal: [applied], mappings: [mapping]), default));
         var verified = Required(applied.Record(new(proposal.Digest, 0, applying.Attempt, OpStatus.Verified,
             ["synthetic independent readback"], revision, published)));

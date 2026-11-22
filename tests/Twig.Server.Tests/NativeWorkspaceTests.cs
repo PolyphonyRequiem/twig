@@ -34,8 +34,8 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     {
         await Start();
         var source = await Source("admitted");
-        var draft = new Draft(ItemKey.Local(Guid.NewGuid()), "fixture.issue", null, FieldValues.Empty);
-        gateway.Snapshots[source.Root] = new(7, drafts: [draft]);
+        var draft = new Seed(ItemKey.Local(Guid.NewGuid()), "fixture.issue", FieldValues.Empty);
+        gateway.Snapshots[source.Root] = new(7, retainedItems: [draft]);
         var bench = await Bench("Selected", source.Stamp.Connection);
         SaveSelection(bench.Id);
 
@@ -63,7 +63,7 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         await Workspace();
         gateway.SchemaReads.ShouldBe(1);
         gateway.OnlineReads.ShouldBe(0);
-        gateway.Snapshots[source.Root].Drafts.ShouldContain(draft);
+        gateway.Snapshots[source.Root].RetainedItems.ShouldContain(draft);
         using var status = JsonDocument.Parse(await client.GetStringAsync("/api/v1/status"));
         status.RootElement.GetProperty("capabilities").EnumerateArray().Select(value => value.GetString())
             .ShouldContain("workspace-read-v1");

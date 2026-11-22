@@ -43,7 +43,7 @@ public sealed partial class GitHubCoreSpineTests
         review.Proposal.Operations.Single().Fields.ShouldBeEmpty();
         var before = await fixture.SnapshotAsync();
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Planned);
-        before.Drafts.ShouldBeEmpty();
+        before.RetainedItems.ShouldBeEmpty();
         var user = UserBenchStore.ForRegistry(fixture.Host.Registry);
         var captured = (await user.ReadEditorCapturesAsync(default)).Value.Single();
         captured.LocalRelationship.ShouldNotBeNull();
@@ -66,7 +66,7 @@ public sealed partial class GitHubCoreSpineTests
         var after = await fixture.SnapshotAsync();
         after.Relationships.ShouldHaveSingleItem().LocalVersion.ShouldBe(1);
         after.Relationships.Single().Origin.ShouldBe(RelationshipOrigin.Local);
-        after.Drafts.ShouldBeEmpty();
+        after.RetainedItems.ShouldBeEmpty();
         fixture.Writes.ShouldBe(0);
         var originalJournal = JournalBytes(after);
         (await editor.ApplyLocalRelationshipAsync(review.CaptureId, review.Proposal.Digest)).IsSuccess.ShouldBeFalse();
@@ -95,7 +95,7 @@ public sealed partial class GitHubCoreSpineTests
         // Obtain original UUID publication evidence through the real CLI, not fabricated mappings.
         fixture.Native.Run("seed", "new", "--type", GitHubProvider.Untyped, "--title", "mapped source",
             "--no-parent", "-o", "json").ShouldBe(0, fixture.Native.Error);
-        var seed = (await fixture.SnapshotAsync()).Drafts.Single();
+        var seed = (await fixture.SnapshotAsync()).RetainedItems.Single();
         fixture.Native.Run("link", "local", "related", "43", "--id", seed.Key.LocalId.ToString("D"), "-o", "json")
             .ShouldBe(0, fixture.Native.Error);
         var original = (await fixture.SnapshotAsync()).Relationships.Single();
@@ -216,7 +216,7 @@ public sealed partial class GitHubCoreSpineTests
         (await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).IsSuccess.ShouldBeFalse();
         var after = await fixture.SnapshotAsync();
         AssertSameLocalState(before, after);
-        after.Drafts.ShouldBeEmpty();
+        after.RetainedItems.ShouldBeEmpty();
         after.Relationships.ShouldBeEmpty();
         fixture.Writes.ShouldBe(0);
     }
@@ -349,7 +349,7 @@ public sealed partial class GitHubCoreSpineTests
         actual.Version.ShouldBe(expected.Version);
         actual.Items.ShouldBe(expected.Items);
         actual.Relationships.ShouldBe(expected.Relationships);
-        actual.Drafts.ShouldBe(expected.Drafts);
+        actual.RetainedItems.ShouldBe(expected.RetainedItems);
         actual.Mappings.ShouldBe(expected.Mappings);
         actual.Proposals.Select(proposal => Encoding.UTF8.GetString(Model.ProposalBytes(proposal)))
             .ShouldBe(expected.Proposals.Select(proposal => Encoding.UTF8.GetString(Model.ProposalBytes(proposal))));

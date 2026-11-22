@@ -5,8 +5,8 @@ namespace Twig.Infrastructure.Services;
 internal static class CoreHostContext
 {
     internal static IEnumerable<ItemKey> KnownLocalKeys(StoreSnapshot snapshot)
-        => snapshot.Drafts.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
-            .Concat(snapshot.Drafts.SelectMany(draft => draft.Links.Select(link => link.Other)
+        => snapshot.RetainedItems.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
+            .Concat(snapshot.RetainedItems.OfType<Seed>().SelectMany(draft => draft.Links.Select(link => link.Other)
                 .Concat(draft.Parent is null ? [] : new[] { draft.Parent })))
             .Concat(snapshot.Proposals.SelectMany(proposal => proposal.Operations)
                 .SelectMany(op => op.Links.Select(link => link.Other).Prepend(op.Item)

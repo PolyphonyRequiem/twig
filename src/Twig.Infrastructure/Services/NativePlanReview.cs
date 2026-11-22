@@ -96,10 +96,10 @@ public sealed class NativePlanReview
                         return Result<NativePlanReview>.Fail(ErrorCode.Indeterminate, "An original Core attempt remains unresolved. Preserve its receipts; no replay is available.");
                     var owned = captures.Value.Where(capture => capture.PlanId == plan.Value.Id && capture.ScopeId == scope.Id
                         && capture.PlanMode && !capture.Cancelled && !capture.Settled).ToImmutableArray();
-                    if (snapshot.Value.Drafts.IsEmpty && owned.IsEmpty) continue;
-                    if (owned.Length != snapshot.Value.Drafts.Length || owned.Any(capture => !capture.Ready
+                    if (snapshot.Value.RetainedItems.IsEmpty && owned.IsEmpty) continue;
+                    if (owned.Length != snapshot.Value.RetainedItems.Length || owned.Any(capture => !capture.Ready
                         || capture.Origin != scope.Source || capture.StoreInstance != scope.StoreInstance
-                        || capture.Root != scope.OriginRoot || !snapshot.Value.Drafts.Any(draft =>
+                        || capture.Root != scope.OriginRoot || !snapshot.Value.RetainedItems.Any(draft =>
                             draft.Key == Parse(capture.IntentJson).Operations.Single().Item
                             && handle.Workspace.DraftFingerprint(draft) == capture.DraftFingerprint)))
                         return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "Protected Plan captures and drafts disagree; no debt was adopted or omitted.");
@@ -243,7 +243,7 @@ public sealed class NativePlanReview
                         var snapshot = await handle.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
                         if (!snapshot.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(snapshot.Error, ct).ConfigureAwait(false));
                         var previews = scope.Captures.Select((capture, ordinal) => new CoreDraftPreview(
-                            snapshot.Value.Drafts.Single(draft => handle.Workspace.DraftFingerprint(draft) == capture.DraftFingerprint
+                            snapshot.Value.RetainedItems.Single(draft => handle.Workspace.DraftFingerprint(draft) == capture.DraftFingerprint
                                 && draft.Key == Parse(capture.IntentJson).Operations.Single().Item),
                             scope.Previews[ordinal].Length == 0 ? null : Parse(scope.Previews[ordinal]))).ToImmutableArray();
                         var proposal = scope.Proposal is null ? null : Parse(scope.Proposal);
@@ -337,7 +337,7 @@ public sealed class NativePlanReview
             foreach (var capture in converged)
             {
                 var key = Parse(capture.IntentJson).Operations.Single().Item;
-                var draft = snapshot.Value.Drafts.SingleOrDefault(value => value.Key == key);
+                var draft = snapshot.Value.RetainedItems.SingleOrDefault(value => value.Key == key);
                 if (draft is null) continue;
                 if (CoreWorkspace.Fingerprint(scope.Scope.Source.Connection, draft) != capture.DraftFingerprint)
                     return Result<bool>.Fail(ErrorCode.Conflict, "Converged local settlement cannot consume changed Plan intent.");

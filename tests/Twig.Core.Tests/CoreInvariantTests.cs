@@ -269,7 +269,7 @@ public sealed class CoreInvariantTests
         var proposal = new Proposal(Connection, schema.Fingerprint, 0,
             [new("create", OpKind.Create, key, fields: fields, type: "record",
                 concurrency: ConcurrencyMode.ObservedNonAtomic)]);
-        return (proposal, new(0, drafts: [new(key, "record", null, fields)]));
+        return (proposal, new(0, retainedItems: [new Seed(key, "record", fields)]));
     }
 
     [Fact]
@@ -387,7 +387,7 @@ public sealed class CoreInvariantTests
         var source = Item(fields: Fields(("gate", FieldValue.String(baseline))));
         var moved = Item("rev-2", Fields(("gate", FieldValue.String(remote)), ("count", FieldValue.Integer(3))));
         source.Revision.ShouldNotBe(moved.Revision);
-        var draft = new Draft(Key, "record", source, Fields(("gate", FieldValue.String(local))));
+        var draft = new LocalEdits(Key, "record", source, Fields(("gate", FieldValue.String(local))));
         var result = Rules.Merge(draft, moved);
         result.IsSuccess.ShouldBeTrue();
         result.Value.Fields["gate"].ShouldBe(FieldValue.String(expected));
@@ -399,8 +399,10 @@ public sealed class CoreInvariantTests
     public void MergeDoesNotGuessUnobservedBaseOrRemoteAndKeepsExplicitClears()
     {
         var source = Item(fields: Fields(("gate", FieldValue.String("base"))));
-        var draft = new Draft(Key, "record", source, Fields(("gate", FieldValue.Null)));
+        var draft = new LocalEdits(Key, "record", source, Fields(("gate", FieldValue.Null)));
         var moved = Item("rev-2", Fields(("gate", FieldValue.String("base"))));
+        Rules.Merge(new LocalEdits(Key, "record", source, FieldValues.Empty), moved)
+            .Value.Fields["gate"].ShouldBe(FieldValue.String("base"));
         Rules.Merge(draft, moved).Value.Fields["gate"].ShouldBe(FieldValue.Null);
         var unknown = Item("rev-2", FieldValues.Empty);
         Rules.Merge(draft, unknown).Value.Conflicts.ShouldBe(["gate"]);
@@ -441,7 +443,7 @@ public sealed class CoreInvariantTests
             new(4, observed ? [Item(), Item(key: neighbor)] : [Item(key: neighbor)], [edge],
                 proposals: [create], journal: [row], mappings: [binding ?? mapping]);
         var state = Capture(verified);
-        state.Drafts.ShouldBeEmpty();
+        state.RetainedItems.ShouldBeEmpty();
         state.Items.ShouldNotContain(item => item.Key == seed);
         Rules.Validate(remove, remove.Digest, schema, state, Capabilities).ShouldBeEmpty();
         foreach (var refused in new[] {
@@ -459,19 +461,19 @@ public sealed class CoreInvariantTests
         var schema = Schema();
         var key = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("phase", FieldValue.String("open")), ("gate", FieldValue.String("evidence")));
-        var draft = new Draft(key, "record", null, fields);
+        var draft = new Seed(key, "record", fields);
         var create = new Op("seed", OpKind.Create, key, fields: fields, type: "record",
             concurrency: ConcurrencyMode.ObservedNonAtomic);
         var proposal = new Proposal(Connection, schema.Fingerprint, 0, [create]);
-        Rules.Validate(proposal, proposal.Digest, schema, new(0, drafts: [draft]), Capabilities).ShouldBeEmpty();
-        var edited = new Draft(key, "record", null, fields.Set("gate", FieldValue.String("changed")));
-        Rules.Validate(proposal, proposal.Digest, schema, new(0, drafts: [edited]), Capabilities)
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, retainedItems: [draft]), Capabilities).ShouldBeEmpty();
+        var edited = new Seed(key, "record", fields.Set("gate", FieldValue.String("changed")));
+        Rules.Validate(proposal, proposal.Digest, schema, new(0, retainedItems: [edited]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
         var attempting = JournalEntry.Planned(proposal.Digest, 0).Begin(Guid.NewGuid()).Value;
         var replacement = new Proposal(Connection, schema.Fingerprint, 1, [create]);
         replacement.Digest.ShouldNotBe(proposal.Digest);
         Rules.Validate(replacement, replacement.Digest, schema,
-            new(1, drafts: [draft], proposals: [proposal], journal: [attempting]), Capabilities)
+            new(1, retainedItems: [draft], proposals: [proposal], journal: [attempting]), Capabilities)
             .ShouldContain(e => e.Message.Contains("already been attempted", StringComparison.Ordinal));
     }
 }

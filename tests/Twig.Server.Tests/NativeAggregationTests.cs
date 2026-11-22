@@ -40,9 +40,9 @@ internal static class NativeAggregationTests
             var itemB = new WorkItem(keyB, "Native.Issue", fieldsB, new(keyB, "1"), true);
             var gateway = new Gateway(new Dictionary<string, NativeSourceObservation>(StringComparer.Ordinal)
             {
-                [aRoot] = Observation(a, new(1, [itemA], drafts: [new(keyA, itemA.Type, itemA, fieldsA)]), "https://example.test/project/"),
+                [aRoot] = Observation(a, new(1, [itemA], retainedItems: [new LocalEdits(keyA, itemA.Type, itemA, fieldsA)]), "https://example.test/project/"),
                 [bRoot] = Observation(b, new(1, [itemB]), "https://github.com/synthetic/repo/"),
-                [otherRoot] = Observation(a, new(1, drafts: [new(seed, itemA.Type, null, fieldsA)]), "https://example.test/project/"),
+                [otherRoot] = Observation(a, new(1, retainedItems: [new Seed(seed, itemA.Type, fieldsA)]), "https://example.test/project/"),
             });
             var store = new UserBenchStore(Path.Combine(root, "benches.db"));
             var changes = new CatalogChanges();
@@ -67,7 +67,7 @@ internal static class NativeAggregationTests
             bench = Required(await store.SaveAsync(new(bench.Id, bench.Name,
                 [new(SelectorKind.Pin, mappedSeed, connection: a), new(SelectorKind.Pin, keyB, connection: b)]), bench.Revision));
             gateway.Replace(aRoot, Observation(a, new(2, [itemA],
-                drafts: [new(mappedSeed, itemA.Type, null, mappedChanges)],
+                retainedItems: [new Seed(mappedSeed, itemA.Type, mappedChanges)],
                 mappings: [new(mappedSeed, keyA, "synthetic-published-proposal", 0)]), "https://example.test/project/"));
             var mapped = Required(await panel.ReadViewAsync(bench.Id, anchor, [chosen], default));
             var mappedRow = mapped.View.Sources.Single(source => source.SourceId == anchor.Source.Id).Items.Single();

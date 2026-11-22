@@ -37,7 +37,7 @@ public sealed partial class NativePublicationConsumerTests
         {
             using var services = EditorServices(host.Root);
             using var editor = (await NativeEditor.OpenAsync(services.GetRequiredService<CoreWorkspaceFactory>(), user, host.Bench, host.Stamp, default)).Value;
-            var draft = (await editor.Workspace.SnapshotAsync(default)).Value.Drafts.Single();
+            var draft = (await editor.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single();
             (await editor.Workspace.SaveDraftSetAsync([new(draft, null)], null, null, default)).IsSuccess.ShouldBeTrue();
         }
         var restarted = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
@@ -349,7 +349,7 @@ public sealed partial class NativePublicationConsumerTests
         var snapshot = (await origin.Workspace.SnapshotAsync(default)).Value;
         snapshot.Items.Single(value => value.Key.NativeId == "42").Fields["System.Title"].Text.ShouldBe("Plan 42");
         snapshot.Journal.ShouldBeEmpty();
-        snapshot.Drafts.Single().Changes["System.Title"].Text.ShouldBe("Normal remains local");
+        snapshot.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("Normal remains local");
     }
 
     [Theory]

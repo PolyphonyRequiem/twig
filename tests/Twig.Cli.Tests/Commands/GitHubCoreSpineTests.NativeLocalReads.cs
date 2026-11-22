@@ -304,7 +304,7 @@ public sealed partial class GitHubCoreSpineTests
             (await workspace.StageEditAsync(fixture.Key, FieldValues.Empty.Set(Twig.Providers.GitHub.GitHubProvider.Title,
                 FieldValue.String("independent scalar debt")), default)).IsSuccess.ShouldBeTrue();
         });
-        (await fixture.SnapshotAsync()).Drafts.ShouldHaveSingleItem();
+        (await fixture.SnapshotAsync()).RetainedItems.ShouldHaveSingleItem();
         var user = UserBenchStore.ForRegistry(fixture.Host.Registry);
         var captures = (await user.ReadEditorCapturesAsync(default)).Value;
         captures.Length.ShouldBe(2);

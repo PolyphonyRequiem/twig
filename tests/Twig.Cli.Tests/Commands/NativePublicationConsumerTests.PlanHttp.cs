@@ -362,7 +362,7 @@ public sealed partial class NativePublicationConsumerTests
             var original42 = original.Items.Single(item => item.Key.NativeId == "42");
             original42.Fields["System.Description"].Text.ShouldBe("<p>Normal only description</p>");
             original42.Fields["System.Title"].Text.ShouldBe(first["title"]!.GetValue<string>());
-            original.Drafts.ShouldBeEmpty();
+            original.RetainedItems.ShouldBeEmpty();
             original.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
             original.Proposals.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "System.Description" });
             await Mode(true);
@@ -436,7 +436,7 @@ public sealed partial class NativePublicationConsumerTests
             foreach (var id in new[] { "42", "43" })
                 selectors.ShouldContain(selector => selector.Item != null && selector.Item.NativeId == id);
             original = (await origin.Workspace.SnapshotAsync(ct)).Value;
-            original.Drafts.ShouldBeEmpty();
+            original.RetainedItems.ShouldBeEmpty();
             original.Items.Single(item => item.Key == mapping.Remote).Fields["System.Title"].Text.ShouldBe("Planned local seed");
             original.Items.Single(item => item.Key.NativeId == "42").Fields["System.Title"].Text.ShouldBe("Planned 42");
             original.Items.Single(item => item.Key.NativeId == "43").Fields["System.Title"].Text.ShouldBe("Planned 43");

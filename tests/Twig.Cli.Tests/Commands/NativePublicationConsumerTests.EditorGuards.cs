@@ -10,6 +10,48 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
+    [Fact]
+    public async Task RefreshPreservesOfflineTitleEditsAndTheirBaselineAcrossReopen()
+    {
+        var native = await RelationshipWorkspaceAsync();
+        using var services = EditorServices(native.Paths.StartDir);
+        var factory = services.GetRequiredService<CoreWorkspaceFactory>();
+        var key = ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42");
+        const string title = "System.Title";
+        _transport.SetItem(42, "Login fails", _transport.RevisionOf(42) + 1, Actor);
+
+        Revision? baselineRevision;
+        using (var original = (await factory.OpenAsync(default)).Value)
+        {
+            var observed = (await original.Workspace.ReadAsync(key, default)).Value;
+            baselineRevision = observed.Revision;
+            var requests = _transport.TotalRequests;
+            (await original.Workspace.StageEditAsync(key, FieldValues.Empty.Set(title, FieldValue.String("Login fails after timeout")),
+                default, capturedBaseline: observed)).IsSuccess.ShouldBeTrue();
+            _transport.TotalRequests.ShouldBe(requests);
+
+            _transport.SetItem(42, "Sign-in returns 500", _transport.RevisionOf(42) + 1, Actor);
+            (await original.Workspace.ReadAsync(key, default)).IsSuccess.ShouldBeTrue();
+        }
+
+        using var reopened = (await factory.OpenAsync(default)).Value;
+        var snapshot = (await reopened.Workspace.SnapshotAsync(default)).Value;
+        snapshot.Items.Single(item => item.Key == key).Fields[title].Text.ShouldBe("Sign-in returns 500");
+        var edits = snapshot.RetainedItems.OfType<LocalEdits>().Single(item => item.Key == key);
+        edits.EditBaseline.Revision.ShouldBe(baselineRevision);
+        edits.EditBaseline.Fields[title].Text.ShouldBe("Login fails");
+        edits.Changes[title].Text.ShouldBe("Login fails after timeout");
+
+        var preview = await reopened.Workspace.PreviewDraftAsync(key, default);
+        preview.IsSuccess.ShouldBeFalse();
+        preview.Error.Code.ShouldBe(ErrorCode.Conflict);
+        preview.Error.Message.ShouldContain("local edits");
+        preview.Error.Evidence.ShouldBe([title]);
+        (await reopened.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single(item => item.Key == key)
+            .Fields.ShouldBe(edits.Changes);
+        _transport.PatchAttempts.ShouldBe(0);
+    }
+
     [Theory]
     [InlineData("mode")]
     [InlineData("bench")]
@@ -44,7 +86,7 @@ public sealed partial class NativePublicationConsumerTests
         refused.IsSuccess.ShouldBeFalse(damage);
         _transport.PatchAttempts.ShouldBe(0);
         (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBeFalse();
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.ShouldNotBeEmpty();
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.ShouldNotBeEmpty();
     }
 
     [Theory]
@@ -63,7 +105,7 @@ public sealed partial class NativePublicationConsumerTests
         var item = (await editor.SelectAsync(key, default)).Value;
         item.Draft.ShouldBeNull("recovery must distinguish an interrupted stage from a durable intended draft");
         var fields = FieldValues.Empty.Set("System.Title", FieldValue.String("durable intended value"));
-        var intended = new Draft(key, item.Observation.Type, item.Observation, fields);
+        var intended = new LocalEdits(key, item.Observation.Type, item.Observation, fields);
         var proposal = new Proposal(native.Connection, editor.Metadata.Schema.Fingerprint, item.StoreVersion,
             [new("intent", OpKind.Batch, key, item.Observation.Revision, fields)]);
         var capture = new NativeEditorCapture(Guid.NewGuid(), 1, (await user.ReadAsync()).Value.InstanceId, bench.Id,
@@ -120,7 +162,7 @@ public sealed partial class NativePublicationConsumerTests
         refused.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
         (await editor.SelectAsync(key, default)).IsSuccess.ShouldBeFalse();
         _transport.PatchAttempts.ShouldBe(0);
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("retained");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("retained");
     }
 
     [Fact]
@@ -169,7 +211,7 @@ public sealed partial class NativePublicationConsumerTests
         var item = (await editor.SelectAsync(ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42"), default)).Value;
         (await editor.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("local pending")), null, null, default)).IsSuccess.ShouldBeTrue();
         (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.ShouldBeEmpty();
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.ShouldBeEmpty();
         _transport.PatchAttempts.ShouldBe(0);
     }
 
@@ -209,7 +251,7 @@ public sealed partial class NativePublicationConsumerTests
         refused.IsSuccess.ShouldBeFalse();
         refused.Error.Code.ShouldBe(userInstance ? ErrorCode.StorageUnavailable : ErrorCode.Conflict);
         _transport.PatchAttempts.ShouldBe(0);
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("never lose");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("never lose");
     }
 
     [Fact]
@@ -226,11 +268,11 @@ public sealed partial class NativePublicationConsumerTests
         var item = (await editor.SelectAsync(key, default)).Value;
         (await editor.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("protected")), null, null, default)).IsSuccess.ShouldBeTrue();
         var stored = (await native.Store.ReadAsync(native.Connection, default)).Value;
-        var draft = stored.Drafts.Single();
-        var baseline = draft.Baseline!;
-        var replacement = new Draft(key, draft.Type, new(key, baseline.Type,
+        var draft = stored.RetainedItems.Single();
+        var baseline = draft.ShouldBeOfType<LocalEdits>().EditBaseline;
+        var replacement = new LocalEdits(key, draft.Type, new(key, baseline.Type,
             baseline.Fields.Set("System.Title", FieldValue.String("substituted base")), baseline.Revision,
-            baseline.RelationshipsComplete, baseline.Resources, baseline.ResourcesComplete), draft.Changes);
+            baseline.RelationshipsComplete, baseline.Resources, baseline.ResourcesComplete), draft.Fields);
         (await native.Store.CommitAsync(native.Connection, stored.Version, new(stored.Version + 1, stored.Items,
             stored.Relationships, [replacement], stored.Proposals, stored.Journal, stored.Mappings, stored.Benches), default)).IsSuccess.ShouldBeTrue();
         var reopened = (await editor.SelectAsync(key, default)).Value;

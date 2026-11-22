@@ -214,10 +214,10 @@ override Twig.Infrastructure.Services.NativeSeedPublication.ToString() -> string
 static Twig.Infrastructure.Services.NativeSeedPublication.operator !=(Twig.Infrastructure.Services.NativeSeedPublication? left, Twig.Infrastructure.Services.NativeSeedPublication? right) -> bool
 static Twig.Infrastructure.Services.NativeSeedPublication.operator ==(Twig.Infrastructure.Services.NativeSeedPublication? left, Twig.Infrastructure.Services.NativeSeedPublication? right) -> bool
 Twig.Infrastructure.Services.NativeOwnedSeed
-Twig.Infrastructure.Services.NativeOwnedSeed.NativeOwnedSeed(Twig.Core.ItemKey! Item, Twig.Core.Draft? Draft, System.Guid CaptureId, bool Ready, Twig.Infrastructure.Services.NativeSeedPublication? Publication) -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.NativeOwnedSeed(Twig.Core.ItemKey! Item, Twig.Core.Seed? Draft, System.Guid CaptureId, bool Ready, Twig.Infrastructure.Services.NativeSeedPublication? Publication) -> void
 Twig.Infrastructure.Services.NativeOwnedSeed.Item.get -> Twig.Core.ItemKey!
 Twig.Infrastructure.Services.NativeOwnedSeed.Item.init -> void
-Twig.Infrastructure.Services.NativeOwnedSeed.Draft.get -> Twig.Core.Draft?
+Twig.Infrastructure.Services.NativeOwnedSeed.Draft.get -> Twig.Core.Seed?
 Twig.Infrastructure.Services.NativeOwnedSeed.Draft.init -> void
 Twig.Infrastructure.Services.NativeOwnedSeed.CaptureId.get -> System.Guid
 Twig.Infrastructure.Services.NativeOwnedSeed.CaptureId.init -> void
@@ -225,7 +225,7 @@ Twig.Infrastructure.Services.NativeOwnedSeed.Ready.get -> bool
 Twig.Infrastructure.Services.NativeOwnedSeed.Ready.init -> void
 Twig.Infrastructure.Services.NativeOwnedSeed.Publication.get -> Twig.Infrastructure.Services.NativeSeedPublication?
 Twig.Infrastructure.Services.NativeOwnedSeed.Publication.init -> void
-Twig.Infrastructure.Services.NativeOwnedSeed.Deconstruct(out Twig.Core.ItemKey! Item, out Twig.Core.Draft? Draft, out System.Guid CaptureId, out bool Ready, out Twig.Infrastructure.Services.NativeSeedPublication? Publication) -> void
+Twig.Infrastructure.Services.NativeOwnedSeed.Deconstruct(out Twig.Core.ItemKey! Item, out Twig.Core.Seed? Draft, out System.Guid CaptureId, out bool Ready, out Twig.Infrastructure.Services.NativeSeedPublication? Publication) -> void
 Twig.Infrastructure.Services.NativeOwnedSeed.Equals(Twig.Infrastructure.Services.NativeOwnedSeed? other) -> bool
 Twig.Infrastructure.Services.NativeOwnedSeed.<Clone>$() -> Twig.Infrastructure.Services.NativeOwnedSeed!
 override Twig.Infrastructure.Services.NativeOwnedSeed.Equals(object? obj) -> bool
@@ -267,7 +267,7 @@ Twig.Infrastructure.Services.NativeItemEditor.CreateSeedAsync(string! type, Syst
 Twig.Infrastructure.Services.NativeItemEditor.PlanId.get -> System.Guid
 Twig.Infrastructure.Services.NativeItemEditor.PlanMode.get -> bool
 Twig.Infrastructure.Services.NativeItemEditor.PlanRevision.get -> long
-Twig.Infrastructure.Services.NativeItemEditor.ReadPlanDraftsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.Draft!>>!>!
+Twig.Infrastructure.Services.NativeItemEditor.ReadPlanDraftsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.RetainedItem!>>!>!
 Twig.Infrastructure.Services.NativeItemEditor.ScopeId.get -> System.Guid
 Twig.Infrastructure.Services.NativeItemEditor.StageAsync(System.Guid ticket, Twig.Core.FieldValues! changes, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeEditForm!>!>!
 Twig.Infrastructure.Services.NativeItemEditor.StoreInstance.get -> System.Guid
@@ -309,7 +309,7 @@ Twig.Infrastructure.Services.NativePlanStatus.UserInstance.get -> System.Guid
 Twig.Infrastructure.Services.NativePlanStatus.UserInstance.init -> void
 Twig.Infrastructure.Services.UserBenchStore.ChangePlanModeAsync(System.Guid expectedInstance, System.Guid benchId, long expectedBenchRevision, long expectedPlanRevision, bool enabled, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativePlanStatus!>!>!
 Twig.Infrastructure.Services.UserBenchStore.ReadPlanStatusAsync(System.Guid benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativePlanStatus!>!>!
-Twig.Infrastructure.Services.UserBenchStore.ReadPlanDraftsAsync(System.Guid expectedInstance, System.Guid benchId, long expectedPlanRevision, System.Guid scopeId, string! originRoot, Twig.Infrastructure.Services.NativeSourceStamp! source, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.Draft!>>!>!
+Twig.Infrastructure.Services.UserBenchStore.ReadPlanDraftsAsync(System.Guid expectedInstance, System.Guid benchId, long expectedPlanRevision, System.Guid scopeId, string! originRoot, Twig.Infrastructure.Services.NativeSourceStamp! source, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Core.RetainedItem!>>!>!
 static Twig.Infrastructure.Services.NativeSourceReader.ReadPlanningSourcesAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 static Twig.Infrastructure.Services.NativeSourceReader.BrowsePlanningAsync(string! workspaceRoot, Twig.Infrastructure.Services.NativeSourceStamp! expectedSource, string? selectedTeam, Twig.Core.PlanningSourceKind kind, string! id, Twig.Core.ProcessSchema! mappingSchema, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSourceObservation!>!>!
 Twig.Infrastructure.Services.NativeSourceObservation.PlanningSourcesCache.get -> Twig.Infrastructure.Services.NativePlanningSourcesCache!

@@ -62,14 +62,14 @@ public interface IProvider
 public sealed record StoreSnapshot
 {
     public StoreSnapshot(long version, IEnumerable<WorkItem>? items = null, IEnumerable<Relationship>? relationships = null,
-        IEnumerable<Draft>? drafts = null, IEnumerable<Proposal>? proposals = null, IEnumerable<JournalEntry>? journal = null,
+        IEnumerable<RetainedItem>? retainedItems = null, IEnumerable<Proposal>? proposals = null, IEnumerable<JournalEntry>? journal = null,
         IEnumerable<PublishMapping>? mappings = null, IEnumerable<Bench>? benches = null)
     {
         if (version < 0) throw new ArgumentOutOfRangeException(nameof(version));
         Version = version;
         Items = Contract.Unique(items ?? [], i => Core.KeyText(i.Key));
         Relationships = Contract.Copy(relationships ?? []);
-        Drafts = Contract.Unique(drafts ?? [], d => Core.KeyText(d.Key));
+        RetainedItems = Contract.Unique(retainedItems ?? [], d => Core.KeyText(d.Key));
         Proposals = Contract.Unique(proposals ?? [], p => p.Digest);
         Journal = Contract.Copy(journal ?? []);
         Mappings = Contract.Copy(mappings ?? []);
@@ -79,7 +79,7 @@ public sealed record StoreSnapshot
     public long Version { get; }
     public ImmutableArray<WorkItem> Items { get; }
     public ImmutableArray<Relationship> Relationships { get; }
-    public ImmutableArray<Draft> Drafts { get; }
+    public ImmutableArray<RetainedItem> RetainedItems { get; }
     public ImmutableArray<Proposal> Proposals { get; }
     public ImmutableArray<JournalEntry> Journal { get; }
     public ImmutableArray<PublishMapping> Mappings { get; }

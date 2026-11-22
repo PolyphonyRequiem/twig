@@ -71,7 +71,7 @@ public sealed class NativeDatabaseTests : IDisposable
         (await second.Workspace.ApplyAsync(preview.Value.Proposal, preview.Value.Proposal.Digest, default)).IsSuccess.ShouldBeFalse();
         var untouched = (await second.Workspace.SnapshotAsync(default)).Value;
         untouched.Journal.ShouldBeEmpty();
-        untouched.Drafts.ShouldBeEmpty();
+        untouched.RetainedItems.ShouldBeEmpty();
 
         var betaSeed = (await second.Workspace.StageSeedAsync(NativeProvider.ItemType,
             FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("Only beta")), default)).Value;

@@ -35,7 +35,7 @@ public sealed partial class GitHubCoreSpineTests
             var state = await Human.SnapshotAsync();
             state.Items.Length.ShouldBe(2);
             state.Items.ShouldAllBe(item => !item.Key.IsLocal && item.RelationshipsComplete && item.Revision != null);
-            state.Drafts.ShouldBeEmpty();
+            state.RetainedItems.ShouldBeEmpty();
             Human.Writes.ShouldBe(0);
             if (effects == 0)
             {
@@ -149,7 +149,7 @@ public sealed partial class GitHubCoreSpineTests
             state.Journal.Single().Attempt.ShouldNotBe(Guid.Empty);
             state.Journal.Single().Receipts.ShouldBeEmpty();
             state.Relationships.ShouldBeEmpty();
-            state.Drafts.ShouldBeEmpty();
+            state.RetainedItems.ShouldBeEmpty();
             Human.Writes.ShouldBe(0);
         }
 

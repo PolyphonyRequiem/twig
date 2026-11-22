@@ -122,35 +122,35 @@ internal sealed class WorkspaceCommand(
             if (selectors.Any(selector => (selector.Connection is null || selector.Connection == workspace.Connection)
                     && selector.Item is { } key && !Qualified(key))
                 || snapshot.Items.Any(item => !Qualified(item.Key))
-                || snapshot.Drafts.Any(draft => !Qualified(Resolve(draft.Key))))
+                || snapshot.RetainedItems.Any(draft => !Qualified(Resolve(draft.Key))))
                 return Error("The retained scope contains an unqualified native identity; no integer identity or broader scope was fabricated.");
             var projectedBench = new Bench(selected.Id, selected.Name, selectors);
             var projection = new StoreSnapshot(snapshot.Version, snapshot.Items,
                 snapshot.Relationships.Select(edge => edge with { From = Resolve(edge.From), To = Resolve(edge.To) }),
-                snapshot.Drafts, snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
+                snapshot.RetainedItems, snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
             var resolved = Core.Core.ResolveBench(projectedBench, projection, schema.Value, evaluationTime);
             if (!resolved.IsSuccess) return Error(resolved.Error.Message);
             var rules = await workspace.ViewRulesAsync(ct);
             if (!rules.IsSuccess) return Error(rules.Error.Message);
-            var candidates = resolved.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
+            var candidates = resolved.Value.Concat(snapshot.RetainedItems.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
             var visible = Core.Core.ApplyViewExclusions(candidates, rules.Value.Exclusions.Where(historicalProjection.AllowsSelector),
                 projection, schema.Value, evaluationTime);
             if (!visible.IsSuccess) return Error(visible.Error.Message);
-            var keys = visible.Value.Concat(snapshot.Drafts.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
+            var keys = visible.Value.Concat(snapshot.RetainedItems.Select(draft => Resolve(draft.Key))).Distinct().ToArray();
             var rows = new List<RenderRow>();
             foreach (var key in keys)
             {
-                var debts = snapshot.Drafts.Where(draft => Resolve(draft.Key) == key).ToArray();
+                var debts = snapshot.RetainedItems.Where(draft => Resolve(draft.Key) == key).ToArray();
                 if (debts.Length > 1)
                     return Error("Multiple retained drafts resolve to one native item; no protected debt was omitted or combined.");
                 var draft = debts.SingleOrDefault();
                 var cached = snapshot.Items.SingleOrDefault(item => item.Key == key);
-                var baseline = cached ?? draft?.Baseline;
+                var baseline = cached ?? (draft as LocalEdits)?.EditBaseline;
                 if (baseline is null && draft is null)
                     return Error("A scoped item is unavailable locally; use an explicit --refresh on the named Bench.");
                 if (!key.IsLocal && baseline is null)
                     return Error("A permanently mapped draft has no cached native observation; refresh the named Bench explicitly.");
-                var proposed = draft?.Changes;
+                var proposed = draft?.Fields;
                 var localKey = key.IsLocal ? key : snapshot.Mappings.SingleOrDefault(mapping => mapping.Remote == key)?.Local;
                 var type = schema.Value.Types.SingleOrDefault(value => value.Reference == (draft?.Type ?? baseline!.Type));
                 if (type is null)

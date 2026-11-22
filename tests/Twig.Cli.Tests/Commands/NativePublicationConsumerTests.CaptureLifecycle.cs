@@ -38,7 +38,7 @@ public sealed partial class NativePublicationConsumerTests
             null, [], default);
         interrupted.IsSuccess.ShouldBeFalse();
         await CaptureSql(_bindings.RegistryPath, "DROP TRIGGER interrupt_stage;");
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("prior debt");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("prior debt");
         using var reopened = (await NativeEditor.OpenAsync(factory, user, bench.Id, origin.Source, default)).Value;
         var pending = (await reopened.SelectAsync(key, default)).Value;
         pending.Capture!.Ready.ShouldBeFalse();
@@ -47,7 +47,7 @@ public sealed partial class NativePublicationConsumerTests
         var result = await reopened.ResolveInterruptedAsync(pending, cancel, default);
         result.IsSuccess.ShouldBe(!changed, result.IsSuccess ? "" : result.Error.Message);
         var stored = (await native.Store.ReadAsync(native.Connection, default)).Value;
-        stored.Drafts.Single().Changes["System.Title"].Text.ShouldBe(changed ? "later debt" : cancel ? "prior debt" : "new intended");
+        stored.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe(changed ? "later debt" : cancel ? "prior debt" : "new intended");
         var current = (await user.ReadEditorCapturesAsync(default)).Value.Single();
         if (!changed)
         {
@@ -81,7 +81,7 @@ public sealed partial class NativePublicationConsumerTests
         (await user.ConfirmInterruptedHistoryAsync(default)).IsSuccess.ShouldBeTrue();
         var pending = (await editor.SelectAsync(key, default)).Value;
         (await editor.ResolveInterruptedAsync(pending, cancel: false, default)).IsSuccess.ShouldBeTrue();
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("retained exact payload");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("retained exact payload");
         _transport.PatchAttempts.ShouldBe(0);
     }
 
@@ -119,7 +119,7 @@ public sealed partial class NativePublicationConsumerTests
             (await user.ConfirmInterruptedHistoryAsync(default)).IsSuccess.ShouldBeFalse("an absent pending payload cannot be manufactured from its reference");
             (await user.ReadEditorCapturesAsync(default, inspect: true)).Value.Single().Ready.ShouldBeTrue();
         }
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe(afterCore ? "exact new" : "prior");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe(afterCore ? "exact new" : "prior");
         _transport.PatchAttempts.ShouldBe(0);
     }
 

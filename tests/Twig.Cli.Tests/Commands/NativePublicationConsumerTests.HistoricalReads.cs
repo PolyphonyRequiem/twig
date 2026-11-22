@@ -45,7 +45,7 @@ public sealed partial class NativePublicationConsumerTests
         bench.Output.ShouldBeEmpty();
         _transport.TotalRequests.ShouldBe(requests);
         (await WorkspaceStoredDocumentAsync(paths)).ShouldBe(state);
-        (await store.ReadAsync(connection, default)).Value.Drafts.ShouldNotBeEmpty();
+        (await store.ReadAsync(connection, default)).Value.RetainedItems.ShouldNotBeEmpty();
 
         _transport.SetItem(41, "fresh exact item", 2, Actor);
         var refreshed = HistoricalInvoke(paths, ["show", "41", "--refresh", "-o", "json"]);

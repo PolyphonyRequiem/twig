@@ -21,7 +21,7 @@ public sealed partial class NativeScopeBirthTests : IDisposable
         var (user, library, bench, plan, origin) = await Reserve();
         var normal = (await SqliteStore.OpenAsync(origin.DatabasePath, default, origin.Instance)).Value;
         var local = ItemKey.Local(Guid.NewGuid());
-        (await normal.CommitAsync(connection, 0, new(1, drafts: [new(local, "Synthetic", null,
+        (await normal.CommitAsync(connection, 0, new(1, retainedItems: [new Seed(local, "Synthetic",
             FieldValues.Empty.Set("title", FieldValue.String("protected normal debt")))]), default)).IsSuccess.ShouldBeTrue();
         var completed = await Complete(user, library, bench, plan, origin);
         completed.IsSuccess.ShouldBeTrue(completed.IsSuccess ? "" : completed.Error.Message);
@@ -37,8 +37,8 @@ public sealed partial class NativeScopeBirthTests : IDisposable
         Convert.ToInt32(await command.ExecuteScalarAsync()).ShouldBe(1);
         var preserved = (await normal.ReadAsync(connection, default)).Value;
         preserved.Version.ShouldBe(1);
-        preserved.Drafts.Single().Key.ShouldBe(local);
-        preserved.Drafts.Single().Changes["title"].Text.ShouldBe("protected normal debt");
+        preserved.RetainedItems.Single().Key.ShouldBe(local);
+        preserved.RetainedItems.Single().Fields["title"].Text.ShouldBe("protected normal debt");
     }
 
     [Fact]

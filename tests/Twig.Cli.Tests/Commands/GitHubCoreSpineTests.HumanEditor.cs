@@ -34,7 +34,7 @@ public sealed partial class GitHubCoreSpineTests
         saved.Value.DraftRetained.ShouldBeFalse();
         fixture.Writes.ShouldBe(1);
         var snapshot = await fixture.SnapshotAsync();
-        snapshot.Drafts.ShouldBeEmpty();
+        snapshot.RetainedItems.ShouldBeEmpty();
         snapshot.Items.Single().Fields[GitHubProvider.Body].ShouldBe(fields[GitHubProvider.Body]);
         snapshot.Proposals.Single().Operations.Single().Concurrency.ShouldBe(ConcurrencyMode.ObservedNonAtomic);
         snapshot.Proposals.Single().Operations.Single().Fields.Count.ShouldBe(3);
@@ -92,7 +92,7 @@ public sealed partial class GitHubCoreSpineTests
             (await plan.SaveAsync(form.Ticket, FieldValues.Empty)).Error.Code.ShouldBe(ErrorCode.Conflict);
             (await plan.CreateSeedAsync(form.Type)).Error.Code.ShouldBe(ErrorCode.Unsupported);
             (await plan.SelectAsync(ItemKey.Local(Guid.NewGuid()))).Error.Code.ShouldBe(ErrorCode.Unsupported);
-            (await fixture.SnapshotAsync()).Drafts.ShouldBeEmpty();
+            (await fixture.SnapshotAsync()).RetainedItems.ShouldBeEmpty();
             fixture.Writes.ShouldBe(0);
         }
         await fixture.SetPlanAsync(false);
@@ -109,9 +109,9 @@ public sealed partial class GitHubCoreSpineTests
         await fixture.SetPlanAsync(true);
         using var reopened = (await fixture.OpenAsync()).Value;
         var debt = (await reopened.ReadPlanDraftsAsync()).Value.Single();
-        debt.Changes[GitHubProvider.Title].Text.ShouldBe("Plan-only title");
-        debt.Changes[GitHubProvider.Body].Kind.ShouldBe(FieldKind.Markdown);
-        debt.Changes[GitHubProvider.StateField].Text.ShouldBe("CLOSED");
+        debt.Fields[GitHubProvider.Title].Text.ShouldBe("Plan-only title");
+        debt.Fields[GitHubProvider.Body].Kind.ShouldBe(FieldKind.Markdown);
+        debt.Fields[GitHubProvider.StateField].Text.ShouldBe("CLOSED");
         fixture.Writes.ShouldBe(1);
     }
 
@@ -164,7 +164,7 @@ public sealed partial class GitHubCoreSpineTests
             var refused = await guarded.SelectAsync(fixture.Key);
             refused.IsSuccess.ShouldBeFalse();
             refused.Error.Code.ShouldBe(ErrorCode.Unsupported);
-            (await native.Workspace.SnapshotAsync(default)).Value.Drafts.Single().Changes.ShouldBe(changes);
+            (await native.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single().Fields.ShouldBe(changes);
         });
         fixture.Writes.ShouldBe(0);
     }
@@ -182,7 +182,7 @@ public sealed partial class GitHubCoreSpineTests
         (first.IsSuccess && first.Value.Verified).ShouldBeFalse();
         fixture.Writes.ShouldBe(1);
         var before = await fixture.SnapshotAsync();
-        before.Drafts.ShouldHaveSingleItem();
+        before.RetainedItems.ShouldHaveSingleItem();
         before.Journal.ShouldNotBeEmpty();
         var second = await editor.SaveAsync(form.Ticket, changes);
         (second.IsSuccess && second.Value.Verified).ShouldBeFalse();

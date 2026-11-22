@@ -24,8 +24,8 @@ public sealed partial class GitHubCoreSpineTests
             staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
             fixture.Http.SchemaRequests.ShouldBe(schemaCalls);
             fixture.Http.Writes.ShouldBe(0);
-            (await fixture.Snapshot()).Drafts.Length.ShouldBe(plan ? 0 : 1);
-            (await editor.Workspace.SnapshotAsync(default)).Value.Drafts.Single().Changes["github.title"].Text.ShouldBe("durable scoped title");
+            (await fixture.Snapshot()).RetainedItems.Length.ShouldBe(plan ? 0 : 1);
+            (await editor.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single().Fields["github.title"].Text.ShouldBe("durable scoped title");
             var library = (await user.ReadAsync()).Value;
             (await user.SetPlanModeAsync(library.InstanceId, bench.Id, bench.Revision, editor.Plan.Revision, !plan)).IsSuccess.ShouldBeTrue();
             (await editor.StageAsync(staged.Value, FieldValues.Empty, null, null, default)).IsSuccess.ShouldBeFalse();

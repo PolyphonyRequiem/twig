@@ -48,12 +48,12 @@ public static partial class Core
             {
                 var resolved = store.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
                 var observed = store.Items.FirstOrDefault(item => item.Key == resolved);
-                var draft = store.Drafts.FirstOrDefault(draft => draft.Key == key);
+                var draft = store.RetainedItems.FirstOrDefault(draft => draft.Key == key);
                 if (observed is not null) references.Add(observed.Type);
                 if (draft is not null)
                 {
                     references.Add(draft.Type);
-                    if (draft.Baseline is not null) references.Add(draft.Baseline.Type);
+                    if (draft is LocalEdits edits) references.Add(edits.EditBaseline.Type);
                 }
                 if (observed is null && draft is null)
                     yield return new(ErrorCode.Unavailable, "An effect endpoint's exact type was not observed.");
@@ -130,8 +130,8 @@ public static partial class Core
                 Fail(ErrorCode.InvalidInput, "Creation requires a durable local UUID, type and no synthetic provider revision.");
             if (op.Concurrency != ConcurrencyMode.ObservedNonAtomic)
                 Fail(ErrorCode.Unsupported, "Creation has no provider revision CAS; that limitation must be explicit.");
-            var draft = store.Drafts.FirstOrDefault(d => d.Key == op.Item);
-            if (draft is null || draft.Type != op.Type || !draft.Changes.Equals(op.Fields)
+            var draft = store.RetainedItems.OfType<Seed>().FirstOrDefault(d => d.Key == op.Item);
+            if (draft is null || draft.Type != op.Type || !draft.Fields.Equals(op.Fields)
                 || draft.Parent != op.Other || draft.ParentRelation != op.Relation || draft.Resource != op.Resource
                 || !draft.Links.SequenceEqual(op.Links))
                 Fail(ErrorCode.Conflict, "Creation must bind the exact retained seed type, fields and creation-bound links.");
@@ -149,7 +149,7 @@ public static partial class Core
                     || !edge.Outgoing && !kind.Directed)
                     Fail(ErrorCode.Unsupported, "Creation links require discovered native dependency/association semantics and proven creation coupling.");
                 if (!(endpoint.BelongsTo(proposal.Connection)
-                    || endpoint.IsLocal && predecessor && store.Drafts.Any(draft => draft.Key == endpoint)))
+                    || endpoint.IsLocal && predecessor && store.RetainedItems.Any(draft => draft.Key == endpoint)))
                     Fail(ErrorCode.Unsupported, "A creation link endpoint requires an in-scope observation or preceding captured creation.");
                 else if (!endpoint.IsLocal && !store.Items.Any(item => item.Key == endpoint && item.RelationshipsComplete))
                     Fail(ErrorCode.Unavailable, "The creation link endpoint was not completely observed.");
@@ -164,7 +164,7 @@ public static partial class Core
                     .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == op.Other);
                 if (!capabilities.AtomicFieldBatches
                     || !(parentKey.BelongsTo(proposal.Connection) || parentKey.IsLocal && earlierCreate
-                        && store.Drafts.Any(parent => parent.Key == parentKey))
+                        && store.RetainedItems.Any(parent => parent.Key == parentKey))
                     || !schema.Relations.Any(relation => relation.Reference == op.Relation && relation.Shape == RelationShape.Hierarchy && relation.Directed)
                     || !capabilities.NativeRelations.Contains(op.Relation!))
                     Fail(ErrorCode.Unsupported, "Creation-bound parenting requires an in-scope observation or preceding captured creation and proven single-request native coupling.");
@@ -269,7 +269,7 @@ public static partial class Core
         bool EndpointObserved(ItemKey key)
         {
             if (!key.IsLocal) return key.BelongsTo(proposal.Connection) && store.Items.Any(item => item.Key == key);
-            if (store.Drafts.Any(draft => draft.Key == key && draft.Baseline is null)) return true;
+            if (store.RetainedItems.OfType<Seed>().Any(seed => seed.Key == key)) return true;
             return store.Mappings.Any(mapping => mapping.Local == key && mapping.Remote.BelongsTo(proposal.Connection)
                 && store.Items.Any(item => item.Key == mapping.Remote)
                 && store.Proposals.Any(original => original.Digest == mapping.ProposalDigest
@@ -543,19 +543,19 @@ public static partial class Core
         return Result<ImmutableArray<string>>.Ok(gates.ToImmutableArray());
     }
 
-    public static Result<MergeResult> Merge(Draft draft, WorkItem remote)
+    public static Result<MergeResult> Merge(LocalEdits edits, WorkItem latestObservation)
     {
-        if (draft.Key != remote.Key || draft.Baseline is null || remote.Revision is null)
-            return Result<MergeResult>.Fail(ErrorCode.InvalidInput, "Merge needs the same remote identity and its retained base.");
-        var merged = remote.Fields;
+        if (edits.Key != latestObservation.Key || latestObservation.Revision is null)
+            return Result<MergeResult>.Fail(ErrorCode.InvalidInput, "Merging local edits requires a revision-bound observation of the same work item.");
+        var merged = latestObservation.Fields;
         var conflicts = ImmutableArray.CreateBuilder<string>();
-        foreach (var (field, intent) in draft.Changes)
+        foreach (var (field, intent) in edits.Changes)
         {
-            var hadBase = draft.Baseline.Fields.TryGetValue(field, out var baseline);
-            var observed = remote.Fields.TryGetValue(field, out var current);
+            var hadBase = edits.EditBaseline.Fields.TryGetValue(field, out var baseline);
+            var observed = latestObservation.Fields.TryGetValue(field, out var current);
             if (Equals(intent, current)) continue;
             if (!hadBase || !observed) { conflicts.Add(field); continue; }
-            if (Equals(intent, baseline)) continue;
+            if (intent.Kind != FieldKind.Null && Equals(intent, baseline)) continue;
             if (Equals(current, baseline)) merged = merged.Set(field, intent);
             else conflicts.Add(field);
         }

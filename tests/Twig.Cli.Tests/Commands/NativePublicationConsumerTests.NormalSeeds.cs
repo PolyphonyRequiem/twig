@@ -57,7 +57,7 @@ public sealed partial class NativePublicationConsumerTests
             saved.Value.DraftRetained.ShouldBeFalse();
         }
         var complete = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
-        complete.Drafts.ShouldBeEmpty();
+        complete.RetainedItems.ShouldBeEmpty();
         var mapping = complete.Mappings.ShouldHaveSingleItem();
         mapping.Local.ShouldBe(seed);
         var proposal = complete.Proposals.ShouldHaveSingleItem();
@@ -164,7 +164,7 @@ public sealed partial class NativePublicationConsumerTests
             (await editor.SaveAsync(form.Ticket, FieldValues.Empty)).IsSuccess.ShouldBeFalse();
         }
         var before = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
-        before.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed);
+        before.RetainedItems.ShouldHaveSingleItem().Key.ShouldBe(seed);
         before.Mappings.ShouldBeEmpty();
         before.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Indeterminate);
@@ -181,7 +181,7 @@ public sealed partial class NativePublicationConsumerTests
         for (var attempt = 0; attempt < 2; attempt++)
             (await reopened.ContinueSeedDeliveryAsync(reference.CaptureId, reference.Digest)).Value.Status.ShouldBe("Protected");
         var after = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
-        after.Drafts.Single().Key.ShouldBe(seed);
+        after.RetainedItems.Single().Key.ShouldBe(seed);
         after.Proposals.Single().Digest.ShouldBe(reference.Digest);
         after.Journal.Single().Attempt.ShouldBe(before.Journal.Single().Attempt);
         after.Journal.Single().Receipts.Length.ShouldBe(before.Journal.Single().Receipts.Length);
@@ -218,7 +218,7 @@ public sealed partial class NativePublicationConsumerTests
         var owned = (await editor.CreateSeedAsync("Fixture.Task")).Value;
         var seeds = (await editor.ReadOwnedSeedsAsync()).Value;
         seeds.ShouldHaveSingleItem().Item.ShouldBe(owned.Item);
-        seeds.Single().Draft.ShouldNotBeNull().Baseline.ShouldBeNull();
+        seeds.Single().Draft.ShouldNotBeNull().Key.IsLocal.ShouldBeTrue();
         seeds.Single().Publication.ShouldBeNull();
         (await editor.SelectAsync(cli.Key)).Error.Code.ShouldBe(ErrorCode.Conflict);
         (await editor.SelectAsync(otherSeed)).Error.Code.ShouldBe(ErrorCode.Conflict);
@@ -283,7 +283,7 @@ public sealed partial class NativePublicationConsumerTests
         var staged = await editor.StageAsync(created.Ticket, fields);
         staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
         var owned = (await editor.ReadOwnedSeedsAsync()).Value.ShouldHaveSingleItem();
-        owned.Draft.ShouldNotBeNull().Baseline.ShouldBeNull("Creation has no observed remote pre-state or remote transition.");
+        owned.Draft.ShouldNotBeNull().Key.IsLocal.ShouldBeTrue();
         (await editor.SaveAsync(created.Ticket, FieldValues.Empty)).IsSuccess.ShouldBeFalse();
         _transport.PostCount.ShouldBe(0);
     }

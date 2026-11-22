@@ -52,7 +52,7 @@ internal sealed record SnapshotData(int Version, long StoreVersion, ItemData[] I
 {
     internal static SnapshotData From(StoreSnapshot s) => new(3, s.Version,
         s.Items.Select(ItemData.From).ToArray(), s.Relationships.Select(RelationshipData.From).ToArray(),
-        s.Drafts.Select(DraftData.From).ToArray(), s.Proposals.Select(ProposalData.From).ToArray(),
+        s.RetainedItems.Select(DraftData.From).ToArray(), s.Proposals.Select(ProposalData.From).ToArray(),
         s.Journal.Select(JournalData.From).ToArray(), s.Mappings.Select(MappingData.From).ToArray(),
         s.Benches.Select(BenchData.From).ToArray());
 
@@ -146,12 +146,27 @@ internal sealed record RelationshipData(KeyData FromKey, KeyData ToKey, string K
 internal sealed record DraftData(KeyData Key, string Type, ItemData? Baseline, FieldData[] Changes,
     KeyData? Parent = null, string? ParentRelation = null, ResourceData? Resource = null, CreationLinkData[]? Links = null)
 {
-    internal static DraftData From(Draft d)
-        => new(KeyData.From(d.Key), d.Type, d.Baseline is null ? null : ItemData.From(d.Baseline), FieldData.From(d.Changes),
-            d.Parent is null ? null : KeyData.From(d.Parent), d.ParentRelation, d.Resource is null ? null : ResourceData.From(d.Resource),
-            d.Links.IsEmpty ? null : d.Links.Select(CreationLinkData.From).ToArray());
-    internal Draft ToCore() => new(Key.ToCore(), Type, Baseline?.ToCore(), FieldData.ToCore(Changes),
-        Parent?.ToCore(), ParentRelation, Resource?.ToCore(), Links?.Select(link => link.ToCore()));
+    internal static DraftData From(RetainedItem item) => item switch
+    {
+        LocalEdits edits => new(KeyData.From(edits.Key), edits.Type, ItemData.From(edits.EditBaseline), FieldData.From(edits.Changes)),
+        Seed seed => new(KeyData.From(seed.Key), seed.Type, null, FieldData.From(seed.Fields),
+            seed.Parent is null ? null : KeyData.From(seed.Parent), seed.ParentRelation,
+            seed.Resource is null ? null : ResourceData.From(seed.Resource),
+            seed.Links.IsEmpty ? null : seed.Links.Select(CreationLinkData.From).ToArray()),
+        _ => throw new ArgumentException("Unknown retained item kind.", nameof(item)),
+    };
+
+    internal RetainedItem ToCore()
+    {
+        var key = Key.ToCore();
+        var fields = FieldData.ToCore(Changes);
+        if (Baseline is null)
+            return new Seed(key, Type, fields, Parent?.ToCore(), ParentRelation, Resource?.ToCore(),
+                Links?.Select(link => link.ToCore()));
+        if (Parent is not null || ParentRelation is not null || Resource is not null || Links is { Length: > 0 })
+            throw new JsonException("Creation intent belongs to a seed.");
+        return new LocalEdits(key, Type, Baseline.ToCore(), fields);
+    }
 }
 
 internal sealed record CreationLinkData(KeyData Other, string Relation, bool Outgoing,

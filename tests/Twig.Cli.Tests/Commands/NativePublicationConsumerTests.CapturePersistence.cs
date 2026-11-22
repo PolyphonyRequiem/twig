@@ -56,7 +56,7 @@ public sealed partial class NativePublicationConsumerTests
         selected.IsSuccess.ShouldBeFalse();
         selected.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
         (await reopenedUser.SaveEditorCaptureAsync(staged.Capture with { Revision = 1 }, 0, default)).IsSuccess.ShouldBeFalse();
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("protected");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("protected");
         _transport.PatchAttempts.ShouldBe(0);
     }
 
@@ -91,8 +91,8 @@ public sealed partial class NativePublicationConsumerTests
                 [new(op.Id, op.Kind, op.Item, op.ExpectedRevision, fields, op.Type, concurrency: op.Concurrency, links: op.Links)]);
             return previous with { Revision = previous.Revision + 1, Ready = false,
                 IntentJson = Encoding.UTF8.GetString(Model.ProposalBytes(proposal)),
-                DraftFingerprint = origin.Workspace.DraftFingerprint(new(key, before.Drafts.Single().Type,
-                    before.Drafts.Single().Baseline, fields)) };
+                DraftFingerprint = origin.Workspace.DraftFingerprint(new LocalEdits(key, before.RetainedItems.Single().Type,
+                    before.RetainedItems.OfType<LocalEdits>().Single().EditBaseline, fields)) };
         }
         int Size(NativeEditorCapture capture) => Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(capture, NativeEditorJson.Default.NativeEditorCapture));
         var low = 0;
@@ -115,7 +115,7 @@ public sealed partial class NativePublicationConsumerTests
         readable.Value.Single().SameAs(over ? previous : candidate).ShouldBeTrue();
         var after = (await native.Store.ReadAsync(native.Connection, default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Drafts.Single().Changes.ShouldBe(before.Drafts.Single().Changes);
+        after.RetainedItems.Single().Fields.ShouldBe(before.RetainedItems.Single().Fields);
         if (over)
         {
             var rejectedStage = await editor.StageAsync(staged, UserBenchStore.ParseIntent(candidate.IntentJson).Operations.Single().Fields,
@@ -123,7 +123,7 @@ public sealed partial class NativePublicationConsumerTests
             rejectedStage.IsSuccess.ShouldBeFalse();
             rejectedStage.Error.Code.ShouldBe(ErrorCode.InvalidInput);
             (await user.ReadEditorCapturesAsync(default)).Value.Single().SameAs(previous).ShouldBeTrue();
-            (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes.ShouldBe(before.Drafts.Single().Changes);
+            (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields.ShouldBe(before.RetainedItems.Single().Fields);
         }
         else
         {

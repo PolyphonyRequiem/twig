@@ -38,7 +38,7 @@ public sealed partial class GitHubCoreSpineTests
         await f.Initialize(explicitStore: false);
         f.Run("seed", "new", "--no-parent", "--title", "Transport evidence", "--type", Twig.Providers.GitHub.GitHubProvider.Untyped, "-o", "json")
             .ShouldBe(0, f.Error);
-        var draft = (await f.Snapshot()).Drafts.Single();
+        var draft = (await f.Snapshot()).RetainedItems.Single();
         f.Http.LoseAcknowledgement = true;
         f.Run("seed", "publish", "--all").ShouldBe(1, f.Error);
         var captured = await f.Snapshot();
@@ -59,7 +59,7 @@ public sealed partial class GitHubCoreSpineTests
         f.CredentialCalls.ShouldBe(credentials);
         (await f.Snapshot()).Version.ShouldBe(captured.Version);
         (await File.ReadAllBytesAsync(intent)).ShouldBe(before);
-        (await f.Snapshot()).Drafts.Single().Key.ShouldBe(draft.Key);
+        (await f.Snapshot()).RetainedItems.Single().Key.ShouldBe(draft.Key);
 
         await File.WriteAllTextAsync(intent + ".ack", "{\"requestHash\":\"wrong\",\"statusCode\":200,\"body\":\"matching title is not proof\"}");
         f.Run("connection", "writes", "-o", "json").ShouldBe(1);

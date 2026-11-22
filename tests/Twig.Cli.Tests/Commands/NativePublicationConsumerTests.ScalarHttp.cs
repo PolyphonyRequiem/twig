@@ -235,7 +235,7 @@ public sealed partial class NativePublicationConsumerTests
                     saved.Body["verified"]!.GetValue<bool>().ShouldBeTrue();
                     saved.Body["draftRetained"]!.GetValue<bool>().ShouldBeFalse();
                     HumanPatchAttempts.ShouldBe(1);
-                    snapshot.Drafts.ShouldBeEmpty();
+                    snapshot.RetainedItems.ShouldBeEmpty();
                     snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
                     var proposal = snapshot.Proposals.Single();
                     proposal.SchemaFingerprint.ShouldBe(source["schemaFingerprint"]!.GetValue<string>());
@@ -273,7 +273,7 @@ public sealed partial class NativePublicationConsumerTests
                 var observed = await ReadHumanHostAsync(fixture.Root, fixture.Stamp, false, ct);
                 observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
                 var snapshot = observed.Value.Snapshot;
-                snapshot.Drafts.ShouldBeEmpty();
+                snapshot.RetainedItems.ShouldBeEmpty();
                 snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
                 var actual = snapshot.Items.Single(value => value.Key.NativeId == "42");
                 actual.Fields["System.Title"].Text.ShouldBe("Human route title");

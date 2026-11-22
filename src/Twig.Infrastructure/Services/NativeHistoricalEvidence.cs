@@ -215,8 +215,8 @@ internal sealed class NativeHistoricalProjection(StoreSnapshot snapshot, Immutab
                 ? new WorkItem(item.Key, item.Type, item.Fields, item.Revision, false, item.Resources, item.ResourcesComplete)
                 : item),
             snapshot.Relationships.Where(edge => !WithheldEdge(edge)),
-            snapshot.Drafts.Where(draft => !Withholds(draft.Key) && (draft.Parent is null || !Withholds(draft.Parent))
-                && draft.Links.All(link => !Withholds(link.Other))),
+            snapshot.RetainedItems.Where(draft => !Withholds(draft.Key) && (draft is not Seed seed || (seed.Parent is null || !Withholds(seed.Parent))
+                && seed.Links.All(link => !Withholds(link.Other)))),
             mappings: snapshot.Mappings.Where(mapping => !Withholds(mapping.Remote)),
             benches: snapshot.Benches);
     }

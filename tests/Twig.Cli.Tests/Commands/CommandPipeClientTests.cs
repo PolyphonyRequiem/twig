@@ -16,7 +16,7 @@ public sealed class CommandPipeClientTests
         if (!OperatingSystem.IsWindows()) return;
         using var fixture = new PipeFixture("same-account");
         var result = await fixture.RunAsync(expectInvocation: true,
-            () => DaemonCommandClient.ExecuteAsync(["connection", "list", "-o", "json"]));
+            () => ServerCommandClient.ExecuteAsync(["connection", "list", "-o", "json"]));
 
         result.Exit.ShouldBe(0);
         result.Received.ShouldBeTrue();
@@ -38,7 +38,7 @@ public sealed class CommandPipeClientTests
         var queries = 0;
 
         var result = await fixture.RunAsync(expectInvocation: false,
-            () => DaemonCommandClient.ExecuteAsync(["connection", "list", "-o", "json"], _ =>
+            () => ServerCommandClient.ExecuteAsync(["connection", "list", "-o", "json"], _ =>
         {
             queries++;
             return mode switch
@@ -63,7 +63,7 @@ public sealed class CommandPipeClientTests
         private readonly string root = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "twig-command-peer-test-" + Guid.NewGuid().ToString("N"));
-        private readonly string? previousRoot = Environment.GetEnvironmentVariable("TWIG_DAEMON_INSTALL_ROOT");
+        private readonly string? previousRoot = Environment.GetEnvironmentVariable("TWIG_SERVER_INSTALL_ROOT");
         private readonly TextWriter previousError = Console.Error;
         private readonly NamedPipeServerStream server;
         private readonly CancellationTokenSource deadline = new(TimeSpan.FromSeconds(5));
@@ -76,7 +76,7 @@ public sealed class CommandPipeClientTests
             var data = Path.Combine(root, "data");
             Directory.CreateDirectory(data);
             var id = Guid.NewGuid();
-            File.WriteAllText(Path.Combine(data, "daemon.id"), id.ToString("D"));
+            File.WriteAllText(Path.Combine(data, "server.id"), id.ToString("D"));
             using (var file = File.Create(Path.Combine(root, "current.json")))
             using (var writer = new Utf8JsonWriter(file))
             {
@@ -86,7 +86,7 @@ public sealed class CommandPipeClientTests
             }
             server = new(CommandEndpoint.PipeName(data, id), PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
                 PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly | PipeOptions.FirstPipeInstance);
-            Environment.SetEnvironmentVariable("TWIG_DAEMON_INSTALL_ROOT", root);
+            Environment.SetEnvironmentVariable("TWIG_SERVER_INSTALL_ROOT", root);
             Console.SetError(Error);
             Stage("ready");
         }
@@ -156,7 +156,7 @@ public sealed class CommandPipeClientTests
         public void Dispose()
         {
             Console.SetError(previousError);
-            Environment.SetEnvironmentVariable("TWIG_DAEMON_INSTALL_ROOT", previousRoot);
+            Environment.SetEnvironmentVariable("TWIG_SERVER_INSTALL_ROOT", previousRoot);
             server.Dispose();
             deadline.Dispose();
             Error.Dispose();

@@ -8,7 +8,7 @@
 | Workspace | A Git worktree's initialized Core client store; `workspace --bench <name-or-id>` reads one Bench in that store |
 | Bench | A named, durable, **user-wide** selection of work, independent of any one repository |
 
-One Bench can retain selectors from multiple connections. The CLI and daemon
+One Bench can retain selectors from multiple connections. The CLI and server
 share Bench definitions in the native user store; viewers must not maintain a
 second authoritative copy.
 
@@ -50,20 +50,20 @@ item in this invocation; it cannot set a target for the next one. A named
 Bench read includes its permitted selector scope and protected local drafts,
 not extra relationships around an item in a viewer.
 
-The daemon uses isolated view profiles and explicit source admission. Repository
+The server uses isolated view profiles and explicit source admission. Repository
 bindings can constrain available sources without rewriting shared Bench intent.
 Linked worktrees share bindings through their common Git directory. Twig uses
 the main checkout as the repository context when there is one. When the common
 directory is bare, Twig uses the requesting linked checkout instead; the bare
 directory itself is not a checkout.
 
-An existing daemon session retains its own saved Bench choice. A new session
+An existing server session retains its own saved Bench choice. A new session
 uses the last explicit Bench selection for that verified repository, including
-linked worktrees and after a daemon restart; a deleted remembered Bench falls
+linked worktrees and after a server restart; a deleted remembered Bench falls
 back to the configured repository default. Remembering a choice does not change
 that default or share source admission, permissions, drafts, or CLI selection.
 Registered connection account labels use only the exact bound identity's local
 display metadata, never another signed-in account or credential material.
 Missing sources are reported as degraded/unavailable, not empty membership.
 An attached source with zero members remains a dependency.
-See [daemon operation](../daemon.md).
+See [server operation](../server.md).

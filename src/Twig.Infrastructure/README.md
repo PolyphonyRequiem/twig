@@ -191,7 +191,7 @@ targets are `NotFound`, and incomplete/oversize responses are
 `discovery:cancelled` / `discovery:timeout`. Discovery errors are not effectful
 setup diagnostics and must not be interpreted through `ReadFailure`.
 
-The daemon advertises `ado-setup-discovery-v1`. Its owner/content-authenticated
+The server advertises `ado-setup-discovery-v1`. Its owner/content-authenticated
 `POST /api/v1/views/{id}/setup/discover-ado` accepts:
 
 ```json
@@ -219,7 +219,7 @@ old operation IDs/pages. An organization/project change can reuse the retained
 enrollment operation ID; a new enrollment retires that admission. Match operation
 ID, epoch and complete scope before rendering any response. View close, owner
 revocation/profile generation changes and cancellation withhold late choices.
-The daemon admits only the latest continuation issued in this view for this
+The server admits only the latest continuation issued in this view for this
 enrollment operation, epoch, scope and limit; a cursor cannot cross views.
 Discovery rechecks enrollment before HTTP and before releasing a page, uses the
 existing principal-checking AAD provider, disables redirects, and never invokes

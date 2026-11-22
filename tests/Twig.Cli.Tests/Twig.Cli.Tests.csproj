@@ -16,7 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Twig\Twig.csproj" />
-    <ProjectReference Include="..\..\src\Twig.Daemon\Twig.Daemon.csproj" />
+    <ProjectReference Include="..\..\src\Twig.Server\Twig.Server.csproj" />
   </ItemGroup>
 
 </Project>

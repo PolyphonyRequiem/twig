@@ -5,7 +5,7 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Lists daemon-owned registrations across all workspaces, without inferring a workspace filter.</summary>
+/// <summary>Lists server-owned registrations across all workspaces, without inferring a workspace filter.</summary>
 internal sealed class ConnectionListCommand(IConnectionBindingService bindings, RendererFactory renderers)
 {
     internal async Task<int> ExecuteAsync(string? provider, string? organization, string? project,

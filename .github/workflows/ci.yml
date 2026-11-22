@@ -40,17 +40,17 @@ jobs:
 
       - name: Native authority, lost acknowledgement recovery and independent canvas packages
         run: python eng/ci-checks.py native-authority
-      - name: Daemon catalog identity, CAS and durable lost-response receipts (isolated)
-        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- dotnet tests/Twig.Daemon.Catalog.Tests/bin/Debug/net11.0/Twig.Daemon.Catalog.Tests.dll
-      - name: Provider-owned daemon sessions, native HTTP and admission guards (isolated)
-        id: daemon_invariants
-        run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests|FullyQualifiedName~CatalogChangesTests" --logger "trx;LogFileName=daemon-invariants.trx" --results-directory artifacts/test-logs/ci/daemon-invariants
-      - name: Preserve provider-owned daemon invariant results
-        if: always() && steps.daemon_invariants.outcome != 'skipped' && steps.daemon_invariants.outcome != ''
+      - name: Server catalog identity, CAS and durable lost-response receipts (isolated)
+        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- dotnet tests/Twig.Server.Catalog.Tests/bin/Debug/net11.0/Twig.Server.Catalog.Tests.dll
+      - name: Provider-owned server sessions, native HTTP and admission guards (isolated)
+        id: server_invariants
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Server.Tests/Twig.Server.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~SessionInvariantTests|FullyQualifiedName~NativeHttpInvariantTests|FullyQualifiedName~NativeSourceAdapterInvariantTests|FullyQualifiedName~NativeAccountLabelInvariantTests|FullyQualifiedName~CatalogChangesTests" --logger "trx;LogFileName=server-invariants.trx" --results-directory artifacts/test-logs/ci/server-invariants
+      - name: Preserve provider-owned server invariant results
+        if: always() && steps.server_invariants.outcome != 'skipped' && steps.server_invariants.outcome != ''
         uses: actions/upload-artifact@v4
         with:
-          name: twig-daemon-invariants-${{ matrix.rid }}
-          path: artifacts/test-logs/ci/daemon-invariants/*.trx
+          name: twig-server-invariants-${{ matrix.rid }}
+          path: artifacts/test-logs/ci/server-invariants/*.trx
           if-no-files-found: error
       - name: Native presentation HTTP persistence without acquisition (isolated)
         id: native_presentation
@@ -114,7 +114,7 @@ jobs:
           if-no-files-found: error
       - name: Native diagnostic and schema read composition (isolated)
         id: native_read_composition
-        run: python eng/verify-trx.py -- dotnet test tests/Twig.Daemon.Tests/Twig.Daemon.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Daemon.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts/test-logs/ci/read-composition
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Server.Tests/Twig.Server.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName=Twig.Server.Tests.Native.NativeReadCompositionTests.RedactsDiagnosticsThroughNativeHostAndLoggingFilter|FullyQualifiedName=Twig.Server.Tests.Native.NativeReadCompositionTests.RetainsSchemaUntilExplicitNativeRecheck" --logger "trx;LogFileName=read-composition.trx" --results-directory artifacts/test-logs/ci/read-composition
       - name: Preserve native read-composition results
         if: always() && steps.native_read_composition.outcome != 'skipped' && steps.native_read_composition.outcome != ''
         uses: actions/upload-artifact@v4
@@ -132,15 +132,15 @@ jobs:
           name: twig-native-initial-view-${{ matrix.rid }}
           path: artifacts/test-logs/ci/initial-view-http/*.trx
           if-no-files-found: error
-      - name: Standalone daemon installer orchestration (synthetic only)
+      - name: Standalone server installer orchestration (synthetic only)
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./eng/test-daemon-install.ps1
-      - name: Install Linux daemon archive and exercise real headless lifecycle
+        run: ./eng/test-server-install.ps1
+      - name: Install Linux server archive and exercise real headless lifecycle
         if: runner.os == 'Linux'
         run: |
-          bash eng/daemon-package-linux.sh
-          python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-daemon-linux.sh
+          bash eng/server-package-linux.sh
+          python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-server-linux.sh
 
       - name: Explicit native setup and creation-bound readback
         id: native_setup
@@ -284,8 +284,8 @@ jobs:
 
       - name: Supported Core-only platform delivery regression (offline)
         run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-platform-support.py
-      - name: Exercise the CLI and daemon command boundary
-        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-daemon-commands.py
+      - name: Exercise the CLI and server command boundary
+        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-server-commands.py
 
       - name: Fundamental build validation (60-second warning target, 300-second safety timeout)
         id: smoke

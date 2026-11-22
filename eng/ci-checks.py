@@ -10,11 +10,11 @@ import sys
 def native_authority():
     for project, selector in [
         ("Twig.Providers.Native.Tests", "FullyQualifiedName~NativeProviderTests"),
-        ("Twig.Daemon.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~DaemonLauncherTests|FullyQualifiedName~NativeMetadata"),
+        ("Twig.Server.Tests", "FullyQualifiedName~CanvasPackageTests|FullyQualifiedName~ServerLauncherTests|FullyQualifiedName~NativeMetadata"),
         ("Twig.Cli.Tests", "FullyQualifiedName~NativeTwigSpineTests"),
     ]:
         if os.name == "nt":
-            if project == "Twig.Daemon.Tests":
+            if project == "Twig.Server.Tests":
                 selector += "|FullyQualifiedName~CommandPipeSecurityTests"
             elif project == "Twig.Cli.Tests":
                 selector += "|FullyQualifiedName~CommandPipeClientTests"
@@ -28,7 +28,7 @@ def native_setup():
     groups = [
         ("setup-infrastructure", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeConnectionSetupTests|FullyQualifiedName~NativeSetupBinding|FullyQualifiedName~NativeSetupPkce|FullyQualifiedName~NativeSetupCallback"),
         ("setup-discovery", "Twig.Infrastructure.Tests", "FullyQualifiedName~NativeAdoSetupDiscoveryTests"),
-        ("setup-http", "Twig.Daemon.Tests", "FullyQualifiedName~NativeAdoSetupDiscoveryHttpTests|FullyQualifiedName~ManagedAdoSetupTests"),
+        ("setup-http", "Twig.Server.Tests", "FullyQualifiedName~NativeAdoSetupDiscoveryHttpTests|FullyQualifiedName~ManagedAdoSetupTests"),
         ("setup-cli", "Twig.Cli.Tests", "FullyQualifiedName~NativeConnectionSetupCommandTests|FullyQualifiedName~NativeSetupFullInitPreflight|FullyQualifiedName~NativeSetupAdo|FullyQualifiedName~NativeSetupGitHub"),
         ("setup-managed-ado", "Twig.Cli.Tests", "FullyQualifiedName~NativeManagedAdo"),
         ("setup-native-databases", "Twig.Cli.Tests", "FullyQualifiedName~NativeDatabaseTests"),
@@ -61,7 +61,7 @@ def native_scalar_http():
         ("ado-relationship-debt", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativeAdoScalarHttpUsesQualifiedNativeAuthority", "relationship-debt"),
         ("github-save", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority", "save"),
         ("github-guards", "Twig.Cli.Tests", "Twig.Cli.Tests.Commands.GitHubCoreSpineTests.NativeGitHubScalarHttpUsesQualifiedNativeAuthority", "guards"),
-        ("panel-scalar-boundary", "Twig.Daemon.Tests", "Twig.Daemon.Tests.Native.NativePanelScalarBoundaryTests.NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors", None),
+        ("panel-scalar-boundary", "Twig.Server.Tests", "Twig.Server.Tests.Native.NativePanelScalarBoundaryTests.NativePanelUnpinRetainsOrderedQueryAndOtherPinAndExactTypedStateColors", None),
     ]
     for label, project, method, scenario in cases:
         selector = f"FullyQualifiedName={method}"

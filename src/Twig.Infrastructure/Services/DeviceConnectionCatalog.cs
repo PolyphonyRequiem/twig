@@ -57,7 +57,7 @@ internal sealed record ProviderConnectionCredential(string Kind, string Selector
 internal sealed record RegisteredProviderConnection(ProviderConnectionRequirement Requirement, ProviderConnectionCredential? Credential,
     string? Organization = null, string? Project = null, string? BindingId = null);
 
-/// <summary>Device-local provider registrations shared across workspaces by the current user's daemon.</summary>
+/// <summary>Device-local provider registrations shared across workspaces by the current user's server.</summary>
 internal sealed class DeviceConnectionCatalog
 {
     private readonly string path;

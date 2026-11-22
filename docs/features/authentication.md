@@ -101,5 +101,5 @@ transport evidence. Only the original Core proposal journal is execution
 authority; a matching later value or a fresh local workspace does not justify
 replaying an uncertain request.
 
-The daemon adds same-owner Windows authentication and scoped views; it does not
-replace provider identity or publication checks. See [daemon security](../daemon.md#security-and-data-ownership).
+The server adds same-owner Windows authentication and scoped views; it does not
+replace provider identity or publication checks. See [server security](../server.md#security-and-data-ownership).

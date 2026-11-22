@@ -5,9 +5,9 @@ Command existence does not imply provider parity. Use `twig --version`, then
 `twig --help-all` for the installed command catalog or `twig <command> --help`
 for arguments, defaults, and examples. Use these pages for behavior and effects.
 
-Setup, identity, connection, work-item and Bench commands require the selected [daemon](../daemon.md) to
+Setup, identity, connection, work-item and Bench commands require the selected [server](../server.md) to
 be running. The CLI sends one request over owner-only local IPC, not through the
-browser or MCP. The daemon uses the caller's workspace and the same native
+browser or MCP. The server uses the caller's workspace and the same native
 metadata home; provider, target, policy and journal checks remain authoritative.
 There is no in-process or legacy cache fallback. If the connection is lost
 after dispatch, inspect the original journal before attempting another change:
@@ -56,19 +56,19 @@ These are not experimental alternatives or compatibility routes:
 
 | Retired | Current direction |
 | --- | --- |
-| `daemon start/status/stop` | Use [`server start/status/stop`](system/server.md); the old command family is not an alias |
+| [`server start/status/stop`](system/server.md) | Manage the local Twig Server |
 | Quick `new`, bare `seed` | `seed new`, then explicit validation/publication |
 | `delete` | No qualified CLI deletion route |
 | `history`, `tree-set`, `tree --all`, `sprint`, live/full-backlog views | Cached `show`, explicit refresh, bounded queries, static workspace or targeted tree; no equivalent whole-history export |
 | `set`, `nav` (all directions), back/forward, `states` | `show <id>`, targeted `tree <id>` or `process <type>` |
 | `bench switch`, contextual `sync` and `refresh` | `workspace --bench <name-or-id>`; add `--refresh` for a supported pull without saving drafts |
-| `bench browser/detail/discussion/configuration`, captured `draft` envelopes | Separate native daemon host; not a CLI envelope fallback |
+| `bench browser/detail/discussion/configuration`, captured `draft` envelopes | Separate native server host; not a CLI envelope fallback |
 | `policy assess/reconcile`, `proposal latest/seed/reconcile` | Current file-scoped proposal lifecycle; no automatic repair/seed-export replacement |
 | `process layout`, old complete process descriptor | `process description` reports acquired Core schema and explicit gaps |
 | `config`, `config status-fields`, migrations, reset/reinitialize, identity/target hot-switches | Explicit fresh initialization and named enrollment/bindings |
 | `provider discover/bind github` | Fresh `init --provider github` with exact account and repository |
 | `upgrade`, `changelog` | Rerun the CLI installer; read GitHub Releases |
-| `tui`, `mcp`, `ohmyposh init`, automatic companions | No current CLI launch path; daemon read-only MCP is separate |
+| `tui`, `mcp`, `ohmyposh init`, automatic companions | No current CLI launch path; server read-only MCP is separate |
 
 Retirement pages remain at old documentation URLs to avoid turning existing
 links into runnable obsolete recipes.

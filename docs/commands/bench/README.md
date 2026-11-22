@@ -1,7 +1,7 @@
 # Benches
 
 A Bench is a durable, user-wide collection of connection-qualified selection
-rules. The CLI and daemon share its identity and definition. It is not owned by
+rules. The CLI and server share its identity and definition. It is not owned by
 a repository or automatically created from a sprint. Creation does not select it.
 
 | Command | Purpose |
@@ -20,5 +20,5 @@ changes to the shared definition are visible wherever it is used.
 
 The old `bench browser/detail/discussion/configuration` commands are retired.
 `bench browse` is a distinct explicit native source read, not that browser.
-For graphical hosting and human Save/Apply, see the [daemon guide](../../daemon.md).
+For graphical hosting and human Save/Apply, see the [server guide](../../server.md).
 For model and provider limits, see [Benches and context](../../features/workspace-bench-context.md).

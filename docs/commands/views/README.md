@@ -7,4 +7,4 @@ To refresh that view, run `twig workspace --bench MyWork --refresh`.
 
 These are static CLI projections. The sprint/team/full-backlog/live views,
 `tree --all`, and old browser/TUI are retired. GitHub tree presentation is not
-qualified. The separate [daemon](../../daemon.md) owns its graphical host contract.
+qualified. The separate [server](../../server.md) owns its graphical host contract.

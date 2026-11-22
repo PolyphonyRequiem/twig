@@ -2,4 +2,4 @@
 
 This CLI route is not current credential administration.
 See [supported authentication](../../features/authentication.md).
-Daemon owner sign-out is a separate host action, not this command.
+Server owner sign-out is a separate host action, not this command.

@@ -94,8 +94,8 @@ if (-not (Test-Path $twigExe)) {
     exit 1
 }
 
-Write-Host "  To use work-item commands, install and explicitly select the separate Windows daemon:" -ForegroundColor Green
-Write-Host "  https://github.com/$repo/blob/main/docs/daemon.md#install-the-release-package"
+Write-Host "  To use work-item commands, install and explicitly select the separate Windows server:" -ForegroundColor Green
+Write-Host "  https://github.com/$repo/blob/main/docs/server.md#install-the-release-package"
 
 # Add to user PATH if not already present
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')

@@ -42,7 +42,7 @@ Older presenter designs relied on `proposal preview --interactive`,
 support those routes, even when a companion is installed.
 
 Use explicit file-scoped [Core proposals](proposals.md) and their ordinary
-plain/structured review path. The [daemon](../daemon.md) and separately delivered
+plain/structured review path. The [server](../server.md) and separately delivered
 [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas) provide a
 review workflow with human-only Apply. OMP means Oh My Pi, not Oh My Posh.
 

@@ -19,5 +19,5 @@ replaces old plan v1/provider-plan v2 documents. Read the
 [proposal guide](../../features/proposals.md) for identity, atomicity and recovery.
 
 `proposal latest/seed/reconcile`, `plan seed`, `policy assess/reconcile`, and the
-captured `draft` envelopes are retired. The daemon's native Plan/editor is a
+captured `draft` envelopes are retired. The server's native Plan/editor is a
 separate guarded API, not an alternate CLI envelope publisher.

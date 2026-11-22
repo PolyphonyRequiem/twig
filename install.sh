@@ -135,8 +135,8 @@ fi
 # Make executable
 chmod +x "${INSTALL_DIR}/twig"
 
-echo "  To use work-item commands, install and select the separate Linux x64 daemon:"
-echo "  https://github.com/${REPO}/blob/main/docs/daemon.md#install-the-release-package"
+echo "  To use work-item commands, install and select the separate Linux x64 server:"
+echo "  https://github.com/${REPO}/blob/main/docs/server.md#install-the-release-package"
 
 # Add to PATH via shell profile if not already present
 PATH_EXPORT="export PATH=\"\$HOME/.twig/bin:\$PATH\""

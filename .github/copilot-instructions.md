@@ -3,7 +3,7 @@
 ## Project Overview
 
 Twig is an AOT-compiled CLI for work-item triage. It renders static item, tree
-and Bench views. Interactive selection belongs to native daemon/Canvas sessions
+and Bench views. Interactive selection belongs to native server/Canvas sessions
 and views, not to the CLI; do not introduce a replacement TUI.
 
 **Key constraints:**

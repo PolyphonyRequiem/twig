@@ -67,6 +67,6 @@ it cannot manufacture publication proof or blindly replay a create. A matching t
 search does not settle uncertainty. Keep unknown, partial, verified, and
 unattempted work distinct when reporting results.
 
-The daemon's normal seed editor and isolated Plan path retain their own ownership
+The server's normal seed editor and isolated Plan path retain their own ownership
 and admission checks; they do not adopt arbitrary CLI debt. See
-[proposals](proposals.md) and [daemon operation](../daemon.md).
+[proposals](proposals.md) and [server operation](../server.md).

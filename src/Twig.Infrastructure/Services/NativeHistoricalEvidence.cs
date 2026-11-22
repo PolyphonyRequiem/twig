@@ -5,7 +5,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Twig.Core;
 
-[assembly: InternalsVisibleTo("Bench.Infrastructure")]
+[assembly: InternalsVisibleTo("Twig.Server.Infrastructure")]
 
 namespace Twig.Infrastructure.Services;
 
@@ -46,7 +46,7 @@ internal sealed class NativeHistoricalEvidence(string directory)
     }
 
     internal static string LocalUserDirectory => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "DaemonData", "native-evidence");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "ServerData", "native-evidence");
 
     internal static NativeHistoricalEvidence ForLocalUser() => new(LocalUserDirectory);
 

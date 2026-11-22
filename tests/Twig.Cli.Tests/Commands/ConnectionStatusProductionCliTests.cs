@@ -11,7 +11,7 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"twig-connection-layout-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task PortableConnectionInventoryPersistsAcrossDaemonWorkersWithoutWorkspace()
+    public async Task PortableConnectionInventoryPersistsAcrossServerWorkersWithoutWorkspace()
     {
         Directory.CreateDirectory(_root);
         const string manifest = "{broken manifest";

@@ -1,7 +1,7 @@
 # Architecture overview
 
 Twig consists of a CLI, a pure work-management Core, SQLite persistence, provider
-adapters, and an optional Windows daemon. The former `Twig.Domain`, standalone
+adapters, and an optional Windows server. The former `Twig.Domain`, standalone
 MCP/TUI hosts, old cache/writer graph, and legacy browser are not the current
 architecture.
 
@@ -17,7 +17,7 @@ architecture.
 | `Twig.Providers.Native` | Isolated named owner-local Twig-native authorities and explicit native schema |
 | `Twig.Infrastructure` | Native authentication/bindings, workspace admission, Core host composition and host-facing APIs |
 | `Twig.RenderTree` | Pure rendering vocabulary shared by consumers |
-| `Twig.Daemon.*` | Windows same-owner service, application/domain/infrastructure, and pure client library |
+| `Twig.Server.*` | Windows same-owner service, application/domain/infrastructure, and pure client library |
 
 The exact supported build inventory, including test projects and the external
 RenderTree consumer sample, is [`Twig.slnx`](../../Twig.slnx).
@@ -38,15 +38,15 @@ mappings; provider I/O does not run inside its transactions.
 ## Product boundaries
 
 The CLI is NativeAOT, fully trimmed, and reflection-free for JSON. Serializable
-host models use source-generated metadata. The daemon is a separate self-contained
+host models use source-generated metadata. The server is a separate self-contained
 Windows application, not the AOT CLI renamed or launched in a UI mode.
 
-Twig owns daemon source and delivery. The independently packaged
+Twig owns server source and delivery. The independently packaged
 `twig-bench-canvas` owns presentation assets. Item and Bench selection belongs
-to the native daemon/Canvas session or view; it never supplies a CLI target.
+to the native server/Canvas session or view; it never supplies a CLI target.
 The CLI renders static views, not a TUI. Hosts do not gain publication
 authority from opening a view or receiving an SDK acknowledgement.
-See [daemon architecture and operation](../daemon.md).
+See [server architecture and operation](../server.md).
 
 ADO process vocabulary is discovered, never assumed. GitHub API constraints and
 configured Twig policy are not discovery of external repository automation.

@@ -12,10 +12,10 @@ Twig's current data path uses `Twig.Core` and `Twig.Store.Sqlite`, not the forme
 | Native user registry and private credentials | Registered connection/identity metadata and separate private credential material |
 | User-wide `benches.db` | Shared Bench definitions, rules, source dependencies and repository bindings |
 | `native-databases/database-<name>.db` beside the user registry | One authoritative Twig-native database per explicit name, with independent stable source identity, items, revisions and creation evidence |
-| Daemon private data directory | Daemon identity/instance guard, endpoint metadata, presentation sessions and native evidence |
+| Server private data directory | Server identity/instance guard, endpoint metadata, presentation sessions and native evidence |
 
 An explicit absolute `TWIG_USER_HOME` selects the native metadata home.
-Changing only the daemon's private data directory does not isolate user-wide
+Changing only the server's private data directory does not isolate user-wide
 Benches or the native databases. Exact formats and safety checks are implementation
 contracts, not files callers should synthesize or edit.
 

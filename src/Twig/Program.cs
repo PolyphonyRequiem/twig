@@ -81,7 +81,7 @@ if (args.Length == 0)
 
 if (args is ["server", ..])
 {
-    Environment.ExitCode = await DaemonLifecycle.RunAsync(args);
+    Environment.ExitCode = await ServerLifecycle.RunAsync(args);
     return;
 }
 
@@ -189,7 +189,7 @@ if (args[0] is "skills" or "version")
     return;
 }
 
-Environment.ExitCode = await Twig.DaemonCommandClient.ExecuteAsync(invocationArguments);
+Environment.ExitCode = await Twig.ServerCommandClient.ExecuteAsync(invocationArguments);
 
 
 /// <summary>
@@ -1697,7 +1697,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await services.GetRequiredService<AuthPatCommand>().ExecuteAsync(identity, org, stdin, output, ct);
 
-    /// <summary>Register a device-local provider connection through the daemon. Does not select credentials or change twig.json.</summary>
+    /// <summary>Register a device-local provider connection through the server. Does not select credentials or change twig.json.</summary>
     /// <param name="provider">Required provider: ado, github or twig.</param>
     /// <param name="org">ADO organization name or secure URL.</param>
     /// <param name="project">ADO project.</param>
@@ -1737,7 +1737,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await services.GetRequiredService<ConnectionBindCommand>().ExecuteAsync(provider, org, project,
             host, repository, null, identity, account, clientId, output, ct);
 
-    /// <summary>List all device-local provider connections and user credential bindings through the daemon. No implicit workspace filter.</summary>
+    /// <summary>List all device-local provider connections and user credential bindings through the server. No implicit workspace filter.</summary>
     /// <param name="provider">Optional provider filter; dimension filters must be complete.</param>
     /// <param name="org">Explicit ADO organization filter; requires --provider ado and --project.</param>
     /// <param name="project">Explicit ADO project filter.</param>

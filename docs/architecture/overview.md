@@ -71,6 +71,22 @@ extension keyed to the original item are domain examples, not claims of current
 adapter support. When a provider is unavailable, an extension's own data and
 the last-known or unobserved provider data remain distinct.
 
+## Plans
+
+The [glossary](../../GLOSSARY.md#plans) uses **Plan** for a defined set of
+intended work-item changes. Presenting a plan as a proposal does not create
+another domain concept. User-directed approval and confirmation are outside
+Twig's work-management domain.
+
+The current implementation still calls this concept `Proposal`, prefers the
+`proposal` CLI group over its `plan` aliases, and requires digest confirmation.
+These are implementation gaps, not domain definitions.
+[Plan terminology alignment](https://github.com/PolyphonyRequiem/twig/issues/703)
+and [approval/confirmation removal](https://github.com/PolyphonyRequiem/twig/issues/704)
+track the follow-up. Removing that machinery must preserve independently
+justified access controls, intent integrity, concurrency checks and evidence
+about uncertain writes, not replace it with another approval workflow.
+
 ## Execution boundary
 
 The CLI admits arguments and the selected workspace before composing a provider.

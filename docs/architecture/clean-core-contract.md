@@ -56,6 +56,12 @@ sources. Existing CLI optional/default/config/device/browser behavior remains in
 its internal adapters. Missing enrollment aliases now refuse before construction
 of the native binding service, including native home/credential-directory effects.
 
+`NativeSetupPreflight` owns provider-target and credential-selection rules for
+managed setup, fresh setup, and CLI initialization. Only managed setup
+discovers a GitHub account when none is named. CLI initialization still accepts
+provider coordinates from `twig.json`. Each path runs its preflight checks
+before writing workspace state.
+
 After named enrollment, the read-only `DiscoverAdoAsync` facade/gateway and
 owner-authenticated view-scoped `setup/discover-ado` operation expose bounded
 organization/project/team choices before initialization. Exact enrollment,

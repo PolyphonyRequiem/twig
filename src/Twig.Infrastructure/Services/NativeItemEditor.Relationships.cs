@@ -44,7 +44,7 @@ public sealed partial class NativeItemEditor
             if (item.Capture is { } capture)
             {
                 var op = UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single();
-                if (!capture.Ready || capture.BenchId != editor.BenchId || capture.PlanMode || capture.SeedProposal is not null
+                if (!capture.Ready || capture.BenchId != editor.BenchId || capture.PlanMode || capture.SeedPlan is not null
                     || op.Links.Any(link => link.Other != other) || !op.Links.IsEmpty && (op.ExpectedRevision != item.Observation.Revision
                         || !capture.Endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(other) && proof.Revision == endpoint.Value.Revision?.Token)))
                     return Result<NativeRelationshipForm>.Fail(ErrorCode.Conflict, "The exact retained relationship capture, Bench or endpoint changed; no intent was rebound.");
@@ -117,7 +117,7 @@ public sealed partial class NativeItemEditor
         var retained = await editor.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!retained.IsSuccess) return Result<NativeEditorItem>.Fail(retained.Error);
         if (retained.Value.Journal.Any(row => row.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Partial or OpStatus.Indeterminate
-            && retained.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == item.Observation.Key))
+            && retained.Value.Plans.Single(plan => plan.Digest == row.Digest).Operations[row.Operation].Item == item.Observation.Key))
             return Result<NativeEditorItem>.Fail(ErrorCode.Indeterminate, "The original relationship attempt is protected; no restaging or replay is permitted.");
         var fresh = await editor.Workspace.ReadAsync(endpoint.Key, ct, editor.Metadata).ConfigureAwait(false);
         if (!fresh.IsSuccess) return Result<NativeEditorItem>.Fail(fresh.Error);
@@ -180,7 +180,7 @@ public sealed partial class NativeItemEditor
                 foreach (var remove in new[] { false, true })
                 {
                     var link = new CreationLink(endpoint.Key, relation.Reference, outgoing, remove);
-                    var candidate = new Proposal(editor.Origin.Connection, schema.Fingerprint, snapshot.Value.Version,
+                    var candidate = new Plan(editor.Origin.Connection, schema.Fingerprint, snapshot.Value.Version,
                         [new("choice", OpKind.Batch, item.Observation.Key, item.Observation.Revision, links: [link])]);
                     if (Model.Validate(candidate, candidate.Digest, schema, snapshot.Value, capabilities).IsEmpty) choices.Add(link);
                 }

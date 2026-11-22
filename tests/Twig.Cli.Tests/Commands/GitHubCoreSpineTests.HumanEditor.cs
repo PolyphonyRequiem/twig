@@ -36,8 +36,8 @@ public sealed partial class GitHubCoreSpineTests
         var snapshot = await fixture.SnapshotAsync();
         snapshot.Drafts.ShouldBeEmpty();
         snapshot.Items.Single().Fields[GitHubProvider.Body].ShouldBe(fields[GitHubProvider.Body]);
-        snapshot.Proposals.Single().Operations.Single().Concurrency.ShouldBe(ConcurrencyMode.ObservedNonAtomic);
-        snapshot.Proposals.Single().Operations.Single().Fields.Count.ShouldBe(3);
+        snapshot.Plans.Single().Operations.Single().Concurrency.ShouldBe(ConcurrencyMode.ObservedNonAtomic);
+        snapshot.Plans.Single().Operations.Single().Fields.Count.ShouldBe(3);
         form = (await editor.SelectAsync(fixture.Key)).Value;
         (await editor.SaveAsync(form.Ticket, FieldValues.Empty.Set(GitHubProvider.Body, FieldValue.Null)))
             .IsSuccess.ShouldBeFalse("a body clear must explicitly carry Markdown, not Null");

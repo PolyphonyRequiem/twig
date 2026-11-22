@@ -7,48 +7,48 @@ namespace Twig.Providers.GitHub;
 
 public sealed partial class GitHubProvider
 {
-    public Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default)
-        => Guard(() => WithSession(proposal.Connection, async (bound, token) =>
+    public Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default)
+        => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             var stored = await Snapshot(token);
             RefuseChangedActor(stored, bound);
-            RefuseUnresolvedTargets(proposal, stored);
+            RefuseUnresolvedTargets(plan, stored);
             var schema = await Discover(bound, token);
-            var acquired = await AcquireInputs(bound, schema, proposal, stored, token);
-            var errors = Model.Validate(proposal, confirmation, schema.Schema, acquired, schema.Capabilities);
+            var acquired = await AcquireInputs(bound, schema, plan, stored, token);
+            var errors = Model.Validate(plan, confirmation, schema.Schema, acquired, schema.Capabilities);
             Check(errors);
-            for (var ordinal = 0; ordinal < proposal.Operations.Length; ordinal++)
-                await Shape(bound, schema, proposal, ordinal, Guid.Empty, token);
-            if (stored.Proposals.Any(p => p.Digest == proposal.Digest))
+            for (var ordinal = 0; ordinal < plan.Operations.Length; ordinal++)
+                await Shape(bound, schema, plan, ordinal, Guid.Empty, token);
+            if (stored.Plans.Any(p => p.Digest == plan.Digest))
                 throw Wire.Refuse(ErrorCode.Conflict, "Retained intent cannot be reset.");
             await bound.Session.ValidateAsync(token);
             var result = await _store.CommitAsync(_connection, stored.Version,
-                Copy(acquired, stored.Version + 1, proposals: stored.Proposals.Add(proposal),
-                    journal: stored.Journal.AddRange(proposal.Operations.Select((_, n) => JournalEntry.Planned(proposal.Digest, n)))), token);
+                Copy(acquired, stored.Version + 1, plans: stored.Plans.Add(plan),
+                    journal: stored.Journal.AddRange(plan.Operations.Select((_, n) => JournalEntry.Planned(plan.Digest, n)))), token);
             if (!result.IsSuccess) throw new GitHubFailure(result.Error);
             return result.Value;
         }, ct));
 
-    public Task<Result<Receipt>> ApplyAsync(Proposal proposal, int operation, Guid attempt, CancellationToken ct)
-        => Guard(() => WithSession(proposal.Connection, async (bound, token) =>
+    public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
-            if (attempt == Guid.Empty || operation < 0 || operation >= proposal.Operations.Length)
+            if (attempt == Guid.Empty || operation < 0 || operation >= plan.Operations.Length)
                 throw Wire.Refuse(ErrorCode.InvalidInput, "Valid operation and nonempty attempt UUID required.");
             var stored = await Snapshot(token);
             RefuseChangedActor(stored, bound);
-            RefuseUnresolvedTargets(proposal, stored);
+            RefuseUnresolvedTargets(plan, stored);
             var schema = await Discover(bound, token);
-            var acquired = await AcquireInputs(bound, schema, proposal, stored, token);
-            Check(Model.ValidateEffect(proposal, operation, schema.Schema, acquired, schema.Capabilities));
-            var op = proposal.Operations[operation];
-            var shape = await Shape(bound, schema, proposal, operation, attempt, token);
+            var acquired = await AcquireInputs(bound, schema, plan, stored, token);
+            Check(Model.ValidateEffect(plan, operation, schema.Schema, acquired, schema.Capabilities));
+            var op = plan.Operations[operation];
+            var shape = await Shape(bound, schema, plan, operation, attempt, token);
             if (op.ExpectedRevision is not null)
             {
                 var latest = await ReadItem(bound, schema, op.Item, token);
                 if (latest.Item.Revision != op.ExpectedRevision) throw Wire.Refuse(ErrorCode.Conflict, "Opaque observation moved before dispatch.");
             }
             await bound.Session.ValidateAsync(token);
-            var row = stored.Journal.Single(j => j.Digest == proposal.Digest && j.Operation == operation);
+            var row = stored.Journal.Single(j => j.Digest == plan.Digest && j.Operation == operation);
             var began = row.Begin(attempt);
             if (!began.IsSuccess) throw new GitHubFailure(began.Error);
             var fenced = await _store.CommitAsync(_connection, stored.Version,
@@ -63,15 +63,15 @@ public sealed partial class GitHubProvider
             if (op.Origin == RelationshipOrigin.Local)
             {
                 await bound.Session.ValidateAsync(token);
-                var receipt = new Receipt(proposal.Digest, operation, attempt, OpStatus.Applied, evidence);
+                var receipt = new Receipt(plan.Digest, operation, attempt, OpStatus.Applied, evidence);
                 var edge = Edge(op, schema) with { LocalVersion = (op.ExpectedLocalVersion ?? 0) + 1, Deleted = op.Kind == OpKind.Unrelate };
-                return await PersistReceipt(proposal, receipt, null, edge);
+                return await PersistReceipt(plan, receipt, null, edge);
             }
             Receipt outcome;
             var dispatched = false;
             try
             {
-                var intent = new GitHubWriteIntent(proposal, operation, attempt, bound.Endpoint, "POST", "application/json", Wire.Utf8(shape.Payload));
+                var intent = new GitHubWriteIntent(plan, operation, attempt, bound.Endpoint, "POST", "application/json", Wire.Utf8(shape.Payload));
                 var admitted = await bound.Session.AdmitAsync(intent, token);
                 if (!admitted.IsSuccess) throw new GitHubFailure(admitted.Error);
                 using var admission = admitted.Value;
@@ -88,7 +88,7 @@ public sealed partial class GitHubProvider
                 // A complete HTTP-layer rejection establishes no mutation execution. GraphQL errors
                 // may accompany executed resolver effects and are never treated as a no-effect proof.
                 if ((int)response.StatusCode is 400 or 401 or 403 or 404 or 405 or 415 or 422 or 429)
-                    outcome = new(proposal.Digest, operation, attempt, OpStatus.Failed, evidence,
+                    outcome = new(plan.Digest, operation, attempt, OpStatus.Failed, evidence,
                         error: new(ErrorCode.Unavailable, $"Definitive HTTP {(int)response.StatusCode} rejection."));
                 else if ((int)response.StatusCode != 200)
                     outcome = Unknown("No definitive native acknowledgement.");
@@ -112,28 +112,28 @@ public sealed partial class GitHubProvider
                         var node = Wire.Member(comment, "node");
                         evidence.Add("comment-id:" + Wire.Id(Wire.Text(node, "id")));
                     }
-                    outcome = new(proposal.Digest, operation, attempt, OpStatus.Applied, evidence, publishedKey: published);
+                    outcome = new(plan.Digest, operation, attempt, OpStatus.Applied, evidence, publishedKey: published);
                 }
             }
             catch (Exception ex) when (ex is GitHubFailure or HttpRequestException or OperationCanceledException or IOException || Malformed(ex))
             {
                 evidence.Add((dispatched ? "after-dispatch:" : "no-dispatch:") + ex.GetType().Name);
                 outcome = dispatched ? Unknown("Mutation may have executed; no blind replay.")
-                    : new(proposal.Digest, operation, attempt, OpStatus.Failed, evidence,
+                    : new(plan.Digest, operation, attempt, OpStatus.Failed, evidence,
                         error: new(ErrorCode.Unavailable, "Host admission/selection refused before mutation dispatch."));
             }
-            return await PersistReceipt(proposal, outcome, null);
+            return await PersistReceipt(plan, outcome, null);
 
-            Receipt Unknown(string message) => new(proposal.Digest, operation, attempt, OpStatus.Indeterminate, evidence,
+            Receipt Unknown(string message) => new(plan.Digest, operation, attempt, OpStatus.Indeterminate, evidence,
                 error: new(ErrorCode.Indeterminate, message));
         }, ct, validateAfter: false));
 
-    public Task<Result<Receipt>> VerifyAsync(Proposal proposal, Receipt acknowledgement, CancellationToken ct)
+    public Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
         => Guard(async () =>
         {
-            if (proposal.Connection != _connection) throw Wire.Refuse(ErrorCode.Conflict, "Verification binding changed.");
+            if (plan.Connection != _connection) throw Wire.Refuse(ErrorCode.Conflict, "Verification binding changed.");
             var stored = await Snapshot(ct);
-            var row = stored.Journal.SingleOrDefault(j => j.Digest == proposal.Digest && j.Operation == acknowledgement.Operation);
+            var row = stored.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == acknowledgement.Operation);
             if (row is null || row.Status != OpStatus.Applied || row.Attempt != acknowledgement.Attempt
                 || row.Receipts.Length != 1 || !SameReceipt(row.Receipts[0], acknowledgement))
                 throw Wire.Refuse(ErrorCode.Conflict, "Verification requires the exact durable Applied receipt.");
@@ -141,15 +141,15 @@ public sealed partial class GitHubProvider
             QueryPage? observations = null;
             try
             {
-                receipt = await WithSession(proposal.Connection, async (bound, token) =>
+                receipt = await WithSession(plan.Connection, async (bound, token) =>
                 {
                     RefuseChangedActor(stored, bound);
                     if (!acknowledgement.Evidence.Contains($"authority:{bound.Authority}"))
                         throw Wire.Refuse(ErrorCode.Conflict, "Original actor/acquisition binding changed.");
                     var schema = await Discover(bound, token);
-                    if (schema.Schema.Fingerprint != proposal.SchemaFingerprint)
+                    if (schema.Schema.Fingerprint != plan.SchemaFingerprint)
                         throw Wire.Refuse(ErrorCode.SchemaChanged, "Readback schema/authority changed.");
-                    var op = proposal.Operations[acknowledgement.Operation];
+                    var op = plan.Operations[acknowledgement.Operation];
                     var matches = false;
                     Revision? revision = null;
                     if (op.Origin == RelationshipOrigin.Local)
@@ -177,7 +177,7 @@ public sealed partial class GitHubProvider
                         };
                     }
                     await bound.Session.ValidateAsync(token);
-                    return new Receipt(proposal.Digest, acknowledgement.Operation, acknowledgement.Attempt,
+                    return new Receipt(plan.Digest, acknowledgement.Operation, acknowledgement.Attempt,
                         matches ? OpStatus.Verified : OpStatus.Partial,
                         [$"actor:{bound.Actor}", $"authority:{bound.Authority}",
                             matches ? "Separate readback observed every intended effect; non-atomic races remain possible."
@@ -188,25 +188,25 @@ public sealed partial class GitHubProvider
             }
             catch (Exception ex) when (ex is GitHubFailure or HttpRequestException or OperationCanceledException or IOException || Malformed(ex))
             {
-                receipt = new(proposal.Digest, acknowledgement.Operation, acknowledgement.Attempt, OpStatus.Indeterminate,
+                receipt = new(plan.Digest, acknowledgement.Operation, acknowledgement.Attempt, OpStatus.Indeterminate,
                     [$"Readback unavailable ({ex.GetType().Name}); original Applied acknowledgement remains."],
                     publishedKey: acknowledgement.PublishedKey, error: new(ErrorCode.Indeterminate, "Readback failure is not non-dispatch evidence."));
             }
-            return await PersistReceipt(proposal, receipt, observations);
+            return await PersistReceipt(plan, receipt, observations);
         });
 
-    public async Task<Result<Receipt>> RecoverAsync(Proposal proposal, int operation, CancellationToken ct = default)
+    public async Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)
     {
-        if (proposal.Connection != _connection || operation < 0 || operation >= proposal.Operations.Length)
+        if (plan.Connection != _connection || operation < 0 || operation >= plan.Operations.Length)
             return Result<Receipt>.Fail(ErrorCode.Conflict, "Recovery requires this exact retained connection/ordinal.");
         var stored = await _store.ReadAsync(_connection, ct);
         if (!stored.IsSuccess) return Result<Receipt>.Fail(stored.Error);
-        var row = stored.Value.Journal.SingleOrDefault(j => j.Digest == proposal.Digest && j.Operation == operation);
+        var row = stored.Value.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == operation);
         if (row is null) return Result<Receipt>.Fail(ErrorCode.Conflict, "No retained operation exists.");
-        if (row.Status == OpStatus.Applied) return await VerifyAsync(proposal, row.Receipts[0], ct);
+        if (row.Status == OpStatus.Applied) return await VerifyAsync(plan, row.Receipts[0], ct);
         if (row.Status == OpStatus.Applying)
-            return Result<Receipt>.Ok(await PersistReceipt(proposal,
-                new(proposal.Digest, operation, row.Attempt, OpStatus.Indeterminate,
+            return Result<Receipt>.Ok(await PersistReceipt(plan,
+                new(plan.Digest, operation, row.Attempt, OpStatus.Indeterminate,
                     ["Durable Applying has no positive attributable acknowledgement; no create/comment replay or title search was performed."],
                     error: new(ErrorCode.Indeterminate, "Original attempt and local creation UUID remain fenced.")), null));
         return row.Receipts.IsEmpty ? Result<Receipt>.Fail(ErrorCode.Conflict, "Unattempted operation is not recovery.")
@@ -237,11 +237,11 @@ public sealed partial class GitHubProvider
         return result.IsSuccess ? result.Value : throw new GitHubFailure(result.Error);
     }
 
-    private async Task<StoreSnapshot> AcquireInputs(Bound bound, Discovery schema, Proposal proposal, StoreSnapshot stored, CancellationToken ct)
+    private async Task<StoreSnapshot> AcquireInputs(Bound bound, Discovery schema, Plan plan, StoreSnapshot stored, CancellationToken ct)
     {
-        var keys = proposal.Operations.SelectMany(o => o.Other is null ? new[] { o.Item } : new[] { o.Item, o.Other })
+        var keys = plan.Operations.SelectMany(o => o.Other is null ? new[] { o.Item } : new[] { o.Item, o.Other })
             .Select(key => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key
-                && stored.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                && stored.Journal.Any(row => row.Digest == mapping.PlanDigest && row.Operation == mapping.Operation
                     && row.Status == OpStatus.Verified))?.Remote ?? key)
             .Where(k => !k.IsLocal).Distinct().ToImmutableArray();
         return Mirror(stored, await Read(bound, schema, keys, ct), stored.Version);
@@ -270,13 +270,13 @@ public sealed partial class GitHubProvider
             throw Wire.Refuse(ErrorCode.Conflict, "Original native actor or credential-acquisition binding changed.");
     }
 
-    private static void RefuseUnresolvedTargets(Proposal proposal, StoreSnapshot stored)
+    private static void RefuseUnresolvedTargets(Plan plan, StoreSnapshot stored)
     {
         ItemKey Resolve(ItemKey key) => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
         foreach (var row in stored.Journal.Where(j => j.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Partial or OpStatus.Indeterminate))
         {
-            var prior = stored.Proposals.Single(p => p.Digest == row.Digest).Operations[row.Operation];
-            if (proposal.Operations.Any(op => Resolve(op.Item) == Resolve(prior.Item)
+            var prior = stored.Plans.Single(p => p.Digest == row.Digest).Operations[row.Operation];
+            if (plan.Operations.Any(op => Resolve(op.Item) == Resolve(prior.Item)
                 || op.Other is not null && Resolve(op.Other) == Resolve(prior.Item)
                 || prior.Other is not null && (Resolve(op.Item) == Resolve(prior.Other)
                     || op.Other is not null && Resolve(op.Other) == Resolve(prior.Other))))
@@ -284,7 +284,7 @@ public sealed partial class GitHubProvider
         }
     }
 
-    private async Task<Receipt> PersistReceipt(Proposal proposal, Receipt receipt, QueryPage? observations, Relationship? localEdge = null)
+    private async Task<Receipt> PersistReceipt(Plan plan, Receipt receipt, QueryPage? observations, Relationship? localEdge = null)
     {
         var current = await _store.ReadAsync(_connection, CancellationToken.None);
         if (!current.IsSuccess) return Undurable(current.Error);
@@ -293,15 +293,15 @@ public sealed partial class GitHubProvider
         var recorded = row.Record(receipt);
         if (!recorded.IsSuccess) return Undurable(recorded.Error);
         var mappings = stored.Mappings;
-        if (proposal.Operations[receipt.Operation].Kind == OpKind.Create && receipt.Status == OpStatus.Applied)
-            mappings = mappings.Add(new(proposal.Operations[receipt.Operation].Item, receipt.PublishedKey!, proposal.Digest, receipt.Operation));
+        if (plan.Operations[receipt.Operation].Kind == OpKind.Create && receipt.Status == OpStatus.Applied)
+            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, receipt.PublishedKey!, plan.Digest, receipt.Operation));
         if (observations is not null) stored = Mirror(stored, observations, stored.Version);
         var relationships = stored.Relationships;
         if (localEdge is not null)
         {
             var prior = relationships.SingleOrDefault(r => r.Origin == RelationshipOrigin.Local
                 && r.From == localEdge.From && r.To == localEdge.To && r.Kind == localEdge.Kind);
-            if (prior?.LocalVersion != proposal.Operations[receipt.Operation].ExpectedLocalVersion)
+            if (prior?.LocalVersion != plan.Operations[receipt.Operation].ExpectedLocalVersion)
                 return Undurable(new(ErrorCode.Conflict, "Local relationship CAS changed after durable acquisition."));
             relationships = relationships.Where(r => r != prior).Append(localEdge).ToImmutableArray();
         }
@@ -319,10 +319,10 @@ public sealed partial class GitHubProvider
         => journal.Select(j => j.Digest == row.Digest && j.Operation == row.Operation ? row : j).ToImmutableArray();
 
     private static StoreSnapshot Copy(StoreSnapshot store, long version, IEnumerable<WorkItem>? items = null,
-        IEnumerable<Relationship>? relationships = null, IEnumerable<Proposal>? proposals = null,
+        IEnumerable<Relationship>? relationships = null, IEnumerable<Plan>? plans = null,
         IEnumerable<JournalEntry>? journal = null, IEnumerable<PublishMapping>? mappings = null)
         => new(version, items ?? store.Items, relationships ?? store.Relationships, store.Drafts,
-            proposals ?? store.Proposals, journal ?? store.Journal, mappings ?? store.Mappings, store.Benches);
+            plans ?? store.Plans, journal ?? store.Journal, mappings ?? store.Mappings, store.Benches);
 
     private static bool SameReceipt(Receipt a, Receipt b) => a.Digest == b.Digest && a.Operation == b.Operation
         && a.Attempt == b.Attempt && a.Status == b.Status && a.Revision == b.Revision && a.PublishedKey == b.PublishedKey

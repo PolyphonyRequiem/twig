@@ -1,7 +1,7 @@
 ---
 command: link successor
 group: links
-summary: Mark a published item as blocking another through a verified Core proposal.
+summary: Mark a published item as blocking another through a verified Core plan.
 stability: experimental
 mutates: ado
 ---
@@ -20,7 +20,7 @@ twig link successor <targetId> --id <n> [-o <format>]
 `targetId` names the blocked item; `--id` names the blocker. Both must be positive native IDs.
 
 Canonical direction is **blocker -> blocked**. The selected blocker's observed
-revision binds one forward-link PATCH. Shared proposal validation, declared policy,
+revision binds one forward-link PATCH. Shared plan validation, declared policy,
 durable journal intent, independent acknowledgement readback and fresh reciprocal
 observations determine success. No legacy writer or sync fallback is used.
 

@@ -113,7 +113,7 @@ public sealed partial class NativePublicationConsumerTests
                 snapshot.Items, snapshot.Relationships,
                 [new(draft.Key, draft.Type, draft.Baseline, draft.Changes.Set("System.Title", FieldValue.String("Newer independent intent")),
                     draft.Parent, draft.ParentRelation, draft.Resource, draft.Links)],
-                snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches), default)).IsSuccess.ShouldBeTrue();
+                snapshot.Plans, snapshot.Journal, snapshot.Mappings, snapshot.Benches), default)).IsSuccess.ShouldBeTrue();
         }
         await using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString()))
         {

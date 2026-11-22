@@ -4,43 +4,43 @@ namespace Twig.Core;
 
 public static partial class Core
 {
-    public static ImmutableArray<Error> Validate(Proposal proposal, string confirmation, ProcessSchema schema,
+    public static ImmutableArray<Error> Validate(Plan plan, string confirmation, ProcessSchema schema,
         StoreSnapshot store, ProviderCapabilities capabilities)
     {
         var errors = ImmutableArray.CreateBuilder<Error>();
-        if (!string.Equals(confirmation, proposal.Digest, StringComparison.Ordinal))
-            errors.Add(new(ErrorCode.DigestMismatch, "Confirmation must equal the exact canonical proposal digest."));
-        if (proposal.Connection != schema.Connection || proposal.SchemaFingerprint != schema.Fingerprint)
-            errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new proposal."));
-        if (proposal.ExpectedStoreVersion != store.Version)
-            errors.Add(new(ErrorCode.Conflict, "Local state changed after this proposal was constructed."));
-        errors.AddRange(ProposalSchemaErrors(proposal, schema, store));
-        foreach (var op in proposal.Operations)
-            ValidateOperation(op, proposal, schema, store, capabilities, errors);
+        if (!string.Equals(confirmation, plan.Digest, StringComparison.Ordinal))
+            errors.Add(new(ErrorCode.DigestMismatch, "Confirmation must equal the exact canonical plan digest."));
+        if (plan.Connection != schema.Connection || plan.SchemaFingerprint != schema.Fingerprint)
+            errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new plan."));
+        if (plan.ExpectedStoreVersion != store.Version)
+            errors.Add(new(ErrorCode.Conflict, "Local state changed after this plan was constructed."));
+        errors.AddRange(PlanSchemaErrors(plan, schema, store));
+        foreach (var op in plan.Operations)
+            ValidateOperation(op, plan, schema, store, capabilities, errors);
         return errors.ToImmutable();
     }
 
-    public static ImmutableArray<Error> ValidateEffect(Proposal proposal, int operation, ProcessSchema schema,
+    public static ImmutableArray<Error> ValidateEffect(Plan plan, int operation, ProcessSchema schema,
         StoreSnapshot store, ProviderCapabilities capabilities)
     {
         var errors = ImmutableArray.CreateBuilder<Error>();
-        if (operation < 0 || operation >= proposal.Operations.Length)
-            return [new(ErrorCode.InvalidInput, "Operation ordinal is outside the retained proposal.")];
-        if (proposal.Connection != schema.Connection || proposal.SchemaFingerprint != schema.Fingerprint)
+        if (operation < 0 || operation >= plan.Operations.Length)
+            return [new(ErrorCode.InvalidInput, "Operation ordinal is outside the retained plan.")];
+        if (plan.Connection != schema.Connection || plan.SchemaFingerprint != schema.Fingerprint)
             errors.Add(new(ErrorCode.SchemaChanged, "The apply-time schema differs from the confirmed intent."));
-        errors.AddRange(ProposalSchemaErrors(proposal, schema, store));
-        if (!store.Proposals.Any(p => p.Digest == proposal.Digest)
-            || !store.Journal.Any(j => j.Digest == proposal.Digest && j.Operation == operation && j.Status == OpStatus.Planned)
-            || store.Journal.Any(j => j.Digest == proposal.Digest && j.Operation < operation && j.Status != OpStatus.Verified))
+        errors.AddRange(PlanSchemaErrors(plan, schema, store));
+        if (!store.Plans.Any(p => p.Digest == plan.Digest)
+            || !store.Journal.Any(j => j.Digest == plan.Digest && j.Operation == operation && j.Status == OpStatus.Planned)
+            || store.Journal.Any(j => j.Digest == plan.Digest && j.Operation < operation && j.Status != OpStatus.Verified))
             errors.Add(new(ErrorCode.Conflict, "The retained operation is not ready for its first attempt."));
-        ValidateOperation(proposal.Operations[operation], proposal, schema, store, capabilities, errors);
+        ValidateOperation(plan.Operations[operation], plan, schema, store, capabilities, errors);
         return errors.ToImmutable();
     }
 
-    private static IEnumerable<Error> ProposalSchemaErrors(Proposal proposal, ProcessSchema schema, StoreSnapshot store)
+    private static IEnumerable<Error> PlanSchemaErrors(Plan plan, ProcessSchema schema, StoreSnapshot store)
     {
         var references = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var op in proposal.Operations)
+        foreach (var op in plan.Operations)
         {
             if (op.Type is not null) references.Add(op.Type);
             foreach (var key in op.Links.Select(link => link.Other).Prepend(op.Item)
@@ -98,7 +98,7 @@ public static partial class Core
         }
     }
 
-    private static void ValidateOperation(Op op, Proposal proposal, ProcessSchema schema, StoreSnapshot store,
+    private static void ValidateOperation(Op op, Plan plan, ProcessSchema schema, StoreSnapshot store,
         ProviderCapabilities capabilities, ImmutableArray<Error>.Builder errors)
     {
         void Fail(ErrorCode code, string message) => errors.Add(new(code, $"{op.Id}: {message}"));
@@ -122,7 +122,7 @@ public static partial class Core
             Fail(ErrorCode.InvalidInput, "Operation contains fields belonging to a different effect.");
         if (!local && !capabilities.Operations.Contains(op.Kind))
             Fail(ErrorCode.Unsupported, "Provider does not implement this operation.");
-        if (op.Kind != OpKind.Create && !local && !op.Item.BelongsTo(proposal.Connection))
+        if (op.Kind != OpKind.Create && !local && !op.Item.BelongsTo(plan.Connection))
             Fail(ErrorCode.InvalidInput, "Mutation identity is outside the bound provider resource scope.");
         if (op.Kind == OpKind.Create)
         {
@@ -142,13 +142,13 @@ public static partial class Core
                 if (edge.Remove) Fail(ErrorCode.InvalidInput, "Creation cannot remove an existing relationship.");
                 var kind = schema.Relations.FirstOrDefault(kind => kind.Reference == edge.Relation);
                 var endpoint = store.Mappings.FirstOrDefault(mapping => mapping.Local == edge.Other)?.Remote ?? edge.Other;
-                var predecessor = proposal.Operations.TakeWhile(candidate => candidate != op)
+                var predecessor = plan.Operations.TakeWhile(candidate => candidate != op)
                     .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == edge.Other);
                 if (!capabilities.AtomicFieldBatches || kind is null || kind.Shape is not (RelationShape.Dependency or RelationShape.Association)
                     || !capabilities.NativeRelations.Contains(edge.Relation)
                     || !edge.Outgoing && !kind.Directed)
                     Fail(ErrorCode.Unsupported, "Creation links require discovered native dependency/association semantics and proven creation coupling.");
-                if (!(endpoint.BelongsTo(proposal.Connection)
+                if (!(endpoint.BelongsTo(plan.Connection)
                     || endpoint.IsLocal && predecessor && store.Drafts.Any(draft => draft.Key == endpoint)))
                     Fail(ErrorCode.Unsupported, "A creation link endpoint requires an in-scope observation or preceding captured creation.");
                 else if (!endpoint.IsLocal && !store.Items.Any(item => item.Key == endpoint && item.RelationshipsComplete))
@@ -160,10 +160,10 @@ public static partial class Core
             {
                 var mappedParent = store.Mappings.FirstOrDefault(mapping => mapping.Local == op.Other);
                 var parentKey = mappedParent?.Remote ?? op.Other;
-                var earlierCreate = proposal.Operations.TakeWhile(candidate => candidate != op)
+                var earlierCreate = plan.Operations.TakeWhile(candidate => candidate != op)
                     .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == op.Other);
                 if (!capabilities.AtomicFieldBatches
-                    || !(parentKey.BelongsTo(proposal.Connection) || parentKey.IsLocal && earlierCreate
+                    || !(parentKey.BelongsTo(plan.Connection) || parentKey.IsLocal && earlierCreate
                         && store.Drafts.Any(parent => parent.Key == parentKey))
                     || !schema.Relations.Any(relation => relation.Reference == op.Relation && relation.Shape == RelationShape.Hierarchy && relation.Directed)
                     || !capabilities.NativeRelations.Contains(op.Relation!))
@@ -175,7 +175,7 @@ public static partial class Core
                 || !schema.Relations.Any(relation => relation.Reference == op.Resource.Relation && relation.Shape == RelationShape.Resource)))
                 Fail(ErrorCode.Unsupported, "Creation-bound resources require proven single-request native coupling and discovered resource semantics.");
             if (store.Mappings.Any(m => m.Local == op.Item) || store.Journal.Any(j =>
-                j.Status != OpStatus.Planned && store.Proposals.Any(p => p.Digest == j.Digest
+                j.Status != OpStatus.Planned && store.Plans.Any(p => p.Digest == j.Digest
                     && j.Operation < p.Operations.Length && p.Operations[j.Operation].Kind == OpKind.Create
                     && p.Operations[j.Operation].Item == op.Item)))
                 Fail(ErrorCode.Conflict, "This creation identity has already been attempted; reconcile without replay, even under a new digest.");
@@ -201,7 +201,7 @@ public static partial class Core
                 if (kind is null || kind.Shape == RelationShape.Resource || !delta.Outgoing && !kind.Directed
                     || !capabilities.NativeRelations.Contains(delta.Relation)
                     || !capabilities.Operations.Contains(delta.Remove ? OpKind.Unrelate : OpKind.Relate)
-                    || delta.Other == op.Item || !delta.Other.BelongsTo(proposal.Connection))
+                    || delta.Other == op.Item || !delta.Other.BelongsTo(plan.Connection))
                 { Fail(ErrorCode.Unsupported, "Every compound delta needs native incident semantics and an exact in-scope endpoint."); continue; }
                 if (new[] { op.Item, delta.Other }.Any(key => !store.Items.Any(item => item.Key == key && item.RelationshipsComplete)))
                     Fail(ErrorCode.Unavailable, "Every changed incident endpoint must be completely observed.");
@@ -247,7 +247,7 @@ public static partial class Core
                     Fail(ErrorCode.Unsupported, "Unknown relationship kind.");
                 if (!(local ? capabilities.LocalRelations : capabilities.NativeRelations).Contains(op.Relation))
                     Fail(ErrorCode.Unsupported, "Relationship transport/provenance was not explicitly declared.");
-                if (!local && !op.Other.BelongsTo(proposal.Connection))
+                if (!local && !op.Other.BelongsTo(plan.Connection))
                     Fail(ErrorCode.Unsupported, "Native cross-scope relationships require a provider-specific capability, not implicit emulation.");
                 if (local && new[] { op.Item, op.Other }.Any(k => !EndpointObserved(k)))
                     Fail(ErrorCode.Unavailable, "Local relationship endpoint evidence is missing.");
@@ -268,15 +268,15 @@ public static partial class Core
         }
         bool EndpointObserved(ItemKey key)
         {
-            if (!key.IsLocal) return key.BelongsTo(proposal.Connection) && store.Items.Any(item => item.Key == key);
+            if (!key.IsLocal) return key.BelongsTo(plan.Connection) && store.Items.Any(item => item.Key == key);
             if (store.Drafts.Any(draft => draft.Key == key && draft.Baseline is null)) return true;
-            return store.Mappings.Any(mapping => mapping.Local == key && mapping.Remote.BelongsTo(proposal.Connection)
+            return store.Mappings.Any(mapping => mapping.Local == key && mapping.Remote.BelongsTo(plan.Connection)
                 && store.Items.Any(item => item.Key == mapping.Remote)
-                && store.Proposals.Any(original => original.Digest == mapping.ProposalDigest
-                    && original.Connection == proposal.Connection && mapping.Operation < original.Operations.Length
+                && store.Plans.Any(original => original.Digest == mapping.PlanDigest
+                    && original.Connection == plan.Connection && mapping.Operation < original.Operations.Length
                     && original.Operations[mapping.Operation].Kind == OpKind.Create
                     && original.Operations[mapping.Operation].Item == key)
-                && store.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+                && store.Journal.Any(row => row.Digest == mapping.PlanDigest && row.Operation == mapping.Operation
                     && row.Status == OpStatus.Verified && row.Receipts.Any(receipt =>
                         receipt.Status == OpStatus.Verified && receipt.PublishedKey == mapping.Remote)));
         }
@@ -571,8 +571,8 @@ public static partial class Core
             || next.Mappings.Select(m => m.Remote).Distinct().Count() != next.Mappings.Length
             || before.Mappings.Any(m => !next.Mappings.Contains(m)))
             errors.Add(new(ErrorCode.Conflict, "Publish mappings are immutable, permanent and one-to-one."));
-        if (before.Proposals.Any(p => !next.Proposals.Any(n => n.Digest == p.Digest)))
-            errors.Add(new(ErrorCode.Conflict, "Retained proposal intent cannot disappear during a store commit."));
+        if (before.Plans.Any(p => !next.Plans.Any(n => n.Digest == p.Digest)))
+            errors.Add(new(ErrorCode.Conflict, "Retained plan intent cannot disappear during a store commit."));
         var localEdges = next.Relationships.Where(r => r.Origin == RelationshipOrigin.Local).ToArray();
         if (localEdges.Select(r => (r.From, r.To, r.Kind)).Distinct().Count() != localEdges.Length)
             errors.Add(new(ErrorCode.Conflict, "Duplicate local relationship identities."));
@@ -604,19 +604,19 @@ public static partial class Core
                 }))
                 errors.Add(new(ErrorCode.Conflict, "Journal evidence cannot be erased, rewritten or replayed."));
         }
-        foreach (var proposal in next.Proposals)
+        foreach (var plan in next.Plans)
         {
-            var rows = next.Journal.Where(j => j.Digest == proposal.Digest).ToArray();
-            if (rows.Length != proposal.Operations.Length
-                || rows.Any(j => j.Operation < 0 || j.Operation >= proposal.Operations.Length))
-                errors.Add(new(ErrorCode.Conflict, "Proposal import must atomically retain exactly one journal row per operation."));
+            var rows = next.Journal.Where(j => j.Digest == plan.Digest).ToArray();
+            if (rows.Length != plan.Operations.Length
+                || rows.Any(j => j.Operation < 0 || j.Operation >= plan.Operations.Length))
+                errors.Add(new(ErrorCode.Conflict, "Plan import must atomically retain exactly one journal row per operation."));
         }
         foreach (var row in next.Journal)
         {
             if (!before.Journal.Any(j => j.Digest == row.Digest && j.Operation == row.Operation) && row.Status != OpStatus.Planned)
                 errors.Add(new(ErrorCode.Conflict, "An operation must be durably imported as Planned before its attempt begins."));
-            var proposal = next.Proposals.FirstOrDefault(p => p.Digest == row.Digest);
-            if (proposal is null || row.Operation >= proposal.Operations.Length)
+            var plan = next.Plans.FirstOrDefault(p => p.Digest == row.Digest);
+            if (plan is null || row.Operation >= plan.Operations.Length)
             {
                 errors.Add(new(ErrorCode.Conflict, "A journal row must belong to retained intent."));
                 continue;
@@ -624,22 +624,22 @@ public static partial class Core
             if (row.Status != OpStatus.Planned && next.Journal.Any(j => j.Digest == row.Digest
                 && j.Operation < row.Operation && j.Status != OpStatus.Verified))
                 errors.Add(new(ErrorCode.Conflict, "Later operations cannot start before earlier operations verify."));
-            var op = proposal.Operations[row.Operation];
+            var op = plan.Operations[row.Operation];
             if (op.Kind == OpKind.Create && row.Status is OpStatus.Applied or OpStatus.Verified
-                && !next.Mappings.Any(m => m.Local == op.Item && m.ProposalDigest == row.Digest
+                && !next.Mappings.Any(m => m.Local == op.Item && m.PlanDigest == row.Digest
                     && m.Operation == row.Operation && row.Receipts.Any(r => r.PublishedKey == m.Remote)))
                 errors.Add(new(ErrorCode.Conflict, "Creation acknowledgement, publish mapping and journal must commit together."));
         }
         foreach (var mapping in next.Mappings)
-            if (!next.Journal.Any(j => j.Digest == mapping.ProposalDigest && j.Operation == mapping.Operation
+            if (!next.Journal.Any(j => j.Digest == mapping.PlanDigest && j.Operation == mapping.Operation
                 && j.Receipts.Any(r => r.Status == OpStatus.Applied)
-                && next.Proposals.Any(p => p.Digest == j.Digest && j.Operation < p.Operations.Length
+                && next.Plans.Any(p => p.Digest == j.Digest && j.Operation < p.Operations.Length
                     && p.Operations[j.Operation].Kind == OpKind.Create && p.Operations[j.Operation].Item == mapping.Local
                     && mapping.Remote.BelongsTo(p.Connection))
                 && j.Receipts.Any(r => r.PublishedKey == mapping.Remote)))
                 errors.Add(new(ErrorCode.Conflict, "A mapping needs the original create's attributable acknowledgement."));
         var attemptedCreates = next.Journal.Where(j => j.Status != OpStatus.Planned)
-            .Select(j => (Row: j, Op: next.Proposals.FirstOrDefault(p => p.Digest == j.Digest)?.Operations.ElementAtOrDefault(j.Operation)))
+            .Select(j => (Row: j, Op: next.Plans.FirstOrDefault(p => p.Digest == j.Digest)?.Operations.ElementAtOrDefault(j.Operation)))
             .Where(x => x.Op?.Kind == OpKind.Create).ToArray();
         if (attemptedCreates.GroupBy(x => x.Op!.Item).Any(g => g.Count() > 1))
             errors.Add(new(ErrorCode.Conflict, "A durable creation UUID cannot begin another attempt under a replacement digest."));

@@ -21,7 +21,7 @@ public sealed partial class GitHubCoreSpineTests
         var created = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, true)).Value;
         var before = await fixture.SnapshotAsync();
         before.Drafts.ShouldBeEmpty();
-        before.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(created.Proposal.Digest);
+        before.Plans.ShouldHaveSingleItem().Digest.ShouldBe(created.Plan.Digest);
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Planned);
         var proof = await LocalCaptureProof(fixture);
         var requests = fixture.Native.Http.Requests;
@@ -30,7 +30,7 @@ public sealed partial class GitHubCoreSpineTests
         NativeLocalRelationshipReview loaded;
         if (exact)
         {
-            var read = await editor.ReadLocalRelationshipReviewAsync(created.CaptureId, created.Proposal.Digest);
+            var read = await editor.ReadLocalRelationshipReviewAsync(created.CaptureId, created.Plan.Digest);
             read.IsSuccess.ShouldBeTrue(read.IsSuccess ? "" : read.Error.Message);
             loaded = read.Value;
         }
@@ -43,7 +43,7 @@ public sealed partial class GitHubCoreSpineTests
         (fixture.Native.Http.HandleCreations - handles).ShouldBe(2,
             "one entry and one post-read source admission; original lookup must not reopen the admitted source");
         loaded.CaptureId.ShouldBe(created.CaptureId);
-        Model.ProposalBytes(loaded.Proposal).ShouldBe(Model.ProposalBytes(created.Proposal));
+        Model.PlanBytes(loaded.Plan).ShouldBe(Model.PlanBytes(created.Plan));
         loaded.Outcome.ShouldNotBeNull().Journal!.Status.ShouldBe(OpStatus.Planned);
         loaded.Outcome.Settled.ShouldBeFalse();
         AssertSameLocalState(before, await fixture.SnapshotAsync());
@@ -84,7 +84,7 @@ public sealed partial class GitHubCoreSpineTests
         var created = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, true)).Value;
         var before = await fixture.SnapshotAsync();
         before.Drafts.ShouldBeEmpty();
-        before.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(created.Proposal.Digest);
+        before.Plans.ShouldHaveSingleItem().Digest.ShouldBe(created.Plan.Digest);
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Planned);
         var proof = await LocalCaptureProof(fixture);
         var requests = fixture.Native.Http.Requests;
@@ -93,7 +93,7 @@ public sealed partial class GitHubCoreSpineTests
         Error failure;
         if (exact)
         {
-            var refused = await editor.ReadLocalRelationshipReviewAsync(created.CaptureId, created.Proposal.Digest);
+            var refused = await editor.ReadLocalRelationshipReviewAsync(created.CaptureId, created.Plan.Digest);
             refused.IsSuccess.ShouldBeFalse();
             failure = refused.Error;
         }

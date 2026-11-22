@@ -177,10 +177,10 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             if (item.Draft is not null && item.Capture is null)
                 return Result<NativeEditorItem>.Fail(ErrorCode.Conflict, "Unowned CLI seed debt cannot be adopted by native authoring.");
             if (item.Capture is { } normal && (normal.BenchId != bench.Id || normal.PlanMode
-                || normal.SeedProposal is not null || normal.Origin != origin))
+                || normal.SeedPlan is not null || normal.Origin != origin))
                 return Result<NativeEditorItem>.Fail(ErrorCode.Indeterminate, "The original normal seed reference is protected; inspect or continue its delivery without restaging.");
             if (current.Value.Journal.Any(row => row.Status != OpStatus.Planned
-                && current.Value.Proposals.Single(value => value.Digest == row.Digest).Operations[row.Operation].Item == item.Observation.Key))
+                && current.Value.Plans.Single(value => value.Digest == row.Digest).Operations[row.Operation].Item == item.Observation.Key))
                 return Result<NativeEditorItem>.Fail(ErrorCode.Indeterminate, "An original creation attempt protects this UUID; no replacement intent was staged.");
             if (type is not null && type != item.Observation.Type || relationships is { IsEmpty: false }
                 || item.Draft is { } seed && (seed.Parent is not null || seed.ParentRelation is not null
@@ -257,7 +257,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         var op = new Op("intent", desired.Key.IsLocal ? OpKind.Create : OpKind.Batch, desired.Key, item.Observation.Revision,
             desired.Changes, desired.Type, desired.Parent, desired.ParentRelation, resource: desired.Resource, links: links,
             concurrency: desired.Key.IsLocal ? ConcurrencyMode.ObservedNonAtomic : Workspace.Concurrency);
-        var intent = Encoding.UTF8.GetString(Model.ProposalBytes(new(Workspace.Connection, metadata.Schema.Fingerprint, beforeStage.Value.Version, [op])));
+        var intent = Encoding.UTF8.GetString(Model.PlanBytes(new(Workspace.Connection, metadata.Schema.Fingerprint, beforeStage.Value.Version, [op])));
         var capture = new NativeEditorCapture(item.Capture?.Id ?? Guid.NewGuid(), (item.Capture?.Revision ?? 0) + 1,
             library.InstanceId, bench.Id, bench.Revision, plan.Id, plan.Revision, plan.PlanMode, scope?.Id ?? Guid.Empty,
             origin, factory.WorkspaceRoot, handle.Document.DatabaseInstance, beforeStage.Value.Version, intent,
@@ -308,7 +308,7 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             if (!rebound.IsSuccess) return Result<CoreExecution>.Fail(rebound.Error);
             capture = rebound.Value;
         }
-        if (capture.SeedProposal is not null)
+        if (capture.SeedPlan is not null)
             return Result<CoreExecution>.Fail(ErrorCode.Indeterminate, "The original seed execution is already retained; continue delivery only.");
         var intent = UserBenchStore.ParseIntent(capture.IntentJson);
         var schema = await Workspace.SchemaAsync(ct).ConfigureAwait(false);
@@ -321,17 +321,17 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
         if (!preview.IsSuccess) return Result<CoreExecution>.Fail(preview.Error);
         if (op.Item.IsLocal)
         {
-            if (preview.Value.Proposal is null)
-                return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Native seed creation requires an exact Core proposal.");
+            if (preview.Value.Plan is null)
+                return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Native seed creation requires an exact Core plan.");
             var retained = await user.SaveEditorCaptureAsync(capture with { Revision = capture.Revision + 1,
-                SeedProposal = Encoding.UTF8.GetString(Model.ProposalBytes(preview.Value.Proposal)) }, capture.Revision, ct).ConfigureAwait(false);
+                SeedPlan = Encoding.UTF8.GetString(Model.PlanBytes(preview.Value.Plan)) }, capture.Revision, ct).ConfigureAwait(false);
             if (!retained.IsSuccess) return Result<CoreExecution>.Fail(retained.Error);
             capture = retained.Value;
         }
-        var result = await Workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal?.Digest, ct).ConfigureAwait(false);
+        var result = await Workspace.SaveDraftAsync(preview.Value, preview.Value.Plan?.Digest, ct).ConfigureAwait(false);
         if (op.Item.IsLocal)
         {
-            var delivered = await ContinueSeedDeliveryAsync(capture.Id, preview.Value.Proposal!.Digest, ct).ConfigureAwait(false);
+            var delivered = await ContinueSeedDeliveryAsync(capture.Id, preview.Value.Plan!.Digest, ct).ConfigureAwait(false);
             var execution = result.IsSuccess ? result.Value : new CoreExecution([], result.Error);
             return delivered.IsSuccess ? Result<CoreExecution>.Ok(execution with
                 { DraftRetained = delivered.Value.Status != "Complete", Error = delivered.Value.Error ?? execution.Error })

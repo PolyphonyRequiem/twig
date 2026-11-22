@@ -103,7 +103,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var after = (await store.ReadAsync(connection, default)).Value;
             after.Version.ShouldBe(before.Version);
             after.Relationships.ShouldBeEmpty();
-            after.Proposals.ShouldBeEmpty();
+            after.Plans.ShouldBeEmpty();
         }
         finally { Console.SetOut(oldOut); Console.SetError(oldError); }
     }
@@ -113,7 +113,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
         File.Exists(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName)).ShouldBeTrue();
-        (await store.ReadAsync(connection, default)).Value.Proposals.ShouldBeEmpty();
+        (await store.ReadAsync(connection, default)).Value.Plans.ShouldBeEmpty();
         _transport.PatchAttempts.ShouldBe(0);
         var originalOut = Console.Out;
         var originalError = Console.Error;
@@ -140,7 +140,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 _transport.TotalRequests.ShouldBe(requests, "--child is not machine authorization, even when valid");
             }
             _transport.PatchAttempts.ShouldBe(0);
-            (await store.ReadAsync(connection, default)).Value.Proposals.ShouldBeEmpty();
+            (await store.ReadAsync(connection, default)).Value.Plans.ShouldBeEmpty();
             stdout.GetStringBuilder().Clear();
             stderr.GetStringBuilder().Clear();
             RunCoreLink(paths, ["link", "parent", "43", "--id", "42", "--child", "42", "-o", "json"])
@@ -193,14 +193,14 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             mapping.Local.ShouldBe(seed.Key);
             published.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
             published.Drafts.ShouldBeEmpty();
-            var creation = CoreModel.Core.ProposalBytes(published.Proposals.Single());
+            var creation = CoreModel.Core.PlanBytes(published.Plans.Single());
             Run("link", "related", "43", "--id", mapping.Remote.NativeId!).ShouldBe(0, stderr.ToString());
             var linked = (await store.ReadAsync(connection, default)).Value;
             linked.Mappings.Single().ShouldBe(mapping);
             linked.Drafts.ShouldBeEmpty();
-            CoreModel.Core.ProposalBytes(linked.Proposals.Single(value => value.Digest == published.Proposals.Single().Digest))
+            CoreModel.Core.PlanBytes(linked.Plans.Single(value => value.Digest == published.Plans.Single().Digest))
                 .ShouldBe(creation);
-            var relationship = linked.Proposals.Single(value => value.Digest != published.Proposals.Single().Digest);
+            var relationship = linked.Plans.Single(value => value.Digest != published.Plans.Single().Digest);
             relationship.Operations.Single().Item.ShouldBe(mapping.Remote);
             linked.Journal.Single(row => row.Digest == relationship.Digest).Status.ShouldBe(CoreModel.OpStatus.Verified);
             _transport.RelationshipPatches.Single().Id.ToString(CultureInfo.InvariantCulture).ShouldBe(mapping.Remote.NativeId);
@@ -315,8 +315,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             snapshot.Journal.Length.ShouldBe(8);
             snapshot.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified
                 && row.Receipts.Length == 2 && row.Receipts[0].Status == CoreModel.OpStatus.Applied);
-            snapshot.Proposals.ShouldAllBe(proposal => proposal.Operations.Length == 1
-                && proposal.Operations[0].ExpectedRevision!.Item == proposal.Operations[0].Item);
+            snapshot.Plans.ShouldAllBe(plan => plan.Operations.Length == 1
+                && plan.Operations[0].ExpectedRevision!.Item == plan.Operations[0].Item);
             snapshot.Relationships.Single(edge => edge.Origin == CoreModel.RelationshipOrigin.Local).Deleted.ShouldBeTrue();
             snapshot.Relationships.Single(edge => edge.Origin == CoreModel.RelationshipOrigin.Local).LocalVersion.ShouldBe(1);
             _transport.PostCount.ShouldBe(0);
@@ -482,7 +482,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PatchAttempts.ShouldBe(1, "the other endpoint is fenced under a different digest too");
             var current = (await store.ReadAsync(connection, default)).Value;
             current.Journal.Single().Status.ShouldBe(expected);
-            current.Proposals.Single().Digest.ShouldBe(retained.Proposals.Single().Digest);
+            current.Plans.Single().Digest.ShouldBe(retained.Plans.Single().Digest);
         }
         finally
         {
@@ -662,7 +662,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CoreProposalInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders()
+    public async Task CorePlanInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders()
     {
         var native = await AttachAsync();
         var config = native.GetRequiredService<TwigConfiguration>();
@@ -695,9 +695,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             parent: key, parentRelation: "System.LinkTypes.Hierarchy-Forward",
             resource: new("Hyperlink", "https://example.test/captured-evidence", "Captured evidence"),
             links: [new(key, "System.LinkTypes.Dependency-Forward", true)])).Value;
-        var proposal = (await workspace.PreviewDraftAsync(key, default)).Value.Proposal.ShouldNotBeNull();
-        var file = Path.Combine(paths.TwigDir, "inspection-proposal.json");
-        await File.WriteAllBytesAsync(file, CoreModel.Core.ProposalBytes(proposal));
+        var plan = (await workspace.PreviewDraftAsync(key, default)).Value.Plan.ShouldNotBeNull();
+        var file = Path.Combine(paths.TwigDir, "inspection-plan.json");
+        await File.WriteAllBytesAsync(file, CoreModel.Core.PlanBytes(plan));
         var capture = (await store.ReadAsync(connection, default)).Value;
         capture.Drafts.Length.ShouldBe(2);
         capture.Journal.ShouldBeEmpty();
@@ -723,14 +723,14 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 });
             }
             var requests = _transport.TotalRequests;
-            Run("proposal", "validate", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            Run("plan", "validate", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
             using (var validation = JsonDocument.Parse(stdout.ToString()))
             {
-                validation.RootElement.GetProperty("digest").GetString().ShouldBe(proposal.Digest);
+                validation.RootElement.GetProperty("digest").GetString().ShouldBe(plan.Digest);
                 validation.RootElement.GetProperty("validationScope").GetString().ShouldBe("canonical-format");
                 validation.RootElement.GetProperty("applicationEvidenceChecked").GetBoolean().ShouldBeFalse();
             }
-            Run("proposal", "status", "--file", file, "-o", "json").ShouldBe(1, stderr.ToString());
+            Run("plan", "status", "--file", file, "-o", "json").ShouldBe(1, stderr.ToString());
             using (var status = JsonDocument.Parse(stdout.ToString()))
                 status.RootElement.GetProperty("found").GetBoolean().ShouldBeFalse();
             Run("pending", "-o", "json").ShouldBe(0, stderr.ToString());
@@ -756,30 +756,30 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             }
             _transport.TotalRequests.ShouldBe(requests, "inspection must not acquire schema, refresh items, or flush drafts");
             (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(capture.Version);
-            (await workspace.RetainReviewAsync(proposal, default)).IsSuccess.ShouldBeTrue();
+            (await workspace.RetainReviewAsync(plan, default)).IsSuccess.ShouldBeTrue();
             var retained = (await store.ReadAsync(connection, default)).Value;
             Run("plan", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
             using (var status = JsonDocument.Parse(stdout.ToString()))
             {
-                status.RootElement.GetProperty("digest").GetString().ShouldBe(proposal.Digest);
+                status.RootElement.GetProperty("digest").GetString().ShouldBe(plan.Digest);
                 status.RootElement.GetProperty("allVerified").GetBoolean().ShouldBeFalse();
                 status.RootElement.GetProperty("operations")[0].GetProperty("status").GetString().ShouldBe("Planned");
             }
             var started = retained.Journal.Single().Begin(Guid.NewGuid()).Value;
             var begun = await store.CommitAsync(connection, retained.Version, new CoreModel.StoreSnapshot(retained.Version + 1,
-                retained.Items, retained.Relationships, retained.Drafts, retained.Proposals, [started],
+                retained.Items, retained.Relationships, retained.Drafts, retained.Plans, [started],
                 retained.Mappings, retained.Benches), default);
             begun.IsSuccess.ShouldBeTrue(begun.IsSuccess ? "" : begun.Error.Message);
             var applying = (await store.ReadAsync(connection, default)).Value;
-            var unknown = started.Record(new CoreModel.Receipt(proposal.Digest, 0, started.Attempt,
+            var unknown = started.Record(new CoreModel.Receipt(plan.Digest, 0, started.Attempt,
                 CoreModel.OpStatus.Indeterminate, ["No authoritative effect acknowledgment is available."],
                 error: new CoreModel.Error(CoreModel.ErrorCode.Unavailable, "Original attempt remains unresolved."))).Value;
             var recorded = await store.CommitAsync(connection, applying.Version, new CoreModel.StoreSnapshot(applying.Version + 1,
-                applying.Items, applying.Relationships, applying.Drafts, applying.Proposals, [unknown],
+                applying.Items, applying.Relationships, applying.Drafts, applying.Plans, [unknown],
                 applying.Mappings, applying.Benches), default);
             recorded.IsSuccess.ShouldBeTrue(recorded.IsSuccess ? "" : recorded.Error.Message);
             var fenced = (await store.ReadAsync(connection, default)).Value;
-            Run("proposal", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
+            Run("plan", "status", "--file", file, "-o", "json").ShouldBe(0, stderr.ToString());
             using (var status = JsonDocument.Parse(stdout.ToString()))
             {
                 var operation = status.RootElement.GetProperty("operations")[0];
@@ -792,29 +792,29 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             {
                 Run("pending", "-o", format).ShouldBe(0, stderr.ToString());
                 stdout.ToString().ShouldNotBeNullOrWhiteSpace();
-                Run("proposal", "status", "--file", file, "-o", format).ShouldBe(0, stderr.ToString());
-                Run("proposal", "validate", "--file", file, "-o", format).ShouldBe(0, stderr.ToString());
+                Run("plan", "status", "--file", file, "-o", format).ShouldBe(0, stderr.ToString());
+                Run("plan", "validate", "--file", file, "-o", format).ShouldBe(0, stderr.ToString());
             }
-            Run("proposal", "validate", "-o", "json").ShouldBe(2);
-            Run("proposal", "status", "--file", Path.Combine(_temp, "outside.json"), "-o", "json").ShouldBe(2);
+            Run("plan", "validate", "-o", "json").ShouldBe(2);
+            Run("plan", "status", "--file", Path.Combine(_temp, "outside.json"), "-o", "json").ShouldBe(2);
             Run("pending", "-o", "ids").ShouldBe(2);
-            var foreign = new CoreModel.Proposal(new(connection.Provider, connection.ResourceScope, connection.Destination,
-                "another principal"), proposal.SchemaFingerprint, proposal.ExpectedStoreVersion, proposal.Operations);
+            var foreign = new CoreModel.Plan(new(connection.Provider, connection.ResourceScope, connection.Destination,
+                "another principal"), plan.SchemaFingerprint, plan.ExpectedStoreVersion, plan.Operations);
             var foreignFile = Path.Combine(paths.TwigDir, "foreign-inspection.json");
-            await File.WriteAllBytesAsync(foreignFile, CoreModel.Core.ProposalBytes(foreign));
-            Run("proposal", "status", "--file", foreignFile, "-o", "json").ShouldBe(2);
+            await File.WriteAllBytesAsync(foreignFile, CoreModel.Core.PlanBytes(foreign));
+            Run("plan", "status", "--file", foreignFile, "-o", "json").ShouldBe(2);
             using (var error = JsonDocument.Parse(stderr.ToString()))
                 error.RootElement.GetProperty("error").GetString().ShouldNotBeNull().ShouldContain("another immutable workspace");
             var invalid = Path.Combine(paths.TwigDir, "old-inspection.json");
             await File.WriteAllTextAsync(invalid, """{"version":2}""");
-            Run("proposal", "validate", "--file", invalid, "-o", "json").ShouldBe(2);
+            Run("plan", "validate", "--file", invalid, "-o", "json").ShouldBe(2);
             var calls = telemetry.ReceivedCalls().ToArray();
             calls.ShouldNotBeEmpty();
             foreach (var call in calls)
             {
                 var properties = ((Dictionary<string, string>)call.GetArguments()[1]!).ShouldNotBeNull();
                 properties.Keys.ShouldAllBe(name => new[] { "command", "exit_code", "output_format", "twig_version", "os_platform", "operation_id" }.Contains(name));
-                properties["command"].ShouldBeOneOf("pending", "proposal status", "proposal validate");
+                properties["command"].ShouldBeOneOf("pending", "plan status", "plan validate");
                 properties.Values.ShouldNotContain(Actor);
                 properties.Values.ShouldNotContain(file);
                 properties.Values.ShouldNotContain("Captured edit");
@@ -897,7 +897,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 [new(debt.Key, debt.Type, debt, changes),
                     new(local, "Task", null, new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("seed debt")),
                         KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do"))]))],
-                state.Proposals, state.Journal, state.Mappings, state.Benches), default)).IsSuccess.ShouldBeTrue();
+                state.Plans, state.Journal, state.Mappings, state.Benches), default)).IsSuccess.ShouldBeTrue();
             _transport.SetItem(45, "new native debt value", 2, Actor);
             _transport.ItemReadIds.Clear();
             stdout.GetStringBuilder().Clear();
@@ -948,7 +948,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task CoreExplicitSaveReturnsOneVerifiedProposalAndDoesNotReplayIt()
+    public async Task CoreExplicitSaveReturnsOneVerifiedPlanAndDoesNotReplayIt()
     {
         var native = await AttachAsync();
         var config = native.GetRequiredService<TwigConfiguration>();
@@ -982,7 +982,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var baseline = state.Items.Single(item => item.Key.NativeId == "42");
             var changes = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("saved by sync"))]);
             (await store.CommitAsync(connection, state.Version, new(state.Version + 1, state.Items, state.Relationships,
-                [new(baseline.Key, baseline.Type, baseline, changes)], state.Proposals, state.Journal,
+                [new(baseline.Key, baseline.Type, baseline, changes)], state.Plans, state.Journal,
                 state.Mappings, state.Benches), default)).IsSuccess.ShouldBeTrue();
             (await commands.Save(output: "json")).ShouldNotBe(0);
             _transport.CommittedWrites.ShouldBe(0);
@@ -1078,7 +1078,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PostCount.ShouldBe(0);
             var final = (await store.ReadAsync(connection, default)).Value;
             final.Drafts.ShouldBeEmpty();
-            final.Proposals.ShouldBeEmpty();
+            final.Plans.ShouldBeEmpty();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.BenchCommand").ShouldBeNull();
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.TrackingCommand").ShouldBeNull();
             AssertNativeDependencyClosure();
@@ -1339,7 +1339,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             validation.RootElement.GetProperty("passed").GetInt32().ShouldBe(3);
             _transport.PostCount.ShouldBe(0);
             var preview = (await admitted.Workspace.PreviewDraftAsync(first.Key, default)).Value;
-            var applied = await admitted.Workspace.ApplyAsync(preview.Proposal!, preview.Proposal!.Digest, default);
+            var applied = await admitted.Workspace.ApplyAsync(preview.Plan!, preview.Plan!.Digest, default);
             applied.IsSuccess.ShouldBeTrue();
             applied.Value.EffectsVerified.ShouldBeTrue();
             var beforeSettlement = (await store.ReadAsync(connection, default)).Value;
@@ -1359,7 +1359,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             complete.Drafts.ShouldBeEmpty();
             complete.Mappings.Length.ShouldBe(3);
             complete.Journal.ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
-            complete.Proposals.Single(proposal => proposal.Operations.Length == 2).Operations[0].Links.Single().Other.ShouldBe(first.Key);
+            complete.Plans.Single(plan => plan.Operations.Length == 2).Operations[0].Links.Single().Other.ShouldBe(first.Key);
             _transport.PostCount.ShouldBe(3);
             _transport.PatchAttempts.ShouldBe(0);
             typeof(TwigCommands).Assembly.GetType("Twig.Commands.SeedChainCommand").ShouldBeNull();
@@ -1412,7 +1412,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 (await commands.SeedPublish(all: true, dryRun: true, linkBranch: "feature/rooted", repo: "FixtureRepo"))
                     .ShouldBe(0, stderr.ToString());
                 var preview = (await store.ReadAsync(connection, default)).Value;
-                var digest = preview.Proposals.Single(proposal => stdout.ToString().Contains(proposal.Digest, StringComparison.Ordinal)).Digest;
+                var digest = preview.Plans.Single(plan => stdout.ToString().Contains(plan.Digest, StringComparison.Ordinal)).Digest;
                 _transport.CommittedWrites.ShouldBe(0);
                 return (preview, digest);
             }
@@ -1435,11 +1435,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PatchAttempts.ShouldBe(0, "parenting must be in the creation call, not a reachable post-create writer");
             var snapshot = (await store.ReadAsync(connection, default)).Value;
             snapshot.Drafts.ShouldBeEmpty();
-            snapshot.Proposals.Length.ShouldBe(2, "publishing must not replace the retained digest");
+            snapshot.Plans.Length.ShouldBe(2, "publishing must not replace the retained digest");
             snapshot.Journal.Single(row => row.Digest == firstDigest).Status.ShouldBe(CoreModel.OpStatus.Planned);
             snapshot.Journal.Single(row => row.Digest == changedDigest).Status.ShouldBe(CoreModel.OpStatus.Verified);
             var mapping = snapshot.Mappings.Single();
-            mapping.ProposalDigest.ShouldBe(changedDigest);
+            mapping.PlanDigest.ShouldBe(changedDigest);
             snapshot.Items.Single(item => item.Key == mapping.Remote).Resources.ShouldContain(new CoreModel.ResourceLink("ArtifactLink",
                 "vstfs:///Git/Ref/22222222-2222-2222-2222-222222222222/44444444-4444-4444-4444-444444444444/GBfeature%2Frooted", "Branch"));
             snapshot.Relationships.ShouldContain(new CoreModel.Relationship(
@@ -1463,7 +1463,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var childMapping = complete.Mappings.Single(value => value.Local.LocalId == childUuid);
             complete.Relationships.ShouldContain(new CoreModel.Relationship(parentMapping.Remote, childMapping.Remote,
                 "Native.ParentForward", CoreModel.RelationshipOrigin.Provider));
-            var ordered = complete.Proposals.Single(value => value.Operations.Length == 2);
+            var ordered = complete.Plans.Single(value => value.Operations.Length == 2);
             ordered.Operations[1].Other.ShouldBe(parentMapping.Local);
             complete.Journal.Where(row => row.Digest == ordered.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             _transport.PostCount.ShouldBe(3);
@@ -1504,7 +1504,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 .ShouldBe(0, stderr.ToString());
             var linkedComplete = (await store.ReadAsync(connection, default)).Value;
             linkedComplete.Drafts.ShouldBeEmpty();
-            var chain = linkedComplete.Proposals.Single(proposal => proposal.Operations.Length == 3);
+            var chain = linkedComplete.Plans.Single(plan => plan.Operations.Length == 3);
             chain.Operations[1].Links.Single().Other.LocalId.ShouldBe(uuids[0]);
             chain.Operations[2].Links.ShouldContain(link => link.Other.LocalId == uuids[1]);
             var linkedMappings = uuids.Select(uuid => linkedComplete.Mappings.Single(mapping => mapping.Local.LocalId == uuid)).ToArray();
@@ -1587,7 +1587,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             mapping.Local.ShouldBe(seed.Key);
             mapping.Remote.NativeId.ShouldBe("45");
             final.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
-            final.Proposals.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Item.ShouldBe(seed.Key);
+            final.Plans.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Item.ShouldBe(seed.Key);
             _transport.PostCount.ShouldBe(1);
             stdout.GetStringBuilder().Clear();
             var requestsBeforeMappedRead = _transport.TotalRequests;
@@ -1614,11 +1614,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
             stdout.ToString().ShouldContain("The approved classification IDs are not locked.");
-            var originalReview = (await store.ReadAsync(connection, default)).Value.Proposals
-                .Single(proposal => proposal.Operations.Single().Item == unknownSeed.Key);
+            var originalReview = (await store.ReadAsync(connection, default)).Value.Plans
+                .Single(plan => plan.Operations.Single().Item == unknownSeed.Key);
             originalReview.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(71));
             var reviewFile = Path.Combine(paths.TwigDir, "review.json");
-            await File.WriteAllBytesAsync(reviewFile, CoreModel.Core.ProposalBytes(originalReview));
+            await File.WriteAllBytesAsync(reviewFile, CoreModel.Core.PlanBytes(originalReview));
             _transport.CreateAreaId = 72;
             (await commands.PlanApply(reviewFile, originalReview.Digest, "json")).ShouldBe(1);
             stderr.ToString().ShouldContain("Native create field evidence is missing or changed");
@@ -1628,7 +1628,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var reviewedVersion = refused.Version;
             (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
             var fresh = (await store.ReadAsync(connection, default)).Value;
-            var retained = fresh.Proposals.Single(proposal => proposal.ExpectedStoreVersion == reviewedVersion);
+            var retained = fresh.Plans.Single(plan => plan.ExpectedStoreVersion == reviewedVersion);
             retained.Digest.ShouldNotBe(originalReview.Digest);
             retained.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(72));
             var retainedDigest = retained.Digest;
@@ -1644,7 +1644,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PostCount.ShouldBe(2);
             stdout.GetStringBuilder().Clear();
             (await commands.SeedPublish(unknownAlias, output: "human")).ShouldBe(1);
-            _transport.PostCount.ShouldBe(2, "the unresolved UUID must fence replacement proposals, not only the old digest");
+            _transport.PostCount.ShouldBe(2, "the unresolved UUID must fence replacement plans, not only the old digest");
             (await commands.PlanApply(reviewFile, originalReview.Digest, "json")).ShouldBe(1);
             _transport.PostCount.ShouldBe(2, "an earlier approval cannot replay an uncertain UUID");
             var requestsBeforeUnknownDiscard = _transport.TotalRequests;
@@ -1734,7 +1734,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             saved.Drafts.Single().Changes.ShouldBe(seed.Changes);
             saved.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
             using (var result = JsonDocument.Parse(stdout.ToString()))
-                saved.Proposals.Single().Digest.ShouldBe(result.RootElement.GetProperty("digest").GetString());
+                saved.Plans.Single().Digest.ShouldBe(result.RootElement.GetProperty("digest").GetString());
             saved.Items.Single().Fields["System.Title"].Text.ShouldBe("Explicit saved draft");
             _transport.TitleOf(42).ShouldBe("Explicit saved draft");
             _transport.CommittedWrites.ShouldBe(1);
@@ -1750,7 +1750,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             discarded.Drafts.Single().Changes.ShouldBe(seed.Changes);
             discarded.Journal.ShouldHaveSingleItem().Status.ShouldBe(CoreModel.OpStatus.Verified);
             discarded.Journal.Single().Digest.ShouldBe(saved.Journal.Single().Digest);
-            discarded.Proposals.Single().Digest.ShouldBe(saved.Proposals.Single().Digest);
+            discarded.Plans.Single().Digest.ShouldBe(saved.Plans.Single().Digest);
             _transport.TotalRequests.ShouldBe(requests, "discard is a local CAS, not a native refresh or publication");
             _transport.TitleOf(42).ShouldBe("Explicit saved draft");
             _transport.CommittedWrites.ShouldBe(1);
@@ -2065,7 +2065,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var snapshot = (await store.ReadAsync(connection, default)).Value;
             snapshot.Drafts.ShouldBeEmpty();
             snapshot.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
-            snapshot.Proposals.Single().Digest.ShouldBe(output.RootElement.GetProperty("digest").GetString());
+            snapshot.Plans.Single().Digest.ShouldBe(output.RootElement.GetProperty("digest").GetString());
             var check = new ServiceCollection();
             check.AddSingleton<IConnectionBindingService>(_bindings);
             check.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
@@ -2118,19 +2118,19 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("File-reviewed production title"))]), default))
                 .IsSuccess.ShouldBeTrue();
             var preview = (await workspace.PreviewDraftAsync(key, default)).Value;
-            var proposal = preview.Proposal.ShouldNotBeNull();
-            var proposalPath = Path.Combine(paths.TwigDir, "core-reviewed-proposal.json");
-            await File.WriteAllBytesAsync(proposalPath, CoreModel.Core.ProposalBytes(proposal));
+            var plan = preview.Plan.ShouldNotBeNull();
+            var planPath = Path.Combine(paths.TwigDir, "core-reviewed-plan.json");
+            await File.WriteAllBytesAsync(planPath, CoreModel.Core.PlanBytes(plan));
             var workReads = _transport.WorkRequests;
             stdout.GetStringBuilder().Clear();
-            (await show.PlanApply(proposalPath, new string('0', 64), "json")).ShouldBe(1);
+            (await show.PlanApply(planPath, new string('0', 64), "json")).ShouldBe(1);
             _transport.WorkRequests.ShouldBe(workReads, "wrong digest must refuse before native context or work HTTP");
             stdout.GetStringBuilder().Clear();
-            (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
+            (await show.PlanApply(planPath, plan.Digest, "json")).ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(2);
             (await store.ReadAsync(connection, default)).Value.Drafts.ShouldBeEmpty();
             stdout.GetStringBuilder().Clear();
-            (await show.PlanApply(proposalPath, proposal.Digest, "json")).ShouldBe(0, stderr.ToString());
+            (await show.PlanApply(planPath, plan.Digest, "json")).ShouldBe(0, stderr.ToString());
             _transport.CommittedWrites.ShouldBe(2, "Verified file reapply must not dispatch");
             stdout.GetStringBuilder().Clear();
             Run("note", "--text", "Core root note", "--id", "42", "--format", "raw", "-o", "json").ShouldBe(0, stderr.ToString());
@@ -2169,7 +2169,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.CommittedWrites.ShouldBe(9);
             var saved = (await store.ReadAsync(connection, default)).Value;
             saved.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
-            var multi = saved.Proposals.Single(intent => intent.Operations.Length == 2);
+            var multi = saved.Plans.Single(intent => intent.Operations.Length == 2);
             saved.Journal.Where(row => row.Digest == multi.Digest).ShouldAllBe(row => row.Status == CoreModel.OpStatus.Verified);
             _transport.TitleOf(42).ShouldBe("Saved first draft");
             _transport.TitleOf(43).ShouldBe("Saved second draft");
@@ -2224,29 +2224,29 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
         var fields = new CoreModel.FieldValues([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Core reviewed title"))]);
-        var proposal = new CoreModel.Proposal(connection, "native-schema", 0,
+        var plan = new CoreModel.Plan(connection, "native-schema", 0,
             [new("edit", CoreModel.OpKind.Batch, key, new(key, "ado-rev:1"), fields)]);
         var created = await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"));
         created.IsSuccess.ShouldBeTrue();
         var store = created.Value;
         (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
         await ActivateNativeSafetyFixtureAsync(paths, store, connection);
-        var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
-        (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
+        var planned = CoreModel.JournalEntry.Planned(plan.Digest, 0);
+        (await store.CommitAsync(connection, 0, new(1, plans: [plan], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
         var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
             config, paths, origin, connection, Actor, store);
         var acquired = await access.AcquireAsync(connection, default);
         acquired.IsSuccess.ShouldBeTrue(acquired.IsSuccess ? "" : acquired.Error.Message);
         using var session = acquired.Value;
         var attempt = Guid.NewGuid();
-        var intent = new Twig.Providers.Ado.AdoWriteIntent(proposal, 0, attempt,
+        var intent = new Twig.Providers.Ado.AdoWriteIntent(plan, 0, attempt,
             new Uri("https://dev.azure.com/fixture/" + connection.Destination + "/_apis/wit/workitems/42?api-version=7.1"),
             "PATCH", "application/json-patch+json",
             """[{"op":"test","path":"/rev","value":1},{"op":"add","path":"/fields/System.Title","value":"Core reviewed title"}]""");
         (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("Planned is not durable Applying");
         (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldBeEmpty();
         var applying = planned.Begin(attempt).Value;
-        (await store.CommitAsync(connection, 1, new(2, proposals: [proposal], journal: [applying]), default)).IsSuccess.ShouldBeTrue();
+        (await store.CommitAsync(connection, 1, new(2, plans: [plan], journal: [applying]), default)).IsSuccess.ShouldBeTrue();
         (await session.AdmitAsync(intent with { Attempt = Guid.NewGuid() }, default)).IsSuccess.ShouldBeFalse();
         (await session.AdmitAsync(intent with { Payload = intent.Payload.Replace("\"value\":1", "\"value\":2", StringComparison.Ordinal) }, default))
             .IsSuccess.ShouldBeFalse();
@@ -2256,7 +2256,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         admitted.IsSuccess.ShouldBeTrue(admitted.IsSuccess ? "" : admitted.Error.Message);
         using var admission = admitted.Value;
         var recorded = (await _systemRegistry.ReadConnectionRemoteWritesAsync(origin.Operation.WorktreeFingerprint)).Value.ShouldHaveSingleItem();
-        recorded.Intent.Request.CoreCorrelation.ShouldNotBeNull().ProposalDigest.ShouldBe(proposal.Digest);
+        recorded.Intent.Request.CoreCorrelation.ShouldNotBeNull().PlanDigest.ShouldBe(plan.Digest);
         recorded.Intent.Request.CoreCorrelation!.Operation.ShouldBe(0);
         recorded.Intent.Request.CoreCorrelation.Attempt.ShouldBe(attempt);
         recorded.Intent.Request.CoreCorrelation.StoreInstance.ShouldBe(store.InstanceId);
@@ -2311,23 +2311,23 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         var connection = new CoreModel.Connection(new("ado"), "11111111-1111-1111-1111-111111111111",
             "22222222-2222-2222-2222-222222222222", CleanCoreAdoAccess.Identity(origin, Actor));
         var key = CoreModel.ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
-        var proposal = new CoreModel.Proposal(connection, "native-schema", 0,
+        var plan = new CoreModel.Plan(connection, "native-schema", 0,
             [new("edit", CoreModel.OpKind.Batch, key, new(key, "ado-rev:1"),
                 new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("reviewed"))]))],
             observed.Identity, observed.Revision);
         var store = (await CleanStore.CreateAsync(Path.Combine(paths.TwigDir, "isolated-core.db"))).Value;
         (await store.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
         await ActivateNativeSafetyFixtureAsync(paths, store, connection);
-        var planned = CoreModel.JournalEntry.Planned(proposal.Digest, 0);
-        (await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
+        var planned = CoreModel.JournalEntry.Planned(plan.Digest, 0);
+        (await store.CommitAsync(connection, 0, new(1, plans: [plan], journal: [planned]), default)).IsSuccess.ShouldBeTrue();
         var attempt = Guid.NewGuid();
-        (await store.CommitAsync(connection, 1, new(2, proposals: [proposal], journal: [planned.Begin(attempt).Value]), default)).IsSuccess.ShouldBeTrue();
+        (await store.CommitAsync(connection, 1, new(2, plans: [plan], journal: [planned.Begin(attempt).Value]), default)).IsSuccess.ShouldBeTrue();
         var access = new CleanCoreAdoAccess(runtime.GetRequiredService<IAuthenticationProvider>(), _bindings,
             config, paths, origin, connection, Actor, store);
         using var session = (await access.AcquireAsync(connection, default)).Value;
         if (change == "disappeared") File.Delete(paths.PolicyPath);
         else await File.WriteAllTextAsync(paths.PolicyPath, policyText + (change == "changed" ? "\n" : ""));
-        var intent = new Twig.Providers.Ado.AdoWriteIntent(proposal, 0, attempt,
+        var intent = new Twig.Providers.Ado.AdoWriteIntent(plan, 0, attempt,
             new Uri("https://dev.azure.com/fixture/" + connection.Destination + "/_apis/wit/workitems/42?api-version=7.1"),
             "PATCH", "application/json-patch+json",
             """[{"op":"test","path":"/rev","value":1},{"op":"add","path":"/fields/System.Title","value":"reviewed"}]""");

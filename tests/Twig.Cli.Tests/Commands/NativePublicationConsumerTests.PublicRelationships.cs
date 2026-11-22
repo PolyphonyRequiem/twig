@@ -94,14 +94,14 @@ public sealed partial class NativePublicationConsumerTests
         using var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var snapshot = (await handle.Workspace.SnapshotAsync(default)).Value;
         snapshot.Drafts.ShouldBeEmpty();
-        var proposal = snapshot.Proposals.ShouldHaveSingleItem();
-        var op = proposal.Operations.ShouldHaveSingleItem();
+        var plan = snapshot.Plans.ShouldHaveSingleItem();
+        var op = plan.Operations.ShouldHaveSingleItem();
         op.Kind.ShouldBe(OpKind.Batch);
         op.Item.ShouldBe(key);
         op.Links.ShouldBe([delta]);
         op.Fields.Count.ShouldBe(fields ? 1 : 0);
         var row = snapshot.Journal.ShouldHaveSingleItem();
-        row.Digest.ShouldBe(proposal.Digest);
+        row.Digest.ShouldBe(plan.Digest);
         row.Status.ShouldBe(OpStatus.Verified);
         row.Receipts.Last().Revision.ShouldNotBeNull().Item.ShouldBe(key);
         snapshot.Items.ShouldContain(item => item.Key == other && item.RelationshipsComplete
@@ -329,8 +329,8 @@ public sealed partial class NativePublicationConsumerTests
             (await editor.SelectRelationshipsAsync(key, other)).IsSuccess.ShouldBeFalse("The original endpoint baseline cannot be silently rebound after an uncertain attempt.");
         }
         var retained = (await origin.Workspace.SnapshotAsync(default)).Value;
-        retained.Proposals.Select(proposal => Convert.ToHexString(Twig.Core.Core.ProposalBytes(proposal)))
-            .ShouldBe(original.Proposals.Select(proposal => Convert.ToHexString(Twig.Core.Core.ProposalBytes(proposal))));
+        retained.Plans.Select(plan => Convert.ToHexString(Twig.Core.Core.PlanBytes(plan)))
+            .ShouldBe(original.Plans.Select(plan => Convert.ToHexString(Twig.Core.Core.PlanBytes(plan))));
         var originalRow = original.Journal.ShouldHaveSingleItem();
         var retainedRow = retained.Journal.ShouldHaveSingleItem();
         retainedRow.Digest.ShouldBe(originalRow.Digest);

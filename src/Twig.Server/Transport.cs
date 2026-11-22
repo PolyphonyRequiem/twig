@@ -177,7 +177,7 @@ public sealed record LocalRelationshipEffectDto(string Kind, RelationshipEndpoin
 public sealed record LocalRelationshipReceiptDto(string Digest, int Operation, Guid Attempt, string Status, string[] Evidence, Failure? Error);
 public sealed record LocalRelationshipOutcomeDto(string Digest, int Operation, Guid Attempt, string Status, bool Settled,
     LocalRelationshipReceiptDto[] Receipts, Failure? Error);
-public sealed record LocalRelationshipReviewDto(Guid Ticket, Guid CaptureId, string Digest, string CanonicalProposal,
+public sealed record LocalRelationshipReviewDto(Guid Ticket, Guid CaptureId, string Digest, string CanonicalPlan,
     LocalRelationshipEffectDto Effect, EditorBindingDto Binding, string Authority, long EditorEpoch,
     bool CanApply, bool CanContinue, LocalRelationshipOutcomeDto Outcome, string Verification);
 public sealed record EditorFieldDto(string Reference, string Kind, string Name, bool ReadOnly, bool Required,

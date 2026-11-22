@@ -10,7 +10,7 @@ architecture.
 | Project | Responsibility |
 | --- | --- |
 | `Twig` | ConsoleAppFramework command entry point, argument admission, static terminal/JSON rendering, offline help and skills |
-| `Twig.Core` | Immutable typed items, schema, drafts, proposals, policy, canonical digests, execution and operation receipts |
+| `Twig.Core` | Immutable typed items, schema, drafts, plans, policy, canonical digests, execution and operation receipts |
 | `Twig.Store.Sqlite` | Core store implementation, transactional state and journal persistence |
 | `Twig.Providers.Ado` | ADO schema discovery, native reads, revision-bound writes and verification |
 | `Twig.Providers.GitHub` | GitHub API adapter, opaque observations, explicit observed-non-atomic effects |
@@ -81,7 +81,7 @@ inspection, and user-wide Bench metadata have their own bounded routes.
 Core owns the provider/store ports and mutation lifecycle. Infrastructure binds
 an operation to the actual connection, principal, workspace, store, and policy.
 Providers do not switch identities or retry uncertain writes. The SQLite adapter
-persists drafts, proposals, attempts, acknowledgements, and permanent creation
+persists drafts, plans, attempts, acknowledgements, and permanent creation
 mappings; provider I/O does not run inside its transactions.
 
 ## Product boundaries

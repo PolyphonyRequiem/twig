@@ -19,6 +19,6 @@ comment. A `vstfs:///` URI becomes an `ArtifactLink`; `--name` names the
 artifact and defaults to `Artifact` when omitted.
 
 The command reads the target and binds the resource link to its observed
-revision in a Core proposal. It applies that proposal by digest and reports
+revision in a Core plan. It applies that plan by digest and reports
 success only after verification. Missing or nonpositive IDs are usage errors.
 An unresolved effect is not success or permission to retry.

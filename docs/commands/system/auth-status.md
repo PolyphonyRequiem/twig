@@ -40,7 +40,7 @@ or contact GitHub. Missing selection refuses.
 `connection writes` inspects correlated original native transport evidence
 without work HTTP. GitHub sidecars are bounded and identity/hash-checked against
 their original store, connection, digest, ordinal and attempt. Missing/invalid
-evidence stays unknown/refused. Only [`proposal status`](../plans/proposal-status.md)
+evidence stays unknown/refused. Only [`plan status`](../plans/plan-status.md)
 reports Core execution authority.
 
 ## Effects

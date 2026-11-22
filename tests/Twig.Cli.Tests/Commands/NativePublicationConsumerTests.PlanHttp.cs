@@ -364,7 +364,7 @@ public sealed partial class NativePublicationConsumerTests
             original42.Fields["System.Title"].Text.ShouldBe(first["title"]!.GetValue<string>());
             original.Drafts.ShouldBeEmpty();
             original.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
-            original.Proposals.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "System.Description" });
+            original.Plans.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "System.Description" });
             await Mode(true);
             view = await View();
             view["sources"]![0]!["items"]!.AsArray().Select(item => item!["title"]!.GetValue<string>())

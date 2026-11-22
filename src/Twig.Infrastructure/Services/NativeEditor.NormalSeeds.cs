@@ -33,7 +33,7 @@ internal sealed partial class NativeEditor
         {
             var key = UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Item;
             var draft = snapshot.Value.Drafts.SingleOrDefault(value => value.Key == key);
-            var publication = capture.SeedProposal is null ? null : Publication(capture, snapshot.Value, null);
+            var publication = capture.SeedPlan is null ? null : Publication(capture, snapshot.Value, null);
             if (capture.Settled && draft is null) continue;
             seeds.Add(new(key, draft, capture.Id, capture.Ready, publication));
         }
@@ -45,7 +45,7 @@ internal sealed partial class NativeEditor
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<NativeEditorCapture>.Fail(captures.Error);
         var capture = captures.Value.SingleOrDefault(value => value.Id == captureId);
-        return capture is not null && OwnsNormalSeed(capture) && capture.SeedProposal is not null
+        return capture is not null && OwnsNormalSeed(capture) && capture.SeedPlan is not null
             ? Result<NativeEditorCapture>.Ok(capture)
             : Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "The exact original normal seed publication reference is unavailable or owned by another source/Bench.");
     }
@@ -59,7 +59,7 @@ internal sealed partial class NativeEditor
             capture.Root, capture.Origin.Connection), ct).ConfigureAwait(false);
         return snapshot.IsSuccess ? Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, null))
             : Result<NativeSeedPublication>.Ok(new(capture.Id, UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Item,
-                UserBenchStore.ParseIntent(capture.SeedProposal!).Digest, "Protected", snapshot.Error));
+                UserBenchStore.ParseIntent(capture.SeedPlan!).Digest, "Protected", snapshot.Error));
     }
 
     internal async Task<Result<NativeSeedPublication>> ContinueSeedDeliveryAsync(Guid captureId, string exactDigest, CancellationToken ct)
@@ -69,22 +69,22 @@ internal sealed partial class NativeEditor
         var reference = await SeedReferenceAsync(captureId, ct).ConfigureAwait(false);
         if (!reference.IsSuccess) return Result<NativeSeedPublication>.Fail(reference.Error);
         var capture = reference.Value;
-        var proposal = UserBenchStore.ParseIntent(capture.SeedProposal!);
-        if (proposal.Digest != exactDigest)
+        var plan = UserBenchStore.ParseIntent(capture.SeedPlan!);
+        if (plan.Digest != exactDigest)
             return Result<NativeSeedPublication>.Fail(ErrorCode.DigestMismatch, "Continue delivery only for the exact original seed digest.");
         var snapshot = await NativeCoreExecution.InspectAsync(new(capture.StoreInstance, capture.ExecutionPath,
             capture.Root, capture.Origin.Connection), ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<NativeSeedPublication>.Fail(snapshot.Error);
-        if (!NativeVerifiedDelivery.Verified(snapshot.Value, proposal))
+        if (!NativeVerifiedDelivery.Verified(snapshot.Value, plan))
             return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, new(ErrorCode.Indeterminate,
-                "The original creation has no Verified journal outcome. Its UUID, proposal and receipts remain protected; delivery never dispatches.")));
+                "The original creation has no Verified journal outcome. Its UUID, plan and receipts remain protected; delivery never dispatches.")));
         if (capture.Settled) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, null));
         var valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, valid.Error));
-        var settledDraft = await Workspace.SettleVerifiedDraftsAsync(proposal,
-            [new(proposal.Operations.Single().Item, capture.DraftFingerprint)], ct).ConfigureAwait(false);
+        var settledDraft = await Workspace.SettleVerifiedDraftsAsync(plan,
+            [new(plan.Operations.Single().Item, capture.DraftFingerprint)], ct).ConfigureAwait(false);
         if (!settledDraft.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, settledDraft.Error));
-        var pins = await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, proposal, proposal.Operations, Workspace, ct).ConfigureAwait(false);
+        var pins = await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, plan, plan.Operations, Workspace, ct).ConfigureAwait(false);
         if (!pins.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, pins.Error));
         valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, valid.Error));
@@ -98,12 +98,12 @@ internal sealed partial class NativeEditor
 
     private static NativeSeedPublication Publication(NativeEditorCapture capture, StoreSnapshot snapshot, Error? error)
     {
-        var proposal = UserBenchStore.ParseIntent(capture.SeedProposal!);
-        var verified = NativeVerifiedDelivery.Verified(snapshot, proposal);
+        var plan = UserBenchStore.ParseIntent(capture.SeedPlan!);
+        var verified = NativeVerifiedDelivery.Verified(snapshot, plan);
         if (!verified)
-            error ??= snapshot.Journal.FirstOrDefault(row => row.Digest == proposal.Digest)?.Receipts.LastOrDefault()?.Error
+            error ??= snapshot.Journal.FirstOrDefault(row => row.Digest == plan.Digest)?.Receipts.LastOrDefault()?.Error
                 ?? new(ErrorCode.Indeterminate, "Original creation evidence is protected; no verified outcome was inferred.");
-        return new(capture.Id, proposal.Operations.Single().Item, proposal.Digest,
+        return new(capture.Id, plan.Operations.Single().Item, plan.Digest,
             verified ? capture.Settled ? "Complete" : "VerifiedDeliveryPending" : "Protected", error);
     }
 }

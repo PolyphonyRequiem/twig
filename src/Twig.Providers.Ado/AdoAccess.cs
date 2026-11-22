@@ -20,7 +20,7 @@ public abstract class AdoSession : IDisposable
     public abstract void Dispose();
 }
 
-public sealed record AdoWriteIntent(Proposal Proposal, int Operation, Guid Attempt, Uri Target,
+public sealed record AdoWriteIntent(Plan Plan, int Operation, Guid Attempt, Uri Target,
     string Method, string MediaType, string Payload);
 
 public abstract class AdoWriteAdmission : IDisposable

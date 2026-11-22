@@ -134,4 +134,4 @@ public sealed record Policy
 public sealed record Finding(string RuleId, FindingKind Kind, ItemKey? Item, string Message,
     bool Blocks, ImmutableArray<Relationship> Evidence);
 
-public sealed record Repair(string EvidenceDigest, string FindingRuleId, string Description, Proposal Proposal);
+public sealed record Repair(string EvidenceDigest, string FindingRuleId, string Description, Plan Plan);

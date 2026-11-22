@@ -12,7 +12,7 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Published relationships through the admitted Core proposal and journal workflow.</summary>
+/// <summary>Published relationships through the admitted Core plan and journal workflow.</summary>
 internal sealed class LinkCommand(
     RendererFactory rendererFactory,
     CoreWorkspaceFactory? factory = null,

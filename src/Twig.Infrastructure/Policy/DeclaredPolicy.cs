@@ -25,10 +25,10 @@ public sealed record DeclaredPolicy
     public required IReadOnlyList<DeclaredPolicyRule> Rules { get; init; }
 }
 
-/// <summary>What a violated rule does to the proposal.</summary>
+/// <summary>What a violated rule does to the plan.</summary>
 public enum PolicyEnforcement
 {
-    /// <summary>A violation refuses the proposal (default).</summary>
+    /// <summary>A violation refuses the plan (default).</summary>
     Refuse,
 
     /// <summary>A violation is reported but does not block.</summary>

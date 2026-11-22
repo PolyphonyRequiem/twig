@@ -101,7 +101,7 @@ public sealed partial class NativePublicationConsumerTests
         var raw = (await native.ReadAsync(connection, default)).Value;
         raw.Items.Length.ShouldBe(2, "removing a shared rule never removes cached/native items");
         raw.Benches.ShouldBeEmpty();
-        raw.Proposals.ShouldBeEmpty();
+        raw.Plans.ShouldBeEmpty();
         raw.Journal.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0);
         _transport.PatchAttempts.ShouldBe(0);

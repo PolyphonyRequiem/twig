@@ -48,19 +48,19 @@ internal static class Persistence
 }
 
 internal sealed record SnapshotData(int Version, long StoreVersion, ItemData[] Items, RelationshipData[] Relationships,
-    DraftData[] Drafts, ProposalData[] Proposals, JournalData[] Journal, MappingData[] Mappings, BenchData[] Benches)
+    DraftData[] Drafts, PlanData[] Plans, JournalData[] Journal, MappingData[] Mappings, BenchData[] Benches)
 {
-    internal static SnapshotData From(StoreSnapshot s) => new(3, s.Version,
+    internal static SnapshotData From(StoreSnapshot s) => new(4, s.Version,
         s.Items.Select(ItemData.From).ToArray(), s.Relationships.Select(RelationshipData.From).ToArray(),
-        s.Drafts.Select(DraftData.From).ToArray(), s.Proposals.Select(ProposalData.From).ToArray(),
+        s.Drafts.Select(DraftData.From).ToArray(), s.Plans.Select(PlanData.From).ToArray(),
         s.Journal.Select(JournalData.From).ToArray(), s.Mappings.Select(MappingData.From).ToArray(),
         s.Benches.Select(BenchData.From).ToArray());
 
     internal StoreSnapshot ToCore()
     {
-        if (Version != 3) throw new JsonException("Unsupported snapshot format version.");
+        if (Version != 4) throw new JsonException("Unsupported snapshot format version.");
         return new(StoreVersion, Items.Select(i => i.ToCore()), Relationships.Select(r => r.ToCore()),
-            Drafts.Select(d => d.ToCore()), Proposals.Select(p => p.ToCore()), Journal.Select(j => j.ToCore()),
+            Drafts.Select(d => d.ToCore()), Plans.Select(p => p.ToCore()), Journal.Select(j => j.ToCore()),
             Mappings.Select(m => m.ToCore()), Benches.Select(b => b.ToCore()));
     }
 }
@@ -178,19 +178,19 @@ internal sealed record OpData(string Id, OpKind Kind, KeyData Item, RevisionData
         CreateEvidence is null ? null : FieldData.ToCore(CreateEvidence));
 }
 
-internal sealed record ProposalData(int Version, Connection Connection, string SchemaFingerprint, long ExpectedStoreVersion,
+internal sealed record PlanData(int Version, Connection Connection, string SchemaFingerprint, long ExpectedStoreVersion,
     OpData[] Operations, string Digest, string? PolicyIdentity, string? PolicyRevision)
 {
-    internal static ProposalData From(Proposal p)
-        => new(Proposal.FormatVersion, p.Connection, p.SchemaFingerprint, p.ExpectedStoreVersion,
+    internal static PlanData From(Plan p)
+        => new(Plan.FormatVersion, p.Connection, p.SchemaFingerprint, p.ExpectedStoreVersion,
             p.Operations.Select(OpData.From).ToArray(), p.Digest, p.PolicyIdentity, p.PolicyRevision);
-    internal Proposal ToCore()
+    internal Plan ToCore()
     {
-        if (Version != Proposal.FormatVersion) throw new JsonException("Unsupported proposal format version.");
-        var proposal = new Proposal(Connection, SchemaFingerprint, ExpectedStoreVersion, Operations.Select(o => o.ToCore()),
+        if (Version != Plan.FormatVersion) throw new JsonException("Unsupported plan format version.");
+        var plan = new Plan(Connection, SchemaFingerprint, ExpectedStoreVersion, Operations.Select(o => o.ToCore()),
             PolicyIdentity, PolicyRevision);
-        if (proposal.Digest != Digest) throw new JsonException("Retained proposal digest does not match canonical intent.");
-        return proposal;
+        if (plan.Digest != Digest) throw new JsonException("Retained plan digest does not match canonical intent.");
+        return plan;
     }
 }
 
@@ -225,7 +225,7 @@ internal sealed record JournalData(string Digest, int Operation, Guid Attempt, O
 
 internal sealed record MappingData(KeyData Local, KeyData Remote, string Digest, int Operation)
 {
-    internal static MappingData From(PublishMapping m) => new(KeyData.From(m.Local), KeyData.From(m.Remote), m.ProposalDigest, m.Operation);
+    internal static MappingData From(PublishMapping m) => new(KeyData.From(m.Local), KeyData.From(m.Remote), m.PlanDigest, m.Operation);
     internal PublishMapping ToCore() => new(Local.ToCore(), Remote.ToCore(), Digest, Operation);
 }
 

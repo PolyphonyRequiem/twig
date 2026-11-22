@@ -67,19 +67,19 @@ public sealed record Revision
 
 public sealed record PublishMapping
 {
-    public PublishMapping(ItemKey local, ItemKey remote, string proposalDigest, int operation)
+    public PublishMapping(ItemKey local, ItemKey remote, string planDigest, int operation)
     {
         if (!local.IsLocal || remote.IsLocal)
             throw new ArgumentException("A publish mapping must bind a local UUID to a remote identity.");
         if (operation < 0) throw new ArgumentOutOfRangeException(nameof(operation));
         Local = local;
         Remote = remote;
-        ProposalDigest = Contract.Text(proposalDigest, nameof(proposalDigest));
+        PlanDigest = Contract.Text(planDigest, nameof(planDigest));
         Operation = operation;
     }
 
     public ItemKey Local { get; }
     public ItemKey Remote { get; }
-    public string ProposalDigest { get; }
+    public string PlanDigest { get; }
     public int Operation { get; }
 }

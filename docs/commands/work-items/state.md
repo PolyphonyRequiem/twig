@@ -21,7 +21,7 @@ multi-hop chaining. A local seed state edit stays local.
 
 Name the item with `--id` in every output format.
 A state-only change cannot satisfy missing close-gate fields: use one
-[`batch`](batch.md) or explicit proposal operation carrying the transition and
+[`batch`](batch.md) or explicit plan operation carrying the transition and
 all coupled fields together.
 
 ## Effects

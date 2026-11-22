@@ -7,5 +7,5 @@ description: Operate the Twig CLI.
 
 - Use the installed command's `--help` for syntax.
 - [Commands and targeting](references/operations.md)
-- [Proposal publication and recovery](references/changes.md)
+- [Plan publication and recovery](references/changes.md)
 - [Presenter integration](references/presentation.md)

@@ -204,7 +204,7 @@ public sealed partial class NativePublicationConsumerTests
             normalCapture.ScopeId.ShouldBe(Guid.Empty);
             normalCapture.Ready.ShouldBeTrue();
             normalCapture.Settled.ShouldBeFalse();
-            normalCapture.SeedProposal.ShouldBeNull();
+            normalCapture.SeedPlan.ShouldBeNull();
             await UnchangedBench();
 
             ItemKey[] foreign = [];
@@ -315,16 +315,16 @@ public sealed partial class NativePublicationConsumerTests
             if (scenario == "pin") await SeedPinFailureAsync(fixture.Registry, false);
 
             var before = (await ReadHumanHostAsync(fixture.Root, fixture.Stamp, false, ct)).Value.Snapshot;
-            var proposal = before.Proposals.ShouldHaveSingleItem();
-            proposal.Digest.ShouldBe(publication["digest"]!.GetValue<string>());
-            var operation = proposal.Operations.ShouldHaveSingleItem();
+            var plan = before.Plans.ShouldHaveSingleItem();
+            plan.Digest.ShouldBe(publication["digest"]!.GetValue<string>());
+            var operation = plan.Operations.ShouldHaveSingleItem();
             operation.Kind.ShouldBe(OpKind.Create);
             operation.Item.ShouldBe(seedKey);
             var journal = before.Journal.ShouldHaveSingleItem();
-            journal.Digest.ShouldBe(proposal.Digest);
+            journal.Digest.ShouldBe(plan.Digest);
             journal.Status.ShouldBe(scenario == "unknown" ? OpStatus.Indeterminate : OpStatus.Verified);
             var captured = (await store.ReadEditorCapturesAsync(ct)).Value.Single(capture => capture.Id == normalCapture.Id);
-            UserBenchStore.ParseIntent(captured.SeedProposal!).Digest.ShouldBe(proposal.Digest);
+            UserBenchStore.ParseIntent(captured.SeedPlan!).Digest.ShouldBe(plan.Digest);
             captured.Settled.ShouldBe(expectedStatus == "Complete");
             if (scenario == "unknown")
             {
@@ -339,11 +339,11 @@ public sealed partial class NativePublicationConsumerTests
                 before.Drafts.ShouldNotContain(draft => draft.Key == seedKey);
                 var mapping = before.Mappings.ShouldHaveSingleItem();
                 mapping.Local.ShouldBe(seedKey);
-                mapping.ProposalDigest.ShouldBe(proposal.Digest);
+                mapping.PlanDigest.ShouldBe(plan.Digest);
                 journal.Receipts.Length.ShouldBe(2);
                 var applied = journal.Receipts.Single(receipt => receipt.Status == OpStatus.Applied);
                 var verified = journal.Receipts.Single(receipt => receipt.Status == OpStatus.Verified);
-                (applied.Digest, applied.Attempt, applied.PublishedKey).ShouldBe((proposal.Digest, journal.Attempt, mapping.Remote));
+                (applied.Digest, applied.Attempt, applied.PublishedKey).ShouldBe((plan.Digest, journal.Attempt, mapping.Remote));
                 applied.Revision.ShouldNotBeNull();
                 applied.Error.ShouldBeNull();
                 (verified.Digest, verified.Operation, verified.Attempt, verified.Revision, verified.PublishedKey)
@@ -375,17 +375,17 @@ public sealed partial class NativePublicationConsumerTests
                 (await Ok("/seeds/observe", HttpMethod.Post, reference))["status"]!.GetValue<string>().ShouldBe(expectedStatus);
                 reference["digest"] = new string('0', 64);
                 (await Send("/seeds/delivery", HttpMethod.Post, reference)).Status.ShouldBe(HttpStatusCode.Conflict);
-                reference["digest"] = proposal.Digest;
+                reference["digest"] = plan.Digest;
                 for (var attempt = 0; attempt < 2; attempt++)
                 {
                     var delivered = await Ok("/seeds/delivery", HttpMethod.Post, reference);
                     delivered["status"]!.GetValue<string>().ShouldBe(scenario == "unknown" ? "Protected" : "Complete");
                     delivered["captureId"]!.GetValue<string>().ShouldBe(captured.Id.ToString("D"));
-                    delivered["digest"]!.GetValue<string>().ShouldBe(proposal.Digest);
+                    delivered["digest"]!.GetValue<string>().ShouldBe(plan.Digest);
                 }
             }
             var final = (await ReadHumanHostAsync(fixture.Root, fixture.Stamp, false, ct)).Value.Snapshot;
-            final.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(proposal.Digest);
+            final.Plans.ShouldHaveSingleItem().Digest.ShouldBe(plan.Digest);
             var finalJournal = final.Journal.ShouldHaveSingleItem();
             finalJournal.Attempt.ShouldBe(journal.Attempt);
             finalJournal.Status.ShouldBe(journal.Status);
@@ -400,7 +400,7 @@ public sealed partial class NativePublicationConsumerTests
             }
             final.Mappings.ShouldBe(before.Mappings);
             var finalCapture = (await store.ReadEditorCapturesAsync(ct)).Value.Single(capture => capture.Id == captured.Id);
-            finalCapture.SeedProposal.ShouldBe(captured.SeedProposal);
+            finalCapture.SeedPlan.ShouldBe(captured.SeedPlan);
             finalCapture.Settled.ShouldBe(scenario != "unknown");
             var selectors = (await store.ReadAsync(ct)).Value.Benches.Single(bench => bench.Id == fixture.Bench).Selectors;
             selectors.ShouldNotContain(selector => selector.Item != null && selector.Item.IsLocal);

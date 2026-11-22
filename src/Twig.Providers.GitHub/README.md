@@ -26,7 +26,7 @@ cached numbers/node IDs refuse instead of rebinding. Cache-only command resoluti
 uses only this retained metadata and performs zero total HTTP.
 
 The mandatory host `AdmitAsync` runs **after** durable Applying and receives the
-exact proposal, ordinal, attempt, method, endpoint and payload. The host must
+exact plan, ordinal, attempt, method, endpoint and payload. The host must
 durably admit those bytes under the original selected binding/actor and hold its
 lease; `ObserveAsync` must durably retain the native response for that admission.
 Neither seam dispatches/retries the mutation. Disposal must not throw. No
@@ -80,7 +80,7 @@ write authority.
 The native host now holds the selected attachment generation lease, validates actual
 configuration/store/policy evidence and requires a durable Applying attempt. Both
 provider shape and host admission use the same pure `GitHubWriteIntent.Project`;
-admission requires exact canonical UTF-8 equality against the retained proposal.
+admission requires exact canonical UTF-8 equality against the retained plan.
 Fsynced native intent/ack files only attribute transport: the Core journal remains
 the executor/recovery authority. This narrow CLI bridge cannot invent external rules
 or treat the test seam as a production authority.

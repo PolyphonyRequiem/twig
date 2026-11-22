@@ -1,7 +1,7 @@
 ---
 command: link unparent
 group: links
-summary: Remove the one observed native parent through a verified Core proposal.
+summary: Remove the one observed native parent through a verified Core plan.
 stability: experimental
 mutates: ado
 ---

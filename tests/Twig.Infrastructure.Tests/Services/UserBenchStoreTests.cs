@@ -167,7 +167,7 @@ public sealed class UserBenchStoreTests : IDisposable
         var native = Required(await a.Store.ReadAsync(ado, default));
         native.Benches.ShouldBeEmpty("the native mirror must not become a second authoritative Bench store");
         native.Journal.ShouldBeEmpty();
-        native.Proposals.ShouldBeEmpty();
+        native.Plans.ShouldBeEmpty();
         Required(await Store.ReadAsync()).Benches.Single().Name.ShouldBe("Renamed");
         provider.ReceivedCalls().ShouldBeEmpty();
     }

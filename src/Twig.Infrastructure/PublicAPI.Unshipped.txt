@@ -148,7 +148,7 @@ Twig.Infrastructure.Services.NativeRelationshipForm.LocalOnly.init -> void
 Twig.Infrastructure.Services.NativeRelationshipForm.Verification.get -> string!
 Twig.Infrastructure.Services.NativeLocalRelationshipReview
 Twig.Infrastructure.Services.NativeLocalRelationshipReview.CaptureId.get -> System.Guid
-Twig.Infrastructure.Services.NativeLocalRelationshipReview.Proposal.get -> Twig.Core.Proposal!
+Twig.Infrastructure.Services.NativeLocalRelationshipReview.Plan.get -> Twig.Core.Plan!
 Twig.Infrastructure.Services.NativeLocalRelationshipOutcome
 Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.CaptureId.get -> System.Guid
 Twig.Infrastructure.Services.NativeLocalRelationshipOutcome.Digest.get -> string!
@@ -246,7 +246,7 @@ Twig.Infrastructure.Services.NativePlanReview.Digest.get -> string!
 Twig.Infrastructure.Services.NativePlanReview.BenchId.get -> System.Guid
 Twig.Infrastructure.Services.NativePlanReview.Operations.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Op!>
 Twig.Infrastructure.Services.NativePlanReview.CoreDigests.get -> System.Collections.Immutable.ImmutableArray<string!>
-Twig.Infrastructure.Services.NativePlanReview.Proposals.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Proposal!>
+Twig.Infrastructure.Services.NativePlanReview.Plans.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Plan!>
 Twig.Infrastructure.Services.NativePlanReview.Sources.get -> System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativePlanSource!>
 static Twig.Infrastructure.Services.NativePlanReview.ReviewAsync(string! root, System.Guid benchId, System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativePlanSource!> admittedSources, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativePlanReview!>!>!
 static Twig.Infrastructure.Services.NativePlanReview.OpenAsync(string! root, string! digest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativePlanReview!>!>!

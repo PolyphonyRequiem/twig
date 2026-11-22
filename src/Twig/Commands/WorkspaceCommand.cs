@@ -127,7 +127,7 @@ internal sealed class WorkspaceCommand(
             var projectedBench = new Bench(selected.Id, selected.Name, selectors);
             var projection = new StoreSnapshot(snapshot.Version, snapshot.Items,
                 snapshot.Relationships.Select(edge => edge with { From = Resolve(edge.From), To = Resolve(edge.To) }),
-                snapshot.Drafts, snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
+                snapshot.Drafts, snapshot.Plans, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
             var resolved = Core.Core.ResolveBench(projectedBench, projection, schema.Value, evaluationTime);
             if (!resolved.IsSuccess) return Error(resolved.Error.Message);
             var rules = await workspace.ViewRulesAsync(ct);

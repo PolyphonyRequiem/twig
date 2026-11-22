@@ -16,7 +16,7 @@ below do not override those observed routing limitations.
 ADO discovery retains type-local gaps on the exact `ItemType`, separately from
 global schema gaps. Native editor evaluation checks that exact type and all
 global gaps; unrelated incomplete types do not prevent opening a supported item.
-Proposal validation checks every effect's observed source, target type and
+Plan validation checks every effect's observed source, target type and
 relationship endpoint types; close-gate discovery checks its exact source type.
 Mechanical policy certification retains global gaps and checks all acquired
 before/after endpoint types plus the declaration's named types. It does not claim
@@ -118,7 +118,7 @@ Previously saved native definitions are preserved once per native store instance
 with their IDs intact. Name/intent conflicts refuse rather than rename or
 overwrite user choices. Deletion retains a tombstone so an older worktree cannot
 resurrect the same Bench. Definition changes use revision checks and do not write
-mirror copies of shared Benches, remote work items, proposals or journals.
+mirror copies of shared Benches, remote work items, plans or journals.
 
 Workspace exclusions are separately revisioned by workspace root and connection,
 not subtracting Bench selectors. Cached views apply them after membership
@@ -151,21 +151,21 @@ Bench pins. A published seed's UUID is not a remote selector: Core Bench
 resolution does not translate literal local pins through mappings.
 
 Before Save dispatches, the sealed native capture retains the exact original
-Core proposal and digest. `NativeEditResult.SeedPublication` exposes its durable
+Core plan and digest. `NativeEditResult.SeedPublication` exposes its durable
 capture ID, UUID and digest, with `Protected`, `VerifiedDeliveryPending` or
-`Complete` status. A lost response keeps the original draft, proposal, attempts
+`Complete` status. A lost response keeps the original draft, plan, attempts
 and receipts protected; no remote identity or successful outcome is guessed.
 Verified-but-undelivered captures remain enumerable even if Core already
 settled its draft. Reopen the same normal editor/source/Bench and use
 `ObserveSeedAsync` or digest-bound `ContinueSeedDeliveryAsync` on that capture.
-Neither operation prepares a proposal or calls Create/Apply again.
+Neither operation prepares a plan or calls Create/Apply again.
 
 Normal and Plan delivery share native Infrastructure primitives for original
 Verified journal/mapping attribution, original-source readback, additive latest
 remote Bench pins and exact capture settlement. The capture is settled only
 after readback and pin delivery succeed. Delivery recovery can complete local
 settlement but cannot establish an uncertain remote outcome. Core remains the
-only provider, policy, merge, proposal and journal publisher; there is no new
+only provider, policy, merge, plan and journal publisher; there is no new
 Core port, alternate executor, Plan scope for normal writes, or UI/install work.
 GitHub seed creation and type/collection authoring remain unsupported; existing
 scalar editing and isolated Plan review retain their previous boundaries.
@@ -204,7 +204,7 @@ for read-only prospective field guidance. It reuses the captured native field
 evaluator to expose discovered requiredness, allowed values and errors,
 including missing close-gate fields, without staging the proposed values.
 Current pair observations and the original ticket/source/store evidence must
-still agree. Evaluation does not update the Core store, capture, proposal or
+still agree. Evaluation does not update the Core store, capture, plan or
 journal. Ordinary scalar reopening of retained relationship debt still refuses
 evaluation; scalar Stage/Save also refuse even a qualified pair ticket.
 Empty intent cannot discard protected relationships. Broader multi-endpoint
@@ -226,10 +226,10 @@ atomic parent change that removes every observed old parent in the same operatio
 as the addition. That is not implicit reparenting and is not offered by this
 single-pair editor.
 
-An uncertain original attempt retains its proposal, receipts, draft and capture;
+An uncertain original attempt retains its plan, receipts, draft and capture;
 Save never replays or restages it. Unowned CLI debt and isolated whole-Plan
 work are not adopted or flushed. Normal seed ownership, empty parentless
-creation and original-proposal verified delivery remain unchanged. These new
+creation and original-plan verified delivery remain unchanged. These new
 forms are in-process typed API values, not new serialized transport envelopes;
 the existing source-generated native capture registry is reused unchanged.
 There is no private host/UI, install or runtime work in this increment.
@@ -269,7 +269,7 @@ Infrastructure local identity/Association/CAS preparation, not a second
 publisher or new Core port.
 
 The local capture binds the original source, Bench/mode, store instance,
-generation/history/reference, canonical proposal, both native observations and
+generation/history/reference, canonical plan, both native observations and
 independent draft fingerprints, original logical UUID mapping and physical
 edge/tombstone CAS. Unowned CLI or isolated Plan debt is not adopted. Original
 UUID-keyed edges remain unchanged across publication mappings and symmetric
@@ -284,10 +284,10 @@ Core journal entry, settlement flag and any error; no new status or receipt is
 invented. `ReadLocalRelationshipReviewsAsync()` rediscovers original owned
 captures after a host closes, without remembering its first review ID/digest
 or trusting cached browser effect text. It returns the original `CaptureId`,
-canonical `Proposal` and actual `Outcome`, including preparing, attempted,
+canonical `Plan` and actual `Outcome`, including preparing, attempted,
 protected and settled originals. Sealed namespace/document bounds still apply;
 foreign source/Bench/Plan/seed/CLI captures are not adopted or exposed. Missing
-owned canonical capture/proposal/journal proof refuses instead of returning
+owned canonical capture/plan/journal proof refuses instead of returning
 empty success. Discovery does not prepare, retain, apply, verify, settle or
 change any capture/store/draft/cache, and returned intent grants no Apply
 eligibility or replay authority. Reopen the same normal source/Bench and use
@@ -430,7 +430,7 @@ never installing `AddConnectionServices`, `AddTwigNetworkServices`,
 `AddTwigCommandServices` or their old writer/projection graph. The retained static
 RenderTree renderer does not register the asynchronous/aggregate workspace pipeline.
 Actual descriptors and retained-owner resolution are proven both with and without a
-marker. Core retains two ports and proposal format 3; the phase-6 source cut is described below.
+marker. Core retains two ports and plan format 3; the phase-6 source cut is described below.
 
 ### Optional process presentation
 
@@ -471,7 +471,7 @@ or the retired CLI layout command.
 The finite data catalog is process/description, cached show/show-batch with explicit
 refresh, bounded query, targeted update/patch/state/note, batch, pending/discard,
 seed new/view/validate/publish/discard and original acknowledged recovery,
-file proposal validate/preview/apply/status, Bench metadata and explicitly scoped
+file plan validate/preview/apply/status, Bench metadata and explicitly scoped
 static workspace reads. Already qualified ADO editor,
 seed-chain/creation links/targeted trees, Link and Core local Related remain.
 GitHub's explicit earlier limitations and 100-total-candidate query bound remain.
@@ -496,9 +496,9 @@ standalone TUI solution entry are withdrawn. Superseded UI source is deleted; ol
 
 Retired surfaces include quick new, Browser/TUI/MCP and captured draft/edit/review/save,
 tree-set/full backlog/live/sprint/team/area UI, old policy assessment/repair,
-native history/layout/behavior export, proposal latest/seed/old reconcile, migration,
+native history/layout/behavior export, plan latest/seed/old reconcile, migration,
 reset/reinitialize and legacy shell presentation. Use seed new and explicit Core file
-proposals instead. Finite delivery does not mean those surfaces were ported.
+plans instead. Finite delivery does not mean those surfaces were ported.
 
 `connection writes` is inspect-only. ADO reads the existing native registry through
 binding authority, without work HTTP or old seed/plan/eligibility constructors.
@@ -507,7 +507,7 @@ store instance, immutable connection, actor, digest, ordinal, original attempt,
 canonical request hash and retained Core request must agree. Duplicate JSON,
 orphan/oversized/redirected evidence and invalid hashes fail closed. Missing
 acknowledgement stays unknown. An acknowledgement is only correlated transport
-evidence, never Core Verified execution. Core proposal status/journal remains the
+evidence, never Core Verified execution. Core plan status/journal remains the
 execution authority. Inspection performs no settlement, replay, adoption, expiry,
 digest rewrite, fence clearing or evidence cleanup.
 
@@ -550,7 +550,7 @@ the closed catalog above retires those surfaces rather than promising a later ph
 `Twig.Core` is an additive, standalone model and pure-function library in the supported
 solution. Production cutover is in progress. An explicitly initialized, pinned Core ADO
 workspace now routes explicit-target `show`, `update`, `note`, artifact links,
-single-hop `state`, `batch`, typed `patch`, and file-scoped `proposal preview/apply`
+single-hop `state`, `batch`, typed `patch`, and file-scoped `plan preview/apply`
 through the shared Core-only composition and application workflow. Other commands,
 TUI and Browser are not fully cut over; this is not yet the
 completed supported phase-5 surface. Phase 2 adds `Twig.Store.Sqlite` as an isolated persistence adapter,
@@ -578,7 +578,7 @@ external ruleset or model-declared completeness. The new host acquisition reads
 actual policy bytes and translates the supported mechanical rules; their
 application enforcement is in the shared Core workspace workflow. The narrow GitHub
 CLI profile now holds the actual native generation lease and admits canonical request
-bytes from the retained proposal. Complete retained-surface routing remains unfinished.
+bytes from the retained plan. Complete retained-surface routing remains unfinished.
 
 Phase 5 has also added the native ADO access/admission bridge with exact
 digest/ordinal/attempt attribution and creation fences in the existing native
@@ -594,7 +594,7 @@ binding lease supplies collection, project and principal identities; the new
 SQLite instance is pinned to that exact connection. Existing `.twig` directories,
 existing selected files and reset flags are refused, not migrated or adopted.
 Uninitialized/legacy CLI mutation admission refuses before legacy writer registration
-with this preservation and initialization guidance. Preserved legacy proposal/journal
+with this preservation and initialization guidance. Preserved legacy plan/journal
 inspection does not authorize legacy application. Fresh GitHub worktrees can use
 `twig init --provider github --host github.com --repository owner/name --account <gh-account>`.
 This explicitly observes the selected native actor and immutable owner/repository,
@@ -636,10 +636,10 @@ explicit refresh. Explicit refresh and number-targeted native mutations, includi
 cache hits and explicit draft save, requalify `issue(number:)` inside the immutable
 repository, check owner/repository/kind/number, then completely observe the node again.
 Missing or duplicate metadata and changed number-to-node bindings refuse. Original
-UUIDs, permanent mappings, proposals and history are never rewritten as numbers.
+UUIDs, permanent mappings, plans and history are never rewritten as numbers.
 Number lookup compares both sides of the captured cache binding before complete
 acquisition and commits its mirror only against that capture's store CAS. A mismatch
-does not refresh the cache, retain a proposal or dispatch an effect. Historical
+does not refresh the cache, retain a plan or dispatch an effect. Historical
 cache-only reads remain available without claiming fresh native authority.
 
 Title/body/assignee roles use the native field references and kinds; state comes from
@@ -684,7 +684,7 @@ Mutations may acquire native credentials, schema and read observations but send
 zero native mutations. List performs zero total HTTP and changes no store,
 journal or navigation state.
 
-One existing proposal/op binds exact local edge CAS through shared
+One existing plan/op binds exact local edge CAS through shared
 Prepare/Apply/Verify and the retained journal. Initial add expects no row;
 remove/resurrect bind its exact positive version, including physical tombstones.
 Duplicate/absent effects refuse instead of faking verification. Output is static
@@ -714,15 +714,15 @@ this is not phase-5 completion or a UI/native-link qualification.
 One provider-owned pure `GitHubWriteIntent.Project` projects final mutation documents
 and input bytes. Provider shape validation retains live capability/resource/edge
 checks; native host admission compares exact UTF-8 bytes against that same projection
-of the **retained** proposal/ordinal/attempt. Native fsynced intent/ack sidecars are
+of the **retained** plan/ordinal/attempt. Native fsynced intent/ack sidecars are
 subordinate transport evidence, never a second executor or recovery authority.
 Unknown creation remains fenced across root reopen without a second create.
 
 Offline Core file preview retains exact unconfirmed intent as Planned with no
 attempt or receipt, and reports unavailable schema/rule evidence as blocking.
-Core `proposal validate` (and its `plan` alias) checks only canonical file format
+Core `plan validate` checks only canonical file format
 offline and explicitly reports that application evidence was not checked; it does
-not imply process/policy compliance or permission to apply. `proposal status` reads
+not imply process/policy compliance or permission to apply. `plan status` reads
 the current file's exact digest from the same immutable-connection store, reports
 Planned/attempt/receipt states including uncertainty, and never imports, settles or
 replays. An absent journal is a nonzero, explicitly absent result, not an invalid-file
@@ -733,14 +733,14 @@ parent/resources/links, without native refresh, journal changes or implicit flus
 It preserves retained draft order, not a fabricated field-edit chronology. These
 inspection routes support human/structured/minimal output and safe optional command
 telemetry; bare-ID output is refused because it would discard the inspected evidence.
-Proposal latest/seed/reconciliation and rich interactive review remain cutover gaps.
+Plan latest/seed/reconciliation and rich interactive review remain cutover gaps.
 The fundamental smoke uses an isolated Core fixture and reaches that real
 evidence gate plus wrong-principal admission; initialization refusal is not a
 substitute. ADO `batch` fields/state and an authored note are one revision-tested
 request. GitHub refuses that combined shape rather than silently losing its note.
 
 Explicit `save <id>` and `save --all` now select remote Core drafts, freeze one
-ordered proposal for the invocation, execute through that same journal, and consume
+ordered plan for the invocation, execute through that same journal, and consume
 only unchanged captured drafts after every effect verifies. Local seeds remain a
 distinct publication request. A partial/unknown outcome retains drafts and receipts;
 later local edits prevent settlement rather than being silently cleared.
@@ -756,19 +756,19 @@ Unparented `seed new --no-parent --type ...` now stages UUIDv7 drafts through Co
 The initial state comes from the adapter's existing native initial-state allowed
 rule, not a guessed process category; the default assignee is the admitted native
 actor. `seed view` and human `seed publish <alias>` use the same workspace and ordered
-proposal/journal orchestration, not a separate publisher. Verified creation preserves
+plan/journal orchestration, not a separate publisher. Verified creation preserves
 the original UUID and permanent native mapping. An unacknowledged create keeps the
 draft and indeterminate UUID fence; another publication cannot recreate it.
 
 The fresh Core host derives negative integer presentation aliases deterministically
-from local UUIDs; UUIDs remain identity and all retained drafts, mappings, proposals,
+from local UUIDs; UUIDs remain identity and all retained drafts, mappings, plans,
 relationships and Bench selectors reserve their aliases. Collisions refuse ambiguous
 targeting rather than choose an item. `show --local-id` reads UUIDv7 drafts/mappings
 cache-only; negative alias detail continues to resolve after publication. This is a
 host compatibility strategy for new explicit stores, not a migration of old aliases.
 Drafts now retain optional typed creation-bound parent/relation/resource intent.
 The existing canonical `Op.Other`, `Relation` and `Resource` payloads bind those
-effects without another Core port or a proposal/store version change. Older Core
+effects without another Core port or a plan/store version change. Older Core
 drafts contain no such declaration; older local relationship intent remains
 separate and is never reinterpreted as a native create instruction.
 ADO parent/resource effects share the create POST and are independently read back.
@@ -777,10 +777,10 @@ GitHub refuses creation coupling not proven by its native schema; nothing is omi
 Explicit parented seed creation and ordered local-parent publication now use this
 path. A local parent UUID resolves only through its original permanent mapping
 after the preceding creation's acknowledgement is separately Verified. Retained
-proposal bytes keep the UUID; neither a guessed native ID nor revision arithmetic
+plan bytes keep the UUID; neither a guessed native ID nor revision arithmetic
 is used. Branch artifact capture now observes native immutable Git project/repository IDs
 and the exact requested branch through the same leased ADO identity. It freezes
-the qualified artifact into unchanged seed intent before proposal construction,
+the qualified artifact into unchanged seed intent before plan construction,
 including dry-run intent; there is no best-effort post-create artifact writer.
 Missing/ambiguous/paginated native metadata refuses without publishing.
 Their model now captures a frozen `CreationLink` list with exact endpoint,
@@ -796,14 +796,14 @@ revision and in complete reciprocal current observations. Missing readback remai
 Partial; unknown creation stops all later effects. `seed link`, `seed unlink`, and
 `seed links` now capture/list that exact draft intent through Core; parent replacement
 and dependency publication ordering use one CAS-protected draft representation.
-Cycles refuse before capture, and branch/field capture and proposal settlement retain
+Cycles refuse before capture, and branch/field capture and plan settlement retain
 the frozen list. The production-root regression publishes a three-seed dependency
 chain with an association and branch resources without a post-create writer.
 GitHub still refuses unproven atomic creation-link coupling. `seed chain` now authors
 the same typed drafts and predecessor links with an explicit parent/type, emits one
 structured result, and preserves any staged prefix after an authoring failure.
 `seed validate` acquires actual schema and declared-policy evidence for the ordered
-captures without importing or dispatching a proposal. `seed reconcile` recovers only
+captures without importing or dispatching a plan. `seed reconcile` recovers only
 existing Applying/Applied creation rows and settles unchanged captures from their
 original Verified mappings; it never applies Planned successors, rewrites UUID
 references, guesses native identities or replays an unknown creation. All CLI seed
@@ -859,7 +859,7 @@ Hyperlink/ArtifactLink shapes and sends one revision-tested JSON-Patch request;
 exact attributes, acknowledgement, persistence and separate readback use the
 same journal path. Remaining artifact command/UI wiring is still unfinished.
 
-Feature publication remains operationally unresolved: the reviewed six-phase proposal's
+Feature publication remains operationally unresolved: the reviewed six-phase plan's
 first creation has an indeterminate outcome without an acknowledged native Feature ID.
 The existing Epic temporarily tracks authorized implementation. This design neither settles
 that attempt nor permits its replay. The Epic stays open.
@@ -874,8 +874,8 @@ The executable keeps its existing NativeAOT, full-trimming and invariant-globali
 
 | Owner | Responsibilities |
 |---|---|
-| Core | Identity, typed values, one schema, drafts, canonical proposal intent, receipts and journal transitions, mechanical validation, merge, Bench selectors, declared policy, two ports |
-| Application/command orchestration (later) | Explicit targeting, acquire current schema/items, draft-to-proposal construction, exact-digest confirmation, ordered execution, durable attempts, cancellation/recovery, policy evidence acquisition |
+| Core | Identity, typed values, one schema, drafts, canonical plan intent, receipts and journal transitions, mechanical validation, merge, Bench selectors, declared policy, two ports |
+| Application/command orchestration (later) | Explicit targeting, acquire current schema/items, draft-to-plan construction, exact-digest confirmation, ordered execution, durable attempts, cancellation/recovery, policy evidence acquisition |
 | Provider adapters (phases 3 and 4) | Normalize native identities and field references, discover schema/capabilities, implement query translation and one-effect transport, classify dispatch/outcomes, authoritative readback |
 | Store adapter (phase 2) | SQLite/WAL, one local CAS/transaction boundary, append-preserving evidence, immutable publish mappings, local relationship tombstones, source-generated persistence DTOs |
 | Hosts/rendering | Human versus machine behavior, server/Canvas session and view selection, form layout and presentation hints, markup conversion/sanitization, colors, credentials and telemetry |
@@ -936,11 +936,11 @@ refuses with initialization guidance; legacy native layout reading is unchanged.
 
 | Existing Core route | Deleted CLI ownership |
 |---|---|
-| `CoreCommandAdapter.StateAsync` -> shared Core proposal/journal workflow | `StateCommand.cs`, its singleton registration and Program fallback |
-| `CoreCommandAdapter.NoteAsync` -> shared Core proposal/journal workflow | `NoteCommand.cs`, its singleton registration and Program fallback |
-| `CoreCommandAdapter.PatchAsync` -> shared Core proposal/journal workflow | `PatchCommand.cs`, its singleton registration and Program fallback |
-| `CoreCommandAdapter.UpdateAsync` -> shared Core proposal/journal workflow | `UpdateCommand.cs`, its singleton registration and Program fallback |
-| `CoreCommandAdapter.SaveAsync` -> shared Core proposal/journal workflow | `SaveCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.StateAsync` -> shared Core plan/journal workflow | `StateCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.NoteAsync` -> shared Core plan/journal workflow | `NoteCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.PatchAsync` -> shared Core plan/journal workflow | `PatchCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.UpdateAsync` -> shared Core plan/journal workflow | `UpdateCommand.cs`, its singleton registration and Program fallback |
+| `CoreCommandAdapter.SaveAsync` -> shared Core plan/journal workflow | `SaveCommand.cs`, its singleton registration and Program fallback |
 | `CoreCommandAdapter.DiscardAsync` -> local typed-draft CAS, preserving seeds and journals | `DiscardCommand.cs`, its singleton registration and Program fallback |
 | Existing `LinkCommand` -> shared `CoreWorkspace.PrepareAsync/ApplyAsync` | Replaced its direct writer, active resolver, link repository, sync coordinator and hardcoded native hierarchy reference; removed superseded mock-based CLI-owner tests |
 
@@ -954,7 +954,7 @@ still reference them. `FieldUpdateWorkflow`, `DiscardWorkflow` and
 flusher. Mixed Edit/prompt tests retain their unrelated cases. UI ownership is
 outside this deletion; removing these six CLI wrappers does not authorize deleting
 their shared workflows or resolving legacy writers into the Core graph.
-The Core inventory stays at 56 types/two ports and store/proposal format 3.
+The Core inventory stays at 56 types/two ports and store/plan format 3.
 
 The same native `link` owner is now registered in the pinned Core graph, not a
 new adapter family or parallel facade. Association add/remove, predecessor and
@@ -969,7 +969,7 @@ verification; partial and indeterminate effects fence both endpoints under new
 digests without replay. Invalid/self/conflicting targets refuse with usage exit 2;
 machine mutations targeting one work item need an explicit `--id` option. Human
 calls also require an explicit target; there is no ambient item selection.
-Unmapped/unknown seeds still refuse; the shared proposal path retains authority
+Unmapped/unknown seeds still refuse; the shared plan path retains authority
 over partial/unknown native endpoint fences. All JSON aliases emit one document; bare IDs refuse
 because they discard journal evidence. Optional telemetry contains static safe
 command metadata, never endpoints or native references.
@@ -1055,7 +1055,7 @@ and relationship CAS counters are separate. A provider with an observational tok
 not thereby support atomic revision checks.
 
 Publication retains `PublishMapping(Local, Remote, digest, ordinal)` permanently and
-one-to-one. The UUID survives as an alias/provenance key after publication. Stored proposal
+one-to-one. The UUID survives as an alias/provenance key after publication. Stored plan
 bytes and journal targets are never rewritten to the published ID. Pins, draft links and
 other local references resolve through the mapping when the application builds later intent.
 
@@ -1107,20 +1107,20 @@ requiredness, read-only, value-kind and transition restrictions still apply. `Ba
 may explicitly bind a replacement type; its target schema governs validation and the
 adapter must include that type change in the same remote request.
 
-`Validate` binds confirmation and the pre-import store version. Importing the proposal
+`Validate` binds confirmation and the pre-import store version. Importing the plan
 itself advances that version; it does not invalidate its own consent. Before each first
 attempt, `ValidateEffect` checks the retained Planned row, earlier Verified rows, current
 observations and unchanged schema. Acquisition then uses the **current** store CAS.
-It never resets the proposal's historical baseline version or bypasses the creation fence.
+It never resets the plan's historical baseline version or bypasses the creation fence.
 
 Core validation is advisory over supplied observations. The eventual application must
 rediscover/read authoritative inputs before dispatch and enforce the provider's actual
 revision guarantee; cache-based validation is not live authorization. Unknown schema
 gaps block writes, even if the cached fields happen to look valid.
 
-## Canonical proposals
+## Canonical plans
 
-A proposal is immutable and connection-bound. Version 3 hashes:
+A plan is immutable and connection-bound. Version 3 hashes:
 
 - The format version, provider scope, immutable destination and identity reference.
 - The complete schema fingerprint and expected local store CAS version.
@@ -1134,7 +1134,7 @@ A proposal is immutable and connection-bound. Version 3 hashes:
 
 Version 2 introduced the resource slot; version 3 additionally binds configured
 policy presence and bytes. Neither reinterprets an earlier digest. The SQLite
-database/snapshot format now advances to version 3: old files are refused and preserved, never reset or
+database/snapshot format is version 4: old files are refused and preserved, never reset or
 silently migrated. Explicit initialization must choose a genuinely new isolated
 path while prior drafts, journals, creation fences and mappings remain intact.
 
@@ -1151,7 +1151,7 @@ Capture-only reads suppress optional mirror commits during policy acquisition;
 the application owns its explicit coherent mirror commit. The shared workflow
 does not retry patches, flush pending notes or invoke the legacy seed publisher.
 
-`Core.ProposalBytes` writes a fixed versioned UTF-8 JSON grammar directly with
+`Core.PlanBytes` writes a fixed versioned UTF-8 JSON grammar directly with
 `Utf8JsonWriter`; `Digest` is lowercase hexadecimal SHA-256 of those exact bytes.
 Property order is fixed by that grammar; field maps are ordinal-sorted. Semantic arrays,
 including operations and ordered lists, retain their order. Decimal scale is normalized
@@ -1190,7 +1190,7 @@ local kinds, exact revision support, supported operations and atomic field batch
 The existing GitHub catalog declares native hierarchy/dependency support, but declaration
 alone is not proof an adapter implements every operation. This phase neither expands
 GitHub behavior nor silently emulates unsupported relationships. A local effect is
-explicitly local in the proposal and receipt; it uses store CAS, never a remote revision.
+explicitly local in the plan and receipt; it uses store CAS, never a remote revision.
 Its `ExpectedLocalVersion` also binds the exact edge/tombstone: null requires no prior
 local row, while an existing row requires its positive version. Internal journal commits
 cannot invalidate this precondition, and another writer's edge change cannot evade it.
@@ -1244,7 +1244,7 @@ to issue full-table SQL rewrites. The SQLite adapter may compute a row delta int
 
 The adapter must enforce `Core.ValidateCommit` and its transaction invariants. Important units:
 
-1. Import proposal plus exactly one Planned journal row per declared operation.
+1. Import plan plus exactly one Planned journal row per declared operation.
 2. Win the CAS and persist Applying plus attempt identity **before** sending any request.
 3. Persist acknowledgement/receipt plus journal advance and create mapping together; include
    any available mirror update in that same transaction.
@@ -1254,12 +1254,12 @@ No provider network call belongs inside a SQLite transaction. There is no cross-
 or database-plus-HTTP transaction, and WAL does not make one. Receipt persistence failure
 after dispatch leaves Applying recoverable/unknown rather than authorizing replay.
 
-Journal history, proposals and publish mappings are durable and append-preserving.
+Journal history, plans and publish mappings are durable and append-preserving.
 Creation acknowledgement cannot commit without its permanent mapping; a later unavailable
 readback retains that mapping. Local relationships have their own monotonic CAS versions;
 deletion retains a tombstone so refresh/stale writers cannot resurrect an edge. A mirror
 refresh can replace provider observations but cannot delete local overlays, drafts, Bench
-definitions, proposals, mappings or journal evidence. Explicit draft/Bench editing remains
+definitions, plans, mappings or journal evidence. Explicit draft/Bench editing remains
 a separate deliberate local operation, not a side effect of selecting or refreshing a view.
 
 Phase 2 implements this boundary in `Twig.Store.Sqlite`, referencing only Core and the
@@ -1276,7 +1276,7 @@ ID, schema version 1 and WAL. Foreign/legacy, missing and incompatible files fai
 there is no migration, reset, auto-discovered workspace path or CLI integration. Failed new
 files remain for inspection. See [the adapter lifecycle and verification guide](../../src/Twig.Store.Sqlite/README.md).
 
-Persistence reconstructs journal rows through legal transitions and verifies retained proposal
+Persistence reconstructs journal rows through legal transitions and verifies retained plan
 digests. Unknown/duplicate/missing required DTO members, unknown formats and malformed payloads
 are refused. The only phase-2 Core adjustment compares retained receipt/error evidence by
 ordinal contents rather than immutable-array backing identity, allowing unchanged rehydrated
@@ -1303,7 +1303,7 @@ maximum 1,000); more than 4,000 physical relationship observations is unavailabl
 
 Definite findings survive alongside unavailable evidence. Warning-only rules do not turn
 missing evidence into permission or violations into compliance. Repairs are explicit
-alternatives bound to evidence and proposals; they neither authorize themselves nor prove
+alternatives bound to evidence and plans; they neither authorize themselves nor prove
 post-write compliance. Repair selection/acquisition and richer provider rule translation
 belong to later application/provider work, not new policy-language machinery here.
 

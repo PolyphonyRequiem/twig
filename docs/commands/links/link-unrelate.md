@@ -1,7 +1,7 @@
 ---
 command: link unrelate
 group: links
-summary: Remove a discovered symmetric association through a verified Core proposal.
+summary: Remove a discovered symmetric association through a verified Core plan.
 stability: experimental
 mutates: ado
 ---

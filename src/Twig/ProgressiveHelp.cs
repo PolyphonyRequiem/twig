@@ -16,7 +16,7 @@ Usage: twig <command> [options]
 
   Start here:  server start, init
   Find work:   show, query, bench
-  Draft work:  seed, proposal
+  Draft work:  seed, plan
 
   twig <command> --help   Options and examples
   twig --help-all         Command catalog
@@ -47,7 +47,7 @@ Usage: twig <command> [options]
             ShowRoot();
             return true;
         }
-        var group = words.Length == 1 && words[0] is "auth" or "connection" or "proposal" or "plan" or "seed" or "link";
+        var group = words.Length == 1 && words[0] is "auth" or "connection" or "plan" or "seed" or "link";
         if (!group && Twig.CoreMutationAdmissionGuard.ValidateCatalog(words) is { } retired)
         {
             Twig.Commands.CommandError.Write(new Twig.Rendering.RendererFactory(), Console.Error,
@@ -93,8 +93,7 @@ Usage: twig <command> [options]
             Console.WriteLine($"Commands in '{command}':");
             foreach (var child in children)
             {
-                // Select the spelling in this group (e.g. the legacy 'plan' group)
-                // without leaking commands from the alias's other namespace.
+                // Select the spelling in this group without leaking aliases from another group.
                 var name = child.Names.First(n => n.StartsWith(command + " ", StringComparison.Ordinal));
                 Console.WriteLine($"  {name,-28} {child.Description}");
             }
@@ -189,7 +188,7 @@ Usage: twig <command> [options]
             else
             {
                 // A group-only prefix cannot consume a positional value. A typo
-                // such as `proposal bogus --help` is not successful group help.
+                // such as `plan bogus --help` is not successful group help.
                 if (resolved is not null
                     && !SubcommandGuard.PrefixesTakingPositional.Contains(resolved)
                     && catalog.Any(row => row.Names.Any(name => name.StartsWith(resolved + " ", StringComparison.Ordinal))))

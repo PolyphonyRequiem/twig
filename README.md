@@ -3,7 +3,7 @@
 **Work tracking from your terminal.** Twig is a local-first CLI for Azure DevOps,
 GitHub issues, and work items from the Twig provider. Read cached items, organize
 work in named **Benches**, draft new items locally, and apply changes through a
-digest-bound proposal journal.
+digest-bound plan journal.
 
 The CLI ships as a NativeAOT binary for **Windows x64 and Linux x64**. macOS
 support is suspended. The optional **Windows server** is also owned and released
@@ -116,7 +116,7 @@ available on every route or provider.
 **Changes are not all local drafts.** Commands such as `update`, `state`, `note`,
 and `batch` can publish immediately through Core. To refresh a supported Bench
 without saving drafts, use `twig workspace --bench MyWork --refresh`. For file-based changes, review
-the exact proposal before `proposal apply --file ... --confirm <digest>`.
+the exact plan before `plan apply --file ... --confirm <digest>`.
 Unknown write outcomes must be inspected, never blindly retried.
 
 ## Server and integrations
@@ -167,7 +167,7 @@ are not adopted by this Agent-only gate.
 | --- | --- |
 | Setup and first commands | [Getting started](docs/getting-started.md) |
 | Supported commands and limitations | [Command reference](docs/commands/README.md) |
-| Benches, drafts, and proposals | [User guides](docs/README.md#user-guides) |
+| Benches, drafts, and plans | [User guides](docs/README.md#user-guides) |
 | Local server | [Server installation and operations](docs/server.md) |
 | Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
 | Build and contribute | [Build and release](docs/architecture/build-and-release.md) |

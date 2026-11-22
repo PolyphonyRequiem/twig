@@ -2,8 +2,8 @@
 
 Twig users and agent operators can read the installed command contract without a
 checkout, authentication, workspace, Python or network. Start with `twig --help`,
-select a group with `twig proposal --help`, and then read a leaf such as
-`twig proposal apply --help`. The current admission guard refuses `--help-all`
+select a group with `twig plan --help`, and then read a leaf such as
+`twig plan apply --help`. The current admission guard refuses `--help-all`
 even though root help still advertises it; use group/leaf help instead.
 Syntax and defaults come from command declarations; behavioral sections come
 from the embedded canonical command reference, not a second command catalog.
@@ -35,13 +35,13 @@ The identity includes the full assembly version/build and a content digest.
 for a matching unedited installation; `update` is the explicit version-change
 path. Neither ordinary Twig use nor `--skill` modifies installed guidance.
 
-## OMP proposal presenter boundary
+## OMP plan presenter boundary
 
-Older presenter designs relied on `proposal preview --interactive`,
+Older presenter designs relied on `plan preview --interactive`,
 `--include-rendering`, or v1/v2 captured envelopes. The current CLI does not
 support those routes, even when a companion is installed.
 
-Use explicit file-scoped [Core proposals](proposals.md) and their ordinary
+Use explicit file-scoped [Core plans](plans.md) and their ordinary
 plain/structured review path. The [server](../server.md) and separately delivered
 [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas) provide a
 review workflow with human-only Apply. OMP means Oh My Pi, not Oh My Posh.

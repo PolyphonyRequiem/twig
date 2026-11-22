@@ -10,7 +10,7 @@
 - [Authentication](features/authentication.md)
 - [Benches and context](features/workspace-bench-context.md)
 - [Seeds and publishing](features/seeds-and-publishing.md)
-- [Proposals](features/proposals.md)
+- [Plans](features/plans.md)
 - [Process description](features/process-description.md)
 - [Skills](features/skills.md)
 - [Local server](server.md)

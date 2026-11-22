@@ -262,7 +262,7 @@ def ado_root():
     methods = [
         "ExplicitCoreProductionRootReadsAndUpdatesThroughDraftDigestJournalWithoutLegacyWriters",
         "CoreProcessInspectionUsesDiscoveredRulesWithoutLegacyCommandsOrWorkReads",
-        "CoreProposalInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders",
+        "CorePlanInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders",
         "CoreSaveUsesDraftJournalInsteadOfResolvingALegacyPendingFlusher",
         "CoreSeedPublicationUsesTheRetainedUuidAndPermanentVerifiedMapping",
         "CoreParentedSeedPublishesItsHierarchyInTheCreationCallWithoutAPostCreateWriter",
@@ -276,7 +276,7 @@ def ado_root():
         "CoreLinkTelemetryUsesStaticMetadataAndCannotChangeTheOutcome",
         "CoreBenchCrudPreservesSelectorKindsAndNeverResolvesLegacyWriters",
         "CoreBenchPullKeepsDraftDebtAndExcludesImplicitMachineActiveContext",
-        "CoreSyncUsesOneProposalAndOneJsonResultWithSafeOptionalTelemetry",
+        "CoreSyncUsesOnePlanAndOneJsonResultWithSafeOptionalTelemetry",
         "CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields",
         "CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters",
         "CoreWorkspaceReadRoutesThroughProductionComposition",

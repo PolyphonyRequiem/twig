@@ -30,18 +30,18 @@ public static partial class Core
         return stream.ToArray();
     }
 
-    public static string Digest(Proposal proposal) => Hash(ProposalBytes(proposal));
-    public static byte[] ProposalBytes(Proposal proposal) => Write(w =>
+    public static string Digest(Plan plan) => Hash(PlanBytes(plan));
+    public static byte[] PlanBytes(Plan plan) => Write(w =>
     {
         w.WriteStartObject();
-        w.WriteNumber("version", Proposal.FormatVersion);
-        WriteConnection(w, proposal.Connection);
-        w.WriteString("schema", proposal.SchemaFingerprint);
-        w.WriteNumber("storeVersion", proposal.ExpectedStoreVersion);
-        w.WriteString("policyIdentity", proposal.PolicyIdentity);
-        w.WriteString("policyRevision", proposal.PolicyRevision);
+        w.WriteNumber("version", Plan.FormatVersion);
+        WriteConnection(w, plan.Connection);
+        w.WriteString("schema", plan.SchemaFingerprint);
+        w.WriteNumber("storeVersion", plan.ExpectedStoreVersion);
+        w.WriteString("policyIdentity", plan.PolicyIdentity);
+        w.WriteString("policyRevision", plan.PolicyRevision);
         w.WriteStartArray("operations");
-        foreach (var op in proposal.Operations)
+        foreach (var op in plan.Operations)
         {
             w.WriteStartObject();
             w.WriteString("id", op.Id); w.WriteNumber("kind", (int)op.Kind);

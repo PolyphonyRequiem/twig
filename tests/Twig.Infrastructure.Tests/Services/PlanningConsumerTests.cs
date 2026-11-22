@@ -37,7 +37,7 @@ public sealed class PlanningConsumerTests : IDisposable
     }
 
     [Fact]
-    public async Task ExplicitNativeBrowseMirrorsItemsWithoutReplacingSharedRulesOrWritingProposals()
+    public async Task ExplicitNativeBrowseMirrorsItemsWithoutReplacingSharedRulesOrWritingPlans()
     {
         Directory.CreateDirectory(Path.Combine(root, ".twig"));
         var native = Required(await SqliteStore.CreateAsync(Path.Combine(root, "items.db")));
@@ -58,7 +58,7 @@ public sealed class PlanningConsumerTests : IDisposable
         var mirror = Required(await native.ReadAsync(connection, default));
         mirror.Items.Single().Key.ShouldBe(key);
         mirror.Benches.ShouldBeEmpty();
-        mirror.Proposals.ShouldBeEmpty();
+        mirror.Plans.ShouldBeEmpty();
         mirror.Journal.ShouldBeEmpty();
         BenchCodec.Serialize(Required(await shared.ReadAsync()).Benches.Single()).ShouldBe(BenchCodec.Serialize(bench));
     }
@@ -125,7 +125,7 @@ public sealed class PlanningConsumerTests : IDisposable
             Required(await reopened.ReadMembershipsAsync(connection, "Another configured team", default)).ShouldBeEmpty();
             BenchCodec.Serialize(Required(await reopened.ReadAsync()).Benches.Single()).ShouldBe(before);
             snapshot.Benches.ShouldBeEmpty();
-            snapshot.Proposals.ShouldBeEmpty();
+            snapshot.Plans.ShouldBeEmpty();
             snapshot.Journal.ShouldBeEmpty();
         }
         refresh.ShouldBe(3, "cached evaluation must not call the provider");

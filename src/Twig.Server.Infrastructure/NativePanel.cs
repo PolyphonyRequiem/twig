@@ -299,7 +299,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                     observation = observation with { Snapshot = new(observation.Snapshot.Version,
                         observation.Snapshot.Items.Concat(baselines.Where(baseline =>
                             !observation.Snapshot.Items.Any(item => item.Key == baseline.Key))),
-                        observation.Snapshot.Relationships, drafts.Value, observation.Snapshot.Proposals,
+                        observation.Snapshot.Relationships, drafts.Value, observation.Snapshot.Plans,
                         observation.Snapshot.Journal, observation.Snapshot.Mappings, observation.Snapshot.Benches) };
                     intent = intent.AddRange(drafts.Value.Where(draft => draft.Key.IsLocal)
                         .Select(draft => new Selector(SelectorKind.Pin, draft.Key, connection: connection)));

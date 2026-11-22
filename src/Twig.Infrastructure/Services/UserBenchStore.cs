@@ -589,7 +589,7 @@ public sealed partial class UserBenchStore
             if (!shared.IsSuccess) return Result<StoreSnapshot>.Fail(shared.Error);
             var snapshot = read.Value;
             return Result<StoreSnapshot>.Ok(new(snapshot.Version, snapshot.Items, snapshot.Relationships, snapshot.Drafts,
-                snapshot.Proposals, snapshot.Journal, snapshot.Mappings, shared.Value.Benches.Select(bench =>
+                snapshot.Plans, snapshot.Journal, snapshot.Mappings, shared.Value.Benches.Select(bench =>
                     new Bench(bench.Id, bench.Name, bench.Selectors.Where(s => s.Connection == connection), bench.Revision,
                         bench.Connections.Where(value => value == connection)))));
         }
@@ -601,7 +601,7 @@ public sealed partial class UserBenchStore
             if (current.Value.Version != expectedVersion)
                 return Result<long>.Fail(ErrorCode.Conflict, "Native state changed; no local changes were overwritten.");
             return await native.CommitAsync(connection, expectedVersion, new(next.Version, next.Items, next.Relationships,
-                next.Drafts, next.Proposals, next.Journal, next.Mappings, current.Value.Benches), ct).ConfigureAwait(false);
+                next.Drafts, next.Plans, next.Journal, next.Mappings, current.Value.Benches), ct).ConfigureAwait(false);
         }
     }
 
@@ -654,7 +654,7 @@ public sealed partial class UserBenchStore
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != ApplicationId)
                 throw new InvalidDataException("This is not the native user Bench store.");
             command.CommandText = "PRAGMA user_version;";
-            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 2)
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 3)
                 throw new InvalidDataException("Unsupported native Bench store version. Reset developer-local Twig data and initialize a fresh store; the existing file was preserved.");
             command.CommandText = "SELECT instance FROM meta WHERE id=1;";
             if (!Guid.TryParseExact(await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string, "D", out var current)
@@ -699,7 +699,7 @@ public sealed partial class UserBenchStore
                     PRAGMA journal_mode=WAL;
                     PRAGMA synchronous=FULL;
                     PRAGMA application_id={ApplicationId};
-                    PRAGMA user_version=2;
+                    PRAGMA user_version=3;
                     CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),instance TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0),
                         editor_registry TEXT,editor_generation INTEGER NOT NULL DEFAULT 0,editor_head TEXT NOT NULL DEFAULT '') STRICT;
                     INSERT INTO meta(id,instance,revision,editor_registry) VALUES(1,'{user:D}',0,{(registryIdentity is null ? "NULL" : "'" + registryIdentity.Value.ToString("N") + "'")});

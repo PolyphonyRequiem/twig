@@ -386,11 +386,11 @@ public sealed partial class AdoProviderTests
         (await f.Store.CommitAsync(f.Connection, stored.Version,
             new(stored.Version + 1, [target, dependency], drafts: [new(seed, f.Http.Type, null, fields, links: links)]),
             default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic, links: links));
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var result = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
         result.Value.Status.ShouldBe(OpStatus.Applied);
         f.Http.Writes.ShouldBe(1);
@@ -404,14 +404,14 @@ public sealed partial class AdoProviderTests
         nativeLinks[1].GetProperty("rel").GetString().ShouldBe("Native.DependencyReverse");
         nativeLinks[1].GetProperty("url").GetString().ShouldEndWith("/2");
         if (missingReadback) f.Http.Defect = "creation-links-readback-mismatch";
-        var verified = await f.Provider.VerifyAsync(proposal, result.Value, default);
+        var verified = await f.Provider.VerifyAsync(plan, result.Value, default);
         verified.IsSuccess.ShouldBeTrue();
         verified.Value.Status.ShouldBe(missingReadback ? OpStatus.Partial : OpStatus.Verified);
         var retained = await f.Stored();
         retained.Journal.Single().Status.ShouldBe(missingReadback ? OpStatus.Partial : OpStatus.Verified);
         retained.Mappings.Single().Local.ShouldBe(seed);
         retained.Drafts.Single().Links.ShouldBe(links);
-        retained.Proposals.Single().Operations.Single().Links.ShouldBe(links);
+        retained.Plans.Single().Operations.Single().Links.ShouldBe(links);
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -426,9 +426,9 @@ public sealed partial class AdoProviderTests
         item.ResourcesComplete.ShouldBeTrue();
         item.Resources.ShouldBeEmpty();
         var resource = new ResourceLink(relation, target, name, comment);
-        var proposal = await f.Proposal(new("resource", OpKind.LinkResource, item.Key, item.Revision, resource: resource));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var plan = await f.Plan(new("resource", OpKind.LinkResource, item.Key, item.Revision, resource: resource));
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         f.Access.SawDurableFence.ShouldBeTrue();
         f.Http.Writes.ShouldBe(1);
@@ -441,13 +441,13 @@ public sealed partial class AdoProviderTests
         var attributes = payload.GetProperty("attributes");
         attributes.TryGetProperty(name is null ? "name" : "comment", out _).ShouldBeFalse();
         attributes.GetProperty(name is null ? "comment" : "name").GetString().ShouldBe(name ?? comment);
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         var reopened = (await SqliteStore.OpenAsync(f.Path)).Value;
         var retained = (await reopened.ReadAsync(f.Connection, default)).Value;
-        retained.Proposals.Single().Digest.ShouldBe(proposal.Digest);
-        retained.Proposals.Single().Operations.Single().Resource.ShouldBe(resource);
+        retained.Plans.Single().Digest.ShouldBe(plan.Digest);
+        retained.Plans.Single().Operations.Single().Resource.ShouldBe(resource);
         retained.Items.Single().Resources.ShouldBe([resource]);
-        var again = await f.Proposal(new("again", OpKind.LinkResource, item.Key,
+        var again = await f.Plan(new("again", OpKind.LinkResource, item.Key,
             retained.Items.Single().Revision, resource: resource));
         (await f.Provider.ImportAsync(again, again.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
@@ -461,19 +461,19 @@ public sealed partial class AdoProviderTests
         using var f = await Fixture.Create();
         var item = (await f.Read(1)).Items.Single();
         var resource = new ResourceLink("Hyperlink", "https://example.test/retained", comment: "why this link");
-        var proposal = await f.Proposal(new("resource", OpKind.LinkResource, item.Key, item.Revision, resource: resource));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Plan(new("resource", OpKind.LinkResource, item.Key, item.Revision, resource: resource));
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.MoveAtDispatch = !changedReadback;
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         if (changedReadback)
         {
             ack.Status.ShouldBe(OpStatus.Applied);
             f.Http.Defect = "resource-readback-mismatch";
-            (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(expected);
+            (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(expected);
             (await f.Stored()).Journal.Single().Receipts[0].Status.ShouldBe(OpStatus.Applied);
         }
         else ack.Status.ShouldBe(expected);
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -482,18 +482,18 @@ public sealed partial class AdoProviderTests
     {
         using var f = await Fixture.Create();
         var item = (await f.Read(1)).Items.Single();
-        var proposal = await f.Proposal(new("batch-note", OpKind.Batch, item.Key, item.Revision,
+        var plan = await f.Plan(new("batch-note", OpKind.Batch, item.Key, item.Revision,
             Fields(("Custom.Empty", FieldValue.String("updated"))), body: FieldValue.RichText("<p>Reviewed note</p>", FieldKind.Html)));
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         f.Http.Writes.ShouldBe(1);
         using var patch = JsonDocument.Parse(f.Http.LastPayload!);
         patch.RootElement.GetArrayLength().ShouldBe(3);
         patch.RootElement[0].GetProperty("path").GetString().ShouldBe("/rev");
         patch.RootElement[2].GetProperty("path").GetString().ShouldBe("/fields/System.History");
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         (await f.Stored()).Journal.Single().Receipts.Length.ShouldBe(2);
     }
 
@@ -504,17 +504,17 @@ public sealed partial class AdoProviderTests
         f.Http.AdditionalType = "Other.NativeType";
         var item = (await f.Read(1)).Items.Single();
         item.Type.ShouldNotBe(f.Http.AdditionalType);
-        var proposal = await f.Proposal(new("type", OpKind.Batch, item.Key, item.Revision, type: f.Http.AdditionalType));
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var plan = await f.Plan(new("type", OpKind.Batch, item.Key, item.Revision, type: f.Http.AdditionalType));
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         using var patch = JsonDocument.Parse(f.Http.LastPayload!);
         patch.RootElement.GetArrayLength().ShouldBe(2);
         patch.RootElement[0].GetProperty("path").GetString().ShouldBe("/rev");
         patch.RootElement[1].GetProperty("path").GetString().ShouldBe("/fields/System.WorkItemType");
         patch.RootElement[1].GetProperty("value").GetString().ShouldBe(f.Http.AdditionalType);
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         (await f.Stored()).Items.Single().Type.ShouldBe(f.Http.AdditionalType);
         f.Http.Writes.ShouldBe(1);
     }
@@ -529,9 +529,9 @@ public sealed partial class AdoProviderTests
         var schema = await f.Schema();
         schema.Gaps.ShouldBeEmpty();
         f.Provider.Capabilities.Operations.ShouldNotContain(OpKind.LinkResource);
-        var proposal = await f.Proposal(new("resource", OpKind.LinkResource, item.Key, item.Revision,
+        var plan = await f.Plan(new("resource", OpKind.LinkResource, item.Key, item.Revision,
             resource: new("Hyperlink", "https://example.test/resource")));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0);
     }
 
@@ -560,9 +560,9 @@ public sealed partial class AdoProviderTests
         f.Http.Writes.ShouldBe(0);
 
         var fields = Fields(("System.State", FieldValue.String(completed)), ("Custom.Closure", FieldValue.String("Evidence retained")));
-        var proposal = await f.Proposal(new("close", OpKind.Batch, item.Key, item.Revision, fields));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var acknowledgement = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var plan = await f.Plan(new("close", OpKind.Batch, item.Key, item.Revision, fields));
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var acknowledgement = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         acknowledgement.Status.ShouldBe(OpStatus.Applied);
         f.Access.SawDurableFence.ShouldBeTrue();
         f.Http.Writes.ShouldBe(1);
@@ -574,7 +574,7 @@ public sealed partial class AdoProviderTests
         var stored = await f.Stored();
         stored.Journal.Single().Status.ShouldBe(OpStatus.Applied);
         stored.Items.Single().Revision.ShouldBe(acknowledgement.Revision);
-        var verified = (await f.Provider.VerifyAsync(proposal, acknowledgement, default)).Value;
+        var verified = (await f.Provider.VerifyAsync(plan, acknowledgement, default)).Value;
         verified.Status.ShouldBe(OpStatus.Verified);
         (await f.Stored()).Journal.Single().Receipts.Length.ShouldBe(2);
     }
@@ -597,9 +597,9 @@ public sealed partial class AdoProviderTests
         if (discovered.IsSuccess)
         {
             var item = (await f.Read(1)).Items.Single();
-            var proposal = new Proposal(f.Connection, discovered.Value.Fingerprint, 0,
+            var plan = new Plan(f.Connection, discovered.Value.Fingerprint, 0,
                 [new("edit", OpKind.Batch, item.Key, item.Revision, Fields(("Custom.Empty", FieldValue.String("edit"))))]);
-            (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+            (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
         }
         else discovered.Error.Code.ShouldBeOneOf(ErrorCode.Unavailable, ErrorCode.Unsupported);
         f.Http.Writes.ShouldBe(0);
@@ -620,10 +620,10 @@ public sealed partial class AdoProviderTests
         type.Rules.ShouldNotContain(rule => rule.Field == "Custom.Empty"
             && rule.Action == RuleAction.Required);
         var item = (await f.Read(1)).Items.Single();
-        var proposal = new Proposal(f.Connection, discovered.Value.Fingerprint, (await f.Stored()).Version,
+        var plan = new Plan(f.Connection, discovered.Value.Fingerprint, (await f.Stored()).Version,
             [new("edit", OpKind.Batch, item.Key, item.Revision,
                 Fields(("Custom.Empty", FieldValue.String("edit"))))]);
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0);
     }
 
@@ -665,15 +665,15 @@ public sealed partial class AdoProviderTests
     public async Task NativeRejectionsAndUnknownDispatchHaveDifferentDurableReceipts(int status, OpStatus expected)
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.WriteStatus = status;
-        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var result = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         result.IsSuccess.ShouldBeTrue();
         result.Value.Status.ShouldBe(expected);
         result.Value.Evidence.ShouldContain($"http:{status}");
         (await f.Stored()).Journal.Single().Status.ShouldBe(expected);
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -706,13 +706,13 @@ public sealed partial class AdoProviderTests
         evidence["System.WorkItemType"].ShouldBe(FieldValue.String(type));
         evidence["System.AreaId"].ShouldBe(FieldValue.Integer(18));
         evidence["System.IterationId"].ShouldBe(FieldValue.Integer(15));
-        var unresolved = await f.Proposal(op);
+        var unresolved = await f.Plan(op);
         (await f.Provider.ImportAsync(unresolved, unresolved.Digest)).IsSuccess.ShouldBeFalse();
-        var proposal = await f.Proposal(op with { CreateEvidence = evidence });
-        proposal.Digest.ShouldNotBe(unresolved.Digest);
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var retained = (await f.Stored()).Proposals.Single();
-        retained.Digest.ShouldBe(proposal.Digest);
+        var plan = await f.Plan(op with { CreateEvidence = evidence });
+        plan.Digest.ShouldNotBe(unresolved.Digest);
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var retained = (await f.Stored()).Plans.Single();
+        retained.Digest.ShouldBe(plan.Digest);
         retained.Operations.Single().CreateEvidence.ShouldBe(evidence);
         var applied = (await f.Provider.ApplyAsync(retained, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
@@ -765,18 +765,18 @@ public sealed partial class AdoProviderTests
         var (schema, draft) = await ClassificationSeed(f, false);
         var op = CreateOperation(draft);
         var evidence = (await f.Provider.ResolveCreateEvidenceAsync(schema, op, default)).Value;
-        var proposal = await f.Proposal(op with { CreateEvidence = evidence });
+        var plan = await f.Plan(op with { CreateEvidence = evidence });
         if (imported)
-            (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+            (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.IterationChildId++;
         if (imported)
         {
-            (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Error.Code.ShouldBe(ErrorCode.Conflict);
+            (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Error.Code.ShouldBe(ErrorCode.Conflict);
             (await f.Stored()).Journal.Single().Status.ShouldBe(OpStatus.Planned);
         }
         else
         {
-            (await f.Provider.ImportAsync(proposal, proposal.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
+            (await f.Provider.ImportAsync(plan, plan.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
             (await f.Stored()).Journal.ShouldBeEmpty();
         }
         f.Http.Writes.ShouldBe(0);
@@ -792,11 +792,11 @@ public sealed partial class AdoProviderTests
         var op = CreateOperation(draft);
         var evidence = (await f.Provider.ResolveCreateEvidenceAsync(schema, op, default)).Value;
         evidence["System.IterationId"].ShouldBe(FieldValue.Integer(15));
-        var proposal = await f.Proposal(op with { CreateEvidence = evidence });
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Plan(op with { CreateEvidence = evidence });
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
 
         f.Http.RemapIterationAtCreateDispatch = true;
-        var applied = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var applied = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
         f.Access.SawDurableFence.ShouldBeTrue();
         var id = int.Parse(applied.PublishedKey!.NativeId!, System.Globalization.CultureInfo.InvariantCulture);
@@ -807,17 +807,17 @@ public sealed partial class AdoProviderTests
         // A later matching observation must not hide a mismatch on the acknowledged revision.
         live["fields"]!["System.IterationId"] = 15;
         live["rev"] = live["rev"]!.GetValue<int>() + 1;
-        var verified = (await f.Provider.VerifyAsync(proposal, applied, default)).Value;
+        var verified = (await f.Provider.VerifyAsync(plan, applied, default)).Value;
         verified.Status.ShouldBe(OpStatus.Partial);
         verified.Error!.Message.ShouldContain("immutable revision");
         var snapshot = await f.Stored();
         snapshot.Journal.Single().Status.ShouldBe(OpStatus.Partial);
         snapshot.Mappings.Single().Remote.ShouldBe(applied.PublishedKey);
         snapshot.Drafts.Single().Key.ShouldBe(draft.Key);
-        (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Partial);
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
-        var replacement = new Proposal(f.Connection, schema.Fingerprint, snapshot.Version,
-            [proposal.Operations.Single().WithId("replacement")]);
+        (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Partial);
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        var replacement = new Plan(f.Connection, schema.Fingerprint, snapshot.Version,
+            [plan.Operations.Single().WithId("replacement")]);
         (await f.Provider.ImportAsync(replacement, replacement.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
@@ -853,21 +853,21 @@ public sealed partial class AdoProviderTests
         var stored = await f.Stored();
         (await f.Store.CommitAsync(f.Connection, stored.Version,
             new(stored.Version + 1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.WriteFailure = failure;
-        var acknowledgement = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var acknowledgement = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         acknowledgement.Status.ShouldBe(OpStatus.Indeterminate);
         f.Http.Writes.ShouldBe(1);
         var reopened = (await SqliteStore.OpenAsync(f.Path)).Value;
         using var provider = new AdoProvider(f.Connection, f.Access, reopened, f.Http.NewHandle());
-        (await provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
+        (await provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
         var snapshot = (await reopened.ReadAsync(f.Connection, default)).Value;
-        var replacement = new Proposal(f.Connection, proposal.SchemaFingerprint, snapshot.Version,
+        var replacement = new Plan(f.Connection, plan.SchemaFingerprint, snapshot.Version,
             [new("replacement", OpKind.Create, seed, fields: fields, type: f.Http.Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
         (await provider.ImportAsync(replacement, replacement.Digest)).IsSuccess.ShouldBeFalse();
-        (await provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
         snapshot.Mappings.ShouldBeEmpty();
         snapshot.Drafts.Single().Key.ShouldBe(seed);
@@ -888,18 +888,18 @@ public sealed partial class AdoProviderTests
             new Draft(child, f.Http.Type, null, fields, parent, "Native.ParentForward", links: links) };
         (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: drafts), default)).IsSuccess.ShouldBeTrue();
         var schema = await f.Schema();
-        var proposal = new Proposal(f.Connection, schema.Fingerprint, 1, [
+        var plan = new Plan(f.Connection, schema.Fingerprint, 1, [
             new("parent", OpKind.Create, parent, fields: fields, type: f.Http.Type, concurrency: ConcurrencyMode.ObservedNonAtomic),
             new("child", OpKind.Create, child, fields: fields, type: f.Http.Type, other: parent,
                 relation: "Native.ParentForward", concurrency: ConcurrencyMode.ObservedNonAtomic, links: links),
         ]);
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0, "a local reference is not publication authority before its exact predecessor verifies");
         if (unknownParent) f.Http.WriteFailure = "lost-create-response";
-        var parentAck = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
-        (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        var parentAck = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
+        (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         if (unknownParent)
         {
             parentAck.Status.ShouldBe(OpStatus.Indeterminate);
@@ -907,21 +907,21 @@ public sealed partial class AdoProviderTests
             var fenced = await f.Stored();
             fenced.Mappings.ShouldBeEmpty();
             fenced.Drafts.ShouldContain(draft => draft.Key == child && draft.Links.SequenceEqual(links));
-            (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
-            (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+            (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
+            (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
             f.Http.Writes.ShouldBe(1);
             return;
         }
-        (await f.Provider.VerifyAsync(proposal, parentAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
-        var childAck = (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).Value;
+        (await f.Provider.VerifyAsync(plan, parentAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var childAck = (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).Value;
         childAck.Status.ShouldBe(OpStatus.Applied);
-        (await f.Provider.VerifyAsync(proposal, childAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, childAck, default)).Value.Status.ShouldBe(OpStatus.Verified);
         var snapshot = await f.Stored();
         snapshot.Mappings.Length.ShouldBe(2);
         snapshot.Relationships.ShouldContain(new Relationship(parentAck.PublishedKey!, childAck.PublishedKey!,
             "Native.ParentForward", RelationshipOrigin.Provider));
-        snapshot.Proposals.Single().Operations[1].Other.ShouldBe(parent, "retained intent must not be rewritten to the native ID");
-        snapshot.Proposals.Single().Operations[1].Links.Single().Other.ShouldBe(parent);
+        snapshot.Plans.Single().Operations[1].Other.ShouldBe(parent, "retained intent must not be rewritten to the native ID");
+        snapshot.Plans.Single().Operations[1].Links.Single().Other.ShouldBe(parent);
         snapshot.Relationships.ShouldContain(new Relationship(parentAck.PublishedKey!, childAck.PublishedKey!,
             "Native.DependencyForward", RelationshipOrigin.Provider));
         f.Http.Writes.ShouldBe(2);
@@ -940,17 +940,17 @@ public sealed partial class AdoProviderTests
             ("System.Description", FieldValue.RichText(description, FieldKind.Html)));
         (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default))
             .IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var result = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
         result.Value.Status.ShouldBe(OpStatus.Applied);
         using var payload = JsonDocument.Parse(f.Http.LastPayload!);
         payload.RootElement.EnumerateArray().Single(entry => entry.GetProperty("path").GetString() == "/fields/System.Description")
             .GetProperty("value").GetString().ShouldBe(description);
-        (await f.Provider.VerifyAsync(proposal, result.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, result.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -968,26 +968,26 @@ public sealed partial class AdoProviderTests
         var retained = (await reopened.ReadAsync(f.Connection, default)).Value.Drafts.Single();
         retained.Parent.ShouldBe(parent);
         retained.Resource.ShouldBe(resource);
-        var omitted = await f.Proposal(new("omitted", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var omitted = await f.Plan(new("omitted", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(omitted, omitted.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0);
-        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             other: parent, relation: "Native.ParentForward", resource: resource, concurrency: ConcurrencyMode.ObservedNonAtomic));
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         f.Http.Writes.ShouldBe(1);
         using var payload = JsonDocument.Parse(f.Http.LastPayload!);
         payload.RootElement.EnumerateArray().Count(entry => entry.GetProperty("path").GetString() == "/relations/-").ShouldBe(2);
-        var verified = (await f.Provider.VerifyAsync(proposal, ack, default)).Value;
+        var verified = (await f.Provider.VerifyAsync(plan, ack, default)).Value;
         verified.Status.ShouldBe(OpStatus.Verified);
         var snapshot = await f.Stored();
         snapshot.Mappings.Single().Local.ShouldBe(seed);
         snapshot.Relationships.ShouldContain(new Relationship(parent, ack.PublishedKey!, "Native.ParentForward", RelationshipOrigin.Provider));
         snapshot.Items.Single(item => item.Key == ack.PublishedKey).Resources.ShouldContain(resource);
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -998,18 +998,18 @@ public sealed partial class AdoProviderTests
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
         (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         var reopened = (await SqliteStore.OpenAsync(f.Path)).Value;
         var snapshot = (await reopened.ReadAsync(f.Connection, default)).Value;
-        snapshot.Mappings.Single().ShouldBe(new PublishMapping(seed, ack.PublishedKey!, proposal.Digest, 0));
+        snapshot.Mappings.Single().ShouldBe(new PublishMapping(seed, ack.PublishedKey!, plan.Digest, 0));
         snapshot.Items.ShouldContain(i => i.Key == ack.PublishedKey);
         snapshot.Drafts.Single().Key.ShouldBe(seed);
         using var provider = new AdoProvider(f.Connection, f.Access, reopened, f.Http.NewHandle());
-        (await provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Verified);
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -1018,14 +1018,14 @@ public sealed partial class AdoProviderTests
     {
         using var f = await Fixture.Create();
         var item = (await f.Read(1)).Items.Single();
-        var proposal = await f.Proposal(new("comment", OpKind.Comment, item.Key, item.Revision, body: FieldValue.String("note")));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Plan(new("comment", OpKind.Comment, item.Key, item.Revision, body: FieldValue.String("note")));
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         var stored = await f.Stored();
         var applying = stored.Journal.Single().Begin(Guid.NewGuid()).Value;
         (await f.Store.CommitAsync(f.Connection, stored.Version,
-            new(stored.Version + 1, stored.Items, stored.Relationships, stored.Drafts, stored.Proposals, [applying]), default)).IsSuccess.ShouldBeTrue();
-        (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
-        var replacement = await f.Proposal(new("different-digest", OpKind.Comment, item.Key, item.Revision, body: FieldValue.String("changed")));
+            new(stored.Version + 1, stored.Items, stored.Relationships, stored.Drafts, stored.Plans, [applying]), default)).IsSuccess.ShouldBeTrue();
+        (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
+        var replacement = await f.Plan(new("different-digest", OpKind.Comment, item.Key, item.Revision, body: FieldValue.String("changed")));
         (await f.Provider.ImportAsync(replacement, replacement.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0);
     }
@@ -1037,11 +1037,11 @@ public sealed partial class AdoProviderTests
     public async Task VerificationDoesNotTurnAcknowledgementIntoNoEffect(string defect, OpStatus expected)
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         f.Http.Defect = defect;
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(expected);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(expected);
         var journal = (await f.Stored()).Journal.Single();
         journal.Receipts[0].Status.ShouldBe(OpStatus.Applied);
         journal.Receipts.Length.ShouldBe(2);
@@ -1052,16 +1052,16 @@ public sealed partial class AdoProviderTests
     public async Task RevisionMovedBeforeAcquisitionAndAtTransportCannotWriteStaleFields()
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.Items[1]["rev"] = 5;
-        var refused = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var refused = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         refused.IsSuccess.ShouldBeFalse();
         refused.Error.Code.ShouldBe(ErrorCode.Conflict);
         f.Http.Writes.ShouldBe(0);
         f.Http.Items[1]["rev"] = 4;
         f.Http.MoveAtDispatch = true;
-        var rejected = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var rejected = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         rejected.Status.ShouldBe(OpStatus.Failed);
         f.Http.Items[1]["fields"]!["Custom.Empty"]!.GetValue<string>().ShouldBe("");
     }
@@ -1070,20 +1070,20 @@ public sealed partial class AdoProviderTests
     public async Task CompetingAdapterAcquisitionHasOneWinnerWithoutNetworkInsideStoreTransaction()
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         using var other = new AdoProvider(f.Connection, f.Access, (await SqliteStore.OpenAsync(f.Path)).Value, f.Http.NewHandle());
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         f.Access.BeforeAdmission = async () => { entered.SetResult(); await release.Task; };
-        var first = f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var first = f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        var loser = await other.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var loser = await other.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         loser.IsSuccess.ShouldBeFalse();
         // A separate real SQLite writer can commit while admission/transport are paused.
         var current = await f.Stored();
         (await f.Store.CommitAsync(f.Connection, current.Version, new(current.Version + 1, current.Items,
-            current.Relationships, current.Drafts, current.Proposals, current.Journal, current.Mappings, current.Benches), default)).IsSuccess.ShouldBeTrue();
+            current.Relationships, current.Drafts, current.Plans, current.Journal, current.Mappings, current.Benches), default)).IsSuccess.ShouldBeTrue();
         release.SetResult();
         (await first).Value.Status.ShouldBe(OpStatus.Applied);
         f.Http.Writes.ShouldBe(1);
@@ -1094,10 +1094,10 @@ public sealed partial class AdoProviderTests
     {
         using var f = await Fixture.Create();
         var item = (await f.Read(1)).Items.Single();
-        var bad = await f.Proposal(new("bad", OpKind.Batch, item.Key, item.Revision,
+        var bad = await f.Plan(new("bad", OpKind.Batch, item.Key, item.Revision,
             Fields(("Custom.Points", FieldValue.String("3")))));
         (await f.Provider.ImportAsync(bad, bad.Digest)).IsSuccess.ShouldBeFalse();
-        var edit = await f.Proposal(new("clear", OpKind.Batch, item.Key, item.Revision,
+        var edit = await f.Plan(new("clear", OpKind.Batch, item.Key, item.Revision,
             Fields(("Custom.Points", FieldValue.Null), ("Custom.Empty", FieldValue.String("")))));
         (await f.Provider.ImportAsync(edit, edit.Digest)).IsSuccess.ShouldBeTrue();
         var ack = (await f.Provider.ApplyAsync(edit, 0, Guid.NewGuid(), default)).Value;
@@ -1106,7 +1106,7 @@ public sealed partial class AdoProviderTests
             patch.RootElement.EnumerateArray().Single(p => p.GetProperty("path").GetString() == "/fields/Custom.Points")
                 .GetProperty("value").ValueKind.ShouldBe(JsonValueKind.Null);
         item = (await f.Read(1)).Items.Single();
-        var comment = await f.Proposal(new("comment", OpKind.Comment, item.Key, item.Revision,
+        var comment = await f.Plan(new("comment", OpKind.Comment, item.Key, item.Revision,
             body: FieldValue.RichText("<p>Reviewed &amp; retained</p>", FieldKind.Html)));
         (await f.Provider.ImportAsync(comment, comment.Digest)).IsSuccess.ShouldBeTrue();
         ack = (await f.Provider.ApplyAsync(comment, 0, Guid.NewGuid(), default)).Value;
@@ -1125,17 +1125,17 @@ public sealed partial class AdoProviderTests
         var bench = new Bench(Guid.NewGuid(), "Retained", [new(SelectorKind.Pin, f.Key(1))]);
         (await f.Store.CommitAsync(f.Connection, 0, new(1, read.Items, [edge], [draft], benches: [bench]), default)).IsSuccess.ShouldBeTrue();
         var op = new Op("link", OpKind.Relate, f.Key(1), read.Items[0].Revision, other: f.Key(2), relation: "Native.ParentForward");
-        var proposal = await f.Proposal(op);
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var plan = await f.Plan(op);
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         var mirrored = await f.Stored();
         mirrored.Relationships.ShouldContain(edge);
         mirrored.Relationships.ShouldContain(edge with { Origin = RelationshipOrigin.Provider, LocalVersion = 0, Deleted = false });
         mirrored.Drafts.Single().ShouldBe(draft);
         mirrored.Benches.Single().Id.ShouldBe(bench.Id);
         var item = (await f.Read(1)).Items.Single();
-        var unlink = await f.Proposal(new("unlink", OpKind.Unrelate, f.Key(1), item.Revision, other: f.Key(2), relation: op.Relation));
+        var unlink = await f.Plan(new("unlink", OpKind.Unrelate, f.Key(1), item.Revision, other: f.Key(2), relation: op.Relation));
         (await f.Provider.ImportAsync(unlink, unlink.Digest)).IsSuccess.ShouldBeTrue();
         ack = (await f.Provider.ApplyAsync(unlink, 0, Guid.NewGuid(), default)).Value;
         (await f.Provider.VerifyAsync(unlink, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
@@ -1241,11 +1241,11 @@ public sealed partial class AdoProviderTests
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Completed)), ("Custom.Closure", FieldValue.String("explicit")));
         (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
-        var invalid = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var invalid = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(invalid, invalid.Digest)).IsSuccess.ShouldBeFalse();
         var item = (await f.Read(1)).Items.Single();
-        var close = await f.Proposal(new("close-with-provider-supplier", OpKind.Batch, item.Key, item.Revision,
+        var close = await f.Plan(new("close-with-provider-supplier", OpKind.Batch, item.Key, item.Revision,
             Fields(("System.State", FieldValue.String(f.Http.Completed)), ("Custom.Points", FieldValue.Null))));
         (await f.Provider.ImportAsync(close, close.Digest)).IsSuccess.ShouldBeTrue();
         var ack = (await f.Provider.ApplyAsync(close, 0, Guid.NewGuid(), default)).Value;
@@ -1262,9 +1262,9 @@ public sealed partial class AdoProviderTests
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
         (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
+        var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.AfterWrite = async () =>
         {
             await using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = f.Path, Pooling = false }.ToString());
@@ -1273,14 +1273,14 @@ public sealed partial class AdoProviderTests
             command.CommandText = "CREATE TRIGGER reject_receipt BEFORE INSERT ON core_snapshots BEGIN SELECT RAISE(ABORT, 'synthetic write failure'); END;";
             await command.ExecuteNonQueryAsync();
         };
-        var result = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var result = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         result.Status.ShouldBe(OpStatus.Indeterminate);
         result.Error!.Code.ShouldBe(ErrorCode.StorageUnavailable);
         var snapshot = await f.Stored();
         snapshot.Journal.Single().Status.ShouldBe(OpStatus.Applying);
         snapshot.Mappings.ShouldBeEmpty();
         snapshot.Items.ShouldBeEmpty();
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -1308,9 +1308,9 @@ public sealed partial class AdoProviderTests
         ]);
         f.Http.WorkItemReads.ShouldBe(1);
 
-        var proposal = await f.Proposal(new("edit", OpKind.Batch, item.Key, item.Revision,
+        var plan = await f.Plan(new("edit", OpKind.Batch, item.Key, item.Revision,
             Fields(("Custom.Empty", FieldValue.String("edited")))));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Http.Writes.ShouldBe(0);
     }
 
@@ -1382,14 +1382,14 @@ public sealed partial class AdoProviderTests
     public async Task ValidButDifferentNativeActorCannotVerifyOrReuseOriginalIdentityBinding()
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         var originalActor = $"actor:{Fixture.Actor}";
         ack.Evidence.ShouldContain(originalActor);
         f.Access.Principal = Fixture.Process;
         f.Http.NativeActor = Fixture.Process;
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Indeterminate);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Indeterminate);
         (await f.Stored()).Journal.Single().Receipts[0].Evidence.ShouldContain(originalActor);
         var replacement = await f.Edit();
         (await f.Provider.ImportAsync(replacement, replacement.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
@@ -1400,24 +1400,24 @@ public sealed partial class AdoProviderTests
     public async Task DigestSchemaAdmissionUnsupportedEffectsAndCancellationAreNotBypassed()
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, "not-the-digest")).Error.Code.ShouldBe(ErrorCode.DigestMismatch);
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, "not-the-digest")).Error.Code.ShouldBe(ErrorCode.DigestMismatch);
         f.Http.Initial = "ChangedInitial";
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Initial = "Waiting";
         var item = (await f.Read(1)).Items.Single();
-        var delete = await f.Proposal(new("delete", OpKind.Delete, item.Key, item.Revision));
+        var delete = await f.Plan(new("delete", OpKind.Delete, item.Key, item.Revision));
         (await f.Provider.ImportAsync(delete, delete.Digest)).Error.Code.ShouldBe(ErrorCode.Unsupported);
-        var markdown = await f.Proposal(new("markdown", OpKind.Comment, item.Key, item.Revision,
+        var markdown = await f.Plan(new("markdown", OpKind.Comment, item.Key, item.Revision,
             body: FieldValue.RichText("**not converted**", FieldKind.Markdown)));
         (await f.Provider.ImportAsync(markdown, markdown.Digest)).IsSuccess.ShouldBeTrue();
         (await f.Provider.ApplyAsync(markdown, 0, Guid.NewGuid(), default)).Error.Code.ShouldBe(ErrorCode.Unsupported);
         var stored = await f.Stored();
         stored.Journal.Single().Status.ShouldBe(OpStatus.Planned);
-        proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         f.Access.DenyWrite = true;
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value.Status.ShouldBe(OpStatus.Failed);
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value.Status.ShouldBe(OpStatus.Failed);
         f.Http.Writes.ShouldBe(0);
         using var canceled = new CancellationTokenSource();
         canceled.Cancel();
@@ -1452,11 +1452,11 @@ public sealed partial class AdoProviderTests
         internal async Task<ProcessSchema> Schema() => (await Provider.DiscoverSchemaAsync(Connection, default)).Value;
         internal async Task<QueryPage> Read(params int[] ids) => (await Provider.ReadAsync(Connection, ids.Select(Key).ToImmutableArray(), default)).Value;
         internal async Task<StoreSnapshot> Stored() => (await Store.ReadAsync(Connection, default)).Value;
-        internal async Task<Proposal> Proposal(Op op) => new(Connection, (await Schema()).Fingerprint, (await Stored()).Version, [op]);
-        internal async Task<Proposal> Edit()
+        internal async Task<Plan> Plan(Op op) => new(Connection, (await Schema()).Fingerprint, (await Stored()).Version, [op]);
+        internal async Task<Plan> Edit()
         {
             var item = (await Read(1)).Items.Single();
-            return await Proposal(new("edit", OpKind.Batch, item.Key, item.Revision, Fields(("Custom.Empty", FieldValue.String("edited")))));
+            return await Plan(new("edit", OpKind.Batch, item.Key, item.Revision, Fields(("Custom.Empty", FieldValue.String("edited")))));
         }
         public void Dispose()
         {
@@ -1487,7 +1487,7 @@ public sealed partial class AdoProviderTests
             public override async Task<Result<AdoWriteAdmission>> AdmitAsync(AdoWriteIntent intent, CancellationToken ct)
             {
                 var stored = (await store.ReadAsync(connection, ct)).Value;
-                var row = stored.Journal.Single(j => j.Digest == intent.Proposal.Digest && j.Operation == intent.Operation);
+                var row = stored.Journal.Single(j => j.Digest == intent.Plan.Digest && j.Operation == intent.Operation);
                 row.Status.ShouldBe(OpStatus.Applying);
                 row.Attempt.ShouldBe(intent.Attempt);
                 owner.SawDurableFence = true;

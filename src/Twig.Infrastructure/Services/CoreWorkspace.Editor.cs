@@ -45,7 +45,7 @@ internal sealed partial class CoreWorkspace
     }
 
     internal string DraftFingerprint(Draft? draft) => Fingerprint(connection, draft);
-    internal static string Fingerprint(Connection connection, Draft? draft) => draft is null ? "none" : new Proposal(connection, "native-draft", 0,
+    internal static string Fingerprint(Connection connection, Draft? draft) => draft is null ? "none" : new Plan(connection, "native-draft", 0,
         new[] { new Op("draft", draft.Key.IsLocal ? OpKind.Create : OpKind.Batch, draft.Key, draft.Baseline?.Revision,
             draft.Changes, draft.Type, draft.Parent, draft.ParentRelation, resource: draft.Resource, links: draft.Links) }
         .Concat(draft.Baseline is { } baseline ? [new Op("baseline", OpKind.Batch, baseline.Key, baseline.Revision,
@@ -74,7 +74,7 @@ internal sealed partial class CoreWorkspace
                 && proof.DraftFingerprint == DraftFingerprint(state.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint))))
                 return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The exact captured native endpoint revision changed; no relationship was published.");
         }
-        var effect = preview.Value.Proposal?.Operations.Single(value => value.Item == key);
+        var effect = preview.Value.Plan?.Operations.Single(value => value.Item == key);
         var prepared = await PrepareAsync([new("edit", OpKind.Batch, key, observed.Revision,
             effect?.Fields ?? FieldValues.Empty, effect?.Type,             concurrency: Concurrency, links: links)], ct, review).ConfigureAwait(false);
         return prepared.IsSuccess ? Result<CoreDraftPreview>.Ok(new(preview.Value.Draft, prepared.Value))

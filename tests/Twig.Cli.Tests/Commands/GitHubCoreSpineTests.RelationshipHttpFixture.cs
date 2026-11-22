@@ -40,7 +40,7 @@ public sealed partial class GitHubCoreSpineTests
             if (effects == 0)
             {
                 state.Relationships.ShouldBeEmpty();
-                state.Proposals.ShouldBeEmpty();
+                state.Plans.ShouldBeEmpty();
                 state.Journal.ShouldBeEmpty();
                 (await UserBenchStore.ForRegistry(Human.Host.Registry).ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
                 return;
@@ -48,7 +48,7 @@ public sealed partial class GitHubCoreSpineTests
             state.Relationships.ShouldHaveSingleItem().LocalVersion.ShouldBe(effects);
             state.Relationships.Single().Origin.ShouldBe(RelationshipOrigin.Local);
             state.Relationships.Single().Deleted.ShouldBe(effects % 2 == 0);
-            state.Proposals.Length.ShouldBe(effects);
+            state.Plans.Length.ShouldBe(effects);
             state.Journal.Length.ShouldBe(effects);
             state.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified && row.Operation == 0 && row.Attempt != Guid.Empty);
             foreach (var row in state.Journal)
@@ -137,8 +137,8 @@ public sealed partial class GitHubCoreSpineTests
             var stored = (await UserBenchStore.ForRegistry(Human.Host.Registry).ReadEditorCapturesAsync(default)).Value
                 .Single(value => value.Id == capture);
             stored.IntentJson.ShouldBe(canonical);
-            var original = (await Human.SnapshotAsync()).Proposals.Single(proposal => proposal.Digest == digest);
-            Encoding.UTF8.GetString(Model.ProposalBytes(original)).ShouldBe(canonical);
+            var original = (await Human.SnapshotAsync()).Plans.Single(plan => plan.Digest == digest);
+            Encoding.UTF8.GetString(Model.PlanBytes(original)).ShouldBe(canonical);
             original.Digest.ShouldBe(digest);
         }
 

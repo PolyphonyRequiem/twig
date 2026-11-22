@@ -45,11 +45,11 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var source = await Source("fresh", connection);
         var operation = await Attempt(source, ItemKey.Local(Guid.NewGuid()), OpStatus.Planned);
         using var admitted = Required(await NativeCoreExecution.AdmitAsync(
-            Registry, source, operation.Proposal, 0, operation.Attempt, default, planned: true));
+            Registry, source, operation.Plan, 0, operation.Attempt, default, planned: true));
         using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
         var reference = Required(await registry.CoreAttemptReferencesAsync(source.Instance, default))
             .Single(value => value.Attempt == operation.Attempt);
-        reference.Digest.ShouldBe(operation.Proposal.Digest);
+        reference.Digest.ShouldBe(operation.Plan.Digest);
     }
 
     [Fact]
@@ -97,7 +97,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var next = await Attempt(second, key, OpStatus.Applying);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default);
         denied.IsSuccess.ShouldBeFalse();
         denied.Error.Code.ShouldBe(ErrorCode.Indeterminate);
         var unchanged = Required(await SqliteStore.OpenAsync(first.DatabasePath, expectedInstance: first.Instance));
@@ -119,7 +119,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var edit = await Attempt(second, created, OpStatus.Applying);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, edit.Proposal, 0, edit.Attempt, default);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, edit.Plan, 0, edit.Attempt, default);
         denied.IsSuccess.ShouldBeFalse("another root observing the new number is not proof it is unrelated");
         denied.Error.Code.ShouldBe(ErrorCode.Indeterminate);
     }
@@ -133,7 +133,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var edit = await Attempt(unrelated, ItemKey.Remote(connection.Provider, connection.ResourceScope, "100"), OpStatus.Applying);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, unrelated]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, unrelated, edit.Proposal, 0, edit.Attempt, default));
+        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, unrelated, edit.Plan, 0, edit.Attempt, default));
     }
 
     [Theory]
@@ -148,13 +148,13 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var uuid = ItemKey.Local(Guid.NewGuid());
         var remote = ItemKey.Remote(connection.Provider, connection.ResourceScope, "99");
         var create = await Attempt(first, uuid, OpStatus.Applying);
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, create.Proposal, 0, create.Attempt, default))) { }
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, create.Plan, 0, create.Attempt, default))) { }
         var store = Required(await SqliteStore.OpenAsync(first.DatabasePath, expectedInstance: first.Instance));
         var before = Required(await store.ReadAsync(connection, default));
-        var acknowledged = Required(before.Journal.Single().Record(new(create.Proposal.Digest, 0, create.Attempt,
+        var acknowledged = Required(before.Journal.Single().Record(new(create.Plan.Digest, 0, create.Attempt,
             OpStatus.Applied, ["attributed synthetic create ACK"], publishedKey: remote)));
         Required(await store.CommitAsync(connection, before.Version, new(before.Version + 1, drafts: before.Drafts,
-            proposals: before.Proposals, journal: [acknowledged], mappings: [new(uuid, remote, create.Proposal.Digest, 0)]), default));
+            plans: before.Plans, journal: [acknowledged], mappings: [new(uuid, remote, create.Plan.Digest, 0)]), default));
         if (deletedReferences)
         {
             await DeleteReferences(first);
@@ -162,7 +162,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
             (await NativeCoreExecution.InventoryAsync(Registry)).IsSuccess.ShouldBeFalse("inventory must not silently reconstruct deleted reference evidence");
         }
         var edit = await Attempt(second, remote, OpStatus.Planned);
-        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, edit.Proposal, 0, edit.Attempt, default, planned: true);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, edit.Plan, 0, edit.Attempt, default, planned: true);
         if (denied.IsSuccess) denied.Value.Dispose();
         denied.IsSuccess.ShouldBeFalse("immutable remote-key fences must not depend on destination, inventory refresh, or post-ACK indexing");
         (denied.Error.Code is ErrorCode.StorageUnavailable or ErrorCode.Indeterminate).ShouldBeTrue();
@@ -177,10 +177,10 @@ public sealed class NativeCoreExecutionTests : IDisposable
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
         var uuid = ItemKey.Local(Guid.NewGuid());
         var original = await Attempt(first, uuid, OpStatus.Applying);
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default))) { }
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Plan, 0, original.Attempt, default))) { }
         await DeleteReferences(first);
         var next = await Attempt(second, uuid, OpStatus.Planned);
-        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default, planned: true);
         if (denied.IsSuccess) denied.Value.Dispose();
         denied.IsSuccess.ShouldBeFalse("a missing index is not proof a permanent UUID was never attempted");
         (denied.Error.Code is ErrorCode.StorageUnavailable or ErrorCode.Indeterminate).ShouldBeTrue();
@@ -196,17 +196,17 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var next = await Attempt(second, key, OpStatus.Planned);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default, planned: true))) { }
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Plan, 0, original.Attempt, default, planned: true))) { }
         var backup = first.DatabasePath + ".synthetic-preattempt";
         File.Copy(first.DatabasePath, backup);
         var store = Required(await SqliteStore.OpenAsync(first.DatabasePath, expectedInstance: first.Instance));
         var before = Required(await store.ReadAsync(connection, default));
         var applying = Required(before.Journal.Single().Begin(original.Attempt));
         Required(await store.CommitAsync(connection, before.Version, new(before.Version + 1,
-            proposals: before.Proposals, journal: [applying]), default));
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default))) { }
+            plans: before.Plans, journal: [applying]), default));
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Plan, 0, original.Attempt, default))) { }
         File.Copy(backup, first.DatabasePath, overwrite: true);
-        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default, planned: true);
         if (denied.IsSuccess) denied.Value.Dispose();
         denied.IsSuccess.ShouldBeFalse("a same-instance rollback cannot become positively unattempted proof");
         using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
@@ -227,7 +227,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         Directory.Delete(first.Root);
         Required(await NativeCoreExecution.InventoryAsync(Registry));
         (await NativeCoreExecution.Snapshot(first, default)).IsSuccess.ShouldBeFalse("a missing old authoring root still has no write authority");
-        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true));
+        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default, planned: true));
     }
 
     private async Task DeleteReferences(NativeCoreStoreReference source)
@@ -248,19 +248,19 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var attempt = await Attempt(source, key, OpStatus.Applying);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [source]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, source, attempt.Proposal, 0, attempt.Attempt, default))) { }
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, source, attempt.Plan, 0, attempt.Attempt, default))) { }
         using (var db = new SqliteConnection(new SqliteConnectionStringBuilder
         { DataSource = source.DatabasePath, Pooling = false }.ToString()))
         {
             await db.OpenAsync();
             using var command = db.CreateCommand();
-            command.CommandText = "UPDATE core_snapshots SET document=json_set(document,'$.Proposals',json('[]'),'$.Journal',json('[]'));";
+            command.CommandText = "UPDATE core_snapshots SET document=json_set(document,'$.Plans',json('[]'),'$.Journal',json('[]'));";
             await command.ExecuteNonQueryAsync();
         }
         var other = await Source("other", new(connection.Provider, connection.ResourceScope, connection.Destination, "other-actor"));
         var next = await Attempt(other, key, OpStatus.Applying);
         (await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [source, other])).IsSuccess.ShouldBeFalse();
-        (await NativeCoreExecution.AdmitAsync(Registry, other, next.Proposal, 0, next.Attempt, default)).IsSuccess.ShouldBeFalse();
+        (await NativeCoreExecution.AdmitAsync(Registry, other, next.Plan, 0, next.Attempt, default)).IsSuccess.ShouldBeFalse();
     }
 
     [Fact]
@@ -306,8 +306,8 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var next = await Attempt(second, key, OpStatus.Planned);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Proposal, 0, original.Attempt, default, planned: true))) { }
-        using (Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true))) { }
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, first, original.Plan, 0, original.Attempt, default, planned: true))) { }
+        using (Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default, planned: true))) { }
         using var registry = new SqliteSystemWorktreeRegistry(Registry, TimeProvider.System);
         Required(await registry.CoreAttemptReferencesAsync(first.Instance, default)).ShouldBeEmpty();
         var unchanged = Required(await NativeCoreExecution.Snapshot(first, default));
@@ -329,7 +329,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var next = await Attempt(second, uuid, OpStatus.Planned);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true);
+        var denied = await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default, planned: true);
         denied.IsSuccess.ShouldBeFalse();
         denied.Error.Code.ShouldBe(ErrorCode.Indeterminate);
     }
@@ -346,7 +346,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var next = await Attempt(second, key, OpStatus.Planned);
         var inventory = Required(await NativeCoreExecution.InventoryAsync(Registry, explicitStores: [first, second]));
         Required(await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true));
-        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Proposal, 0, next.Attempt, default, planned: true));
+        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, second, next.Plan, 0, next.Attempt, default, planned: true));
     }
 
     [Fact]
@@ -373,7 +373,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         File.Move(completed.Scopes[0].DatabasePath, completed.Scopes[0].DatabasePath + ".retained");
         (await NativeCoreExecution.ActivateAsync(Registry, inventory, inventory.Digest, true, true)).IsSuccess.ShouldBeFalse();
         var next = await Attempt(original, ItemKey.Local(Guid.NewGuid()), OpStatus.Planned);
-        var admitted = await NativeCoreExecution.AdmitAsync(Registry, original, next.Proposal, 0,
+        var admitted = await NativeCoreExecution.AdmitAsync(Registry, original, next.Plan, 0,
             next.Attempt, default, planned: true);
         if (admitted.IsSuccess) admitted.Value.Dispose();
         admitted.IsSuccess.ShouldBeFalse("target admission still requires relevant authoritative stores");
@@ -389,18 +389,18 @@ public sealed class NativeCoreExecutionTests : IDisposable
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         await Should.ThrowAsync<OperationCanceledException>(() =>
-            NativeCoreExecution.AdmitAsync(Registry, source, attempt.Proposal, 0, attempt.Attempt, cancellation.Token, planned: true));
+            NativeCoreExecution.AdmitAsync(Registry, source, attempt.Plan, 0, attempt.Attempt, cancellation.Token, planned: true));
         var snapshot = Required(await NativeCoreExecution.Snapshot(source, default));
-        using (ConnectionOperationGate.AcquireCoreTargets(Registry, NativeCoreExecution.OperationKeys(attempt.Proposal.Operations[0], snapshot, connection)))
+        using (ConnectionOperationGate.AcquireCoreTargets(Registry, NativeCoreExecution.OperationKeys(attempt.Plan.Operations[0], snapshot, connection)))
         {
             Task<Result<IDisposable>> contender;
             using (ExecutionContext.SuppressFlow())
-                contender = Task.Run(() => NativeCoreExecution.AdmitAsync(Registry, source, attempt.Proposal, 0, attempt.Attempt, default, planned: true));
+                contender = Task.Run(() => NativeCoreExecution.AdmitAsync(Registry, source, attempt.Plan, 0, attempt.Attempt, default, planned: true));
             var refused = await contender;
             refused.IsSuccess.ShouldBeFalse();
             refused.Error.Code.ShouldBe(ErrorCode.Conflict);
         }
-        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, source, attempt.Proposal, 0, attempt.Attempt, default, planned: true));
+        using var admitted = Required(await NativeCoreExecution.AdmitAsync(Registry, source, attempt.Plan, 0, attempt.Attempt, default, planned: true));
     }
 
     private async Task<NativeCoreStoreReference> Source(string name, Connection bound, bool outsideRoot = false)
@@ -414,7 +414,7 @@ public sealed class NativeCoreExecutionTests : IDisposable
         return source;
     }
 
-    private static async Task<(Proposal Proposal, Guid Attempt)> Attempt(NativeCoreStoreReference source,
+    private static async Task<(Plan Plan, Guid Attempt)> Attempt(NativeCoreStoreReference source,
         ItemKey key, OpStatus status, ItemKey? published = null)
     {
         var store = Required(await SqliteStore.OpenAsync(source.DatabasePath, expectedInstance: source.Instance));
@@ -422,14 +422,14 @@ public sealed class NativeCoreExecutionTests : IDisposable
         var draft = key.IsLocal ? new Draft(key, "Native.Type", null, fields) : null;
         var op = key.IsLocal ? new Op("create", OpKind.Create, key, fields: fields, type: "Native.Type", concurrency: ConcurrencyMode.ObservedNonAtomic)
             : new Op("edit", OpKind.Batch, key, new(key, "revision"), fields);
-        var proposal = new Proposal(source.Connection, "schema", 0, [op]);
-        var planned = JournalEntry.Planned(proposal.Digest, 0);
+        var plan = new Plan(source.Connection, "schema", 0, [op]);
+        var planned = JournalEntry.Planned(plan.Digest, 0);
         Required(await store.CommitAsync(source.Connection, 0, new(1, drafts: draft is null ? [] : [draft],
-            proposals: [proposal], journal: [planned]), default));
-        if (status == OpStatus.Planned) return (proposal, Guid.NewGuid());
+            plans: [plan], journal: [planned]), default));
+        if (status == OpStatus.Planned) return (plan, Guid.NewGuid());
         var row = Required(planned.Begin(Guid.NewGuid()));
         Required(await store.CommitAsync(source.Connection, 1, new(2, drafts: draft is null ? [] : [draft],
-            proposals: [proposal], journal: [row]), default));
+            plans: [plan], journal: [row]), default));
         if (status != OpStatus.Applying)
         {
             if (key.IsLocal && status is OpStatus.Applied or OpStatus.Verified)
@@ -437,19 +437,19 @@ public sealed class NativeCoreExecutionTests : IDisposable
             var hasAcknowledgement = status == OpStatus.Verified || status == OpStatus.Indeterminate && published is not null;
             if (hasAcknowledgement)
             {
-                row = Required(row.Record(new(proposal.Digest, 0, row.Attempt, OpStatus.Applied, ["synthetic ACK"], publishedKey: published)));
+                row = Required(row.Record(new(plan.Digest, 0, row.Attempt, OpStatus.Applied, ["synthetic ACK"], publishedKey: published)));
                 Required(await store.CommitAsync(source.Connection, 2, new(3, drafts: draft is null ? [] : [draft],
-                    proposals: [proposal], journal: [row], mappings: published is null ? [] : [new(key, published, proposal.Digest, 0)]), default));
+                    plans: [plan], journal: [row], mappings: published is null ? [] : [new(key, published, plan.Digest, 0)]), default));
             }
-            row = Required(row.Record(new(proposal.Digest, 0, row.Attempt, status,
+            row = Required(row.Record(new(plan.Digest, 0, row.Attempt, status,
                 [status == OpStatus.Failed ? "no-dispatch:synthetic rejected authorization" : "synthetic transport boundary"],
                 publishedKey: published, error: status is OpStatus.Indeterminate or OpStatus.Partial ? new(ErrorCode.Indeterminate, "unknown or partial")
                     : status == OpStatus.Failed ? new(ErrorCode.PolicyViolation, "rejected before dispatch") : null)));
             var version = hasAcknowledgement ? 3 : 2;
             Required(await store.CommitAsync(source.Connection, version, new(version + 1, drafts: draft is null ? [] : [draft],
-                proposals: [proposal], journal: [row], mappings: published is null ? [] : [new(key, published, proposal.Digest, 0)]), default));
+                plans: [plan], journal: [row], mappings: published is null ? [] : [new(key, published, plan.Digest, 0)]), default));
         }
-        return (proposal, row.Attempt);
+        return (plan, row.Attempt);
     }
 
     private static T Required<T>(Result<T> result)

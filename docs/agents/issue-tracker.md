@@ -28,7 +28,7 @@ bugs for the user's triage and filing decision without automatically creating
 an issue.
 
 Fallback is an alternative client, not a retry mechanism. After a possibly
-dispatched Twig write, inspect its original proposal/journal and remote evidence
+dispatched Twig write, inspect its original plan/journal and remote evidence
 first. Never repeat an uncertain create, comment or update through another
 client. Stale evidence, permission denials, policy refusals and conflicts must
 be resolved, not bypassed by switching clients.

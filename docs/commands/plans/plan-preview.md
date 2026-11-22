@@ -1,24 +1,42 @@
 ---
 command: plan preview
 group: plans
-summary: Deprecated alias for current Core proposal preview.
+summary: Check current Core plan evidence and retain review intent without publication.
 stability: stable
 mutates: local
 ---
 
 # `twig plan preview`
 
-Prefer [`proposal preview`](proposal-preview.md).
+```sh
+twig plan preview --file change.json -o json
+twig plan preview --file change.json --expect-digest <digest> -o json
+```
 
 ## Behavior
 
-Uses the same file-scoped Core preview and exact digest, not a legacy schema,
-interactive presenter, or old captured UI envelope.
+Reads the current canonical Core plan, verifies its immutable connection,
+checks current application evidence and retains the exact reviewed intent.
+Reports the canonical `digest`, `canApply`, operation IDs/kinds, and available
+blocking policy/process decisions. `canApply: false` is a blocker even if preview
+itself exits successfully.
+
+The current review model is bounded; it is **not the former complete v1/v2
+before/after presentation envelope**. Inspect the plan's full typed effects
+as well as reported blockers. A preview is not a lease on remote state.
+`--expect-digest` refuses changed canonical intent before retention.
+
+`--interactive` and `--include-rendering` are retired; `--full`, `--width`, and
+`--color` do not affect preview output. Use the ordinary structured/plain path
+or the separate native server host's review workflow.
 
 ## Effects
 
-Can retain local journal intent and acquire current evidence, never publishes.
+Can acquire provider/schema/application evidence and retain the local plan
+journal. Never publishes, flushes unrelated drafts, or authorizes another digest.
 
 ## Failure modes
 
-The same input, admission and blocker rules as canonical preview.
+Invalid file, changed digest/connection/store, admission or acquisition errors
+fail. Inspect `canApply` and decisions, not only exit status.
+Apply requires this exact file and digest.

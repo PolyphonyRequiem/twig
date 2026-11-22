@@ -112,27 +112,27 @@ public sealed class CommandExampleParameterDriftTests
     /// </summary>
     [Theory]
     // Valid shell redirection: the operator and its target never reach argv.
-    [InlineData("twig probe --ids 42 --proposal-only > repair.json", 0)]
+    [InlineData("twig probe --ids 42 --plan-only > repair.json", 0)]
     // A boolean takes no value, so a stray word before the redirection is a real positional.
-    [InlineData("twig probe --ids 42 --proposal-only bogus > repair.json", 1)]
+    [InlineData("twig probe --ids 42 --plan-only bogus > repair.json", 1)]
     // A QUOTED operator is a literal argument value, not a shell operator; the cut must not
     // hide the genuine extra positional that follows it.
     [InlineData("twig probe --ids \">\" extra", 1)]
     [InlineData("twig probe \">\"", 1)]
-    [InlineData("twig probe --proposal-only \"|\" extra", 2)]
+    [InlineData("twig probe --plan-only \"|\" extra", 2)]
     public void ShellOperatorCut_AndBooleanArity_CountOnlyRealPositionals(string invocation, int expected)
     {
         var signature = new CommandSignature(
             PositionalCount: 0,
-            Options: new HashSet<string>(StringComparer.Ordinal) { "ids", "proposal-only" },
-            BooleanOptions: new HashSet<string>(StringComparer.Ordinal) { "proposal-only" });
+            Options: new HashSet<string>(StringComparer.Ordinal) { "ids", "plan-only" },
+            BooleanOptions: new HashSet<string>(StringComparer.Ordinal) { "plan-only" });
 
         CountPositionals(Tokenize(invocation, "probe"), signature).ShouldBe(expected);
     }
 
     /// <summary>
     /// Boolean arity comes from the reflected signature, not from a name list: the real
-    /// <c>policy reconcile</c> declares <c>--proposal-only</c> as a switch and <c>--ids</c>
+    /// <c>policy reconcile</c> declares <c>--plan-only</c> as a switch and <c>--ids</c>
     /// as a valued option.
     /// </summary>
     [Fact]
@@ -140,7 +140,7 @@ public sealed class CommandExampleParameterDriftTests
     {
         var reconcile = DiscoverCommands()["policy reconcile"];
 
-        reconcile.BooleanOptions.ShouldContain("proposal-only");
+        reconcile.BooleanOptions.ShouldContain("plan-only");
         reconcile.Options.ShouldContain("ids");
         reconcile.BooleanOptions.ShouldNotContain("ids");
     }
@@ -290,7 +290,7 @@ public sealed class CommandExampleParameterDriftTests
     private static string[] Tokenize(string invocation, string commandName)
     {
         var all = SplitRespectingQuotes(invocation);
-        // Without this cut, `--proposal-only > repair.json` would count 'repair.json' as a
+        // Without this cut, `--plan-only > repair.json` would count 'repair.json' as a
         // positional the command never receives.
         var operatorAt = Array.FindIndex(all, t => !t.Quoted && ShellOperators.Contains(t.Text));
         if (operatorAt >= 0)

@@ -10,7 +10,7 @@ using Twig.Infrastructure.Persistence;
 namespace Twig.Infrastructure.Services;
 
 internal sealed record NativePlanReviewScope(NativePlanScope Scope, long StoreVersion,
-    ImmutableArray<NativeEditorCapture> Captures, ImmutableArray<string> Previews, string? Proposal);
+    ImmutableArray<NativeEditorCapture> Captures, ImmutableArray<string> Previews, string? Plan);
 internal sealed record NativePlanReviewDocument(int Version, Guid Id, Guid UserInstance, long UserRevision,
     Guid BenchId, long BenchRevision, Guid PlanId, long PlanRevision, ImmutableArray<NativePlanReviewScope> Scopes);
 internal sealed record NativePlanReviewReference(string Digest, NativePlanReviewDocument Document, bool Started, int Delivered, int Admitted);
@@ -157,12 +157,12 @@ public sealed partial class UserBenchStore
         var snapshot = await NativeCoreExecution.InspectAsync(new(source.StoreInstance, source.DatabasePath,
             source.OriginRoot, source.Source.Connection), ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
-        if (scope.Proposal is null) return Result<bool>.Ok(true);
-        var proposal = ParseIntent(scope.Proposal);
+        if (scope.Plan is null) return Result<bool>.Ok(true);
+        var plan = ParseIntent(scope.Plan);
         var keys = overlap.Select(capture => ParseIntent(capture.IntentJson).Operations.Single().Item).ToHashSet();
-        var ordinals = proposal.Operations.Select((op, index) => (op, index))
+        var ordinals = plan.Operations.Select((op, index) => (op, index))
             .Where(value => keys.Contains(value.op.Item)).Select(value => value.index).ToHashSet();
-        var rows = snapshot.Value.Journal.Where(row => row.Digest == proposal.Digest && ordinals.Contains(row.Operation)).ToArray();
+        var rows = snapshot.Value.Journal.Where(row => row.Digest == plan.Digest && ordinals.Contains(row.Operation)).ToArray();
         if (rows.Any(row => row.Status != OpStatus.Planned && !DefinitivePlanEditNoEffect(snapshot.Value, row)))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "Original Core journal evidence fences this remainder.");
         if (captureRegistry is null)
@@ -170,7 +170,7 @@ public sealed partial class UserBenchStore
         using var registry = new SqliteSystemWorktreeRegistry(captureRegistry, TimeProvider.System);
         var claims = await registry.CoreAttemptReferencesAsync(source.StoreInstance, ct).ConfigureAwait(false);
         if (!claims.IsSuccess) return Result<bool>.Fail(claims.Error);
-        var originalClaims = claims.Value.Where(claim => claim.Digest == proposal.Digest && ordinals.Contains(claim.Operation)).ToArray();
+        var originalClaims = claims.Value.Where(claim => claim.Digest == plan.Digest && ordinals.Contains(claim.Operation)).ToArray();
         if (!NativeCoreExecution.ReferencesMatch(snapshot.Value, originalClaims)
             || rows.Where(row => row.Status != OpStatus.Planned).Any(row => !originalClaims.Any(claim =>
                 claim.Operation == row.Operation && claim.Attempt == row.Attempt)))
@@ -179,7 +179,7 @@ public sealed partial class UserBenchStore
     }
 
     internal static bool DefinitivePlanEditNoEffect(StoreSnapshot snapshot, JournalEntry row)
-        => NativeCoreExecution.NoEffect(row) && snapshot.Proposals.Single(value => value.Digest == row.Digest)
+        => NativeCoreExecution.NoEffect(row) && snapshot.Plans.Single(value => value.Digest == row.Digest)
             .Operations[row.Operation] is { Kind: OpKind.Batch, Item.IsLocal: false };
 }
 

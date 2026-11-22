@@ -32,7 +32,7 @@ public sealed class CreationLinkInvariantTests
         => new("create", OpKind.Create, Seed, fields: Fields, type: "record",
             concurrency: ConcurrencyMode.ObservedNonAtomic, links: links);
 
-    private static Proposal Proposal(Op operation)
+    private static Plan Plan(Op operation)
         => new(Connection, Schema.Fingerprint, 0, [operation]);
 
     private static StoreSnapshot Store(IEnumerable<CreationLink>? links = null, IEnumerable<WorkItem>? items = null)
@@ -55,13 +55,13 @@ public sealed class CreationLinkInvariantTests
         links.Add(new(ItemKey.Remote(Connection.Provider, Connection.ResourceScope, "2"), "dependency", true));
         operation.Links.Length.ShouldBe(1);
         store.Drafts[0].Links.Length.ShouldBe(1);
-        var proposal = Proposal(operation);
-        using var json = JsonDocument.Parse(Rules.ProposalBytes(proposal));
+        var plan = Plan(operation);
+        using var json = JsonDocument.Parse(Rules.PlanBytes(plan));
         json.RootElement.GetProperty("operations")[0].GetProperty("links").GetArrayLength().ShouldBe(1);
-        proposal.Digest.ShouldNotBe(Proposal(Create([new(Target, "dependency", false)])).Digest);
-        proposal.Digest.ShouldNotBe(Proposal(Create([new(Target, "related", true)])).Digest);
-        proposal.Digest.ShouldNotBe(Proposal(Create(links)).Digest);
-        using var empty = JsonDocument.Parse(Rules.ProposalBytes(Proposal(Create())));
+        plan.Digest.ShouldNotBe(Plan(Create([new(Target, "dependency", false)])).Digest);
+        plan.Digest.ShouldNotBe(Plan(Create([new(Target, "related", true)])).Digest);
+        plan.Digest.ShouldNotBe(Plan(Create(links)).Digest);
+        using var empty = JsonDocument.Parse(Rules.PlanBytes(Plan(Create())));
         empty.RootElement.GetProperty("operations")[0].TryGetProperty("links", out _).ShouldBeFalse();
     }
 
@@ -70,13 +70,13 @@ public sealed class CreationLinkInvariantTests
     {
         CreationLink[] captured = [new(Target, "dependency", true)];
         var store = Store(captured);
-        var original = Proposal(Create(captured));
+        var original = Plan(Create(captured));
         Rules.Validate(original, original.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
 
-        var changed = Proposal(Create([new(Target, "dependency", false)]));
+        var changed = Plan(Create([new(Target, "dependency", false)]));
         Rules.Validate(changed, changed.Digest, Schema, store, Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Conflict);
-        var omitted = Proposal(Create());
+        var omitted = Plan(Create());
         Rules.Validate(omitted, omitted.Digest, Schema, store, Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Conflict);
     }
@@ -85,11 +85,11 @@ public sealed class CreationLinkInvariantTests
     public void CreationLinksRequireCompleteEndpointObservations()
     {
         CreationLink[] links = [new(Target, "dependency", true)];
-        var proposal = Proposal(Create(links));
-        Rules.Validate(proposal, proposal.Digest, Schema, Store(links), Capabilities()).ShouldBeEmpty();
-        Rules.Validate(proposal, proposal.Digest, Schema, Store(links, [Item(Target, false)]), Capabilities())
+        var plan = Plan(Create(links));
+        Rules.Validate(plan, plan.Digest, Schema, Store(links), Capabilities()).ShouldBeEmpty();
+        Rules.Validate(plan, plan.Digest, Schema, Store(links, [Item(Target, false)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unavailable);
-        Rules.Validate(proposal, proposal.Digest, Schema, Store(links, []), Capabilities())
+        Rules.Validate(plan, plan.Digest, Schema, Store(links, []), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unavailable);
     }
 
@@ -97,12 +97,12 @@ public sealed class CreationLinkInvariantTests
     public void CreationLinksRequireDeclaredNativeAtomicSupport()
     {
         CreationLink[] links = [new(Target, "dependency", true)];
-        var proposal = Proposal(Create(links));
+        var plan = Plan(Create(links));
         var store = Store(links);
-        Rules.Validate(proposal, proposal.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
-        Rules.Validate(proposal, proposal.Digest, Schema, store, Capabilities(atomic: false))
+        Rules.Validate(plan, plan.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
+        Rules.Validate(plan, plan.Digest, Schema, store, Capabilities(atomic: false))
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
-        Rules.Validate(proposal, proposal.Digest, Schema, store, Capabilities(native: []))
+        Rules.Validate(plan, plan.Digest, Schema, store, Capabilities(native: []))
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
     }
 
@@ -111,8 +111,8 @@ public sealed class CreationLinkInvariantTests
     {
         var foreign = ItemKey.Remote(Connection.Provider, "other-scope", "1");
         CreationLink[] links = [new(foreign, "dependency", true)];
-        var proposal = Proposal(Create(links));
-        Rules.Validate(proposal, proposal.Digest, Schema, Store(links, [Item(foreign)]), Capabilities())
+        var plan = Plan(Create(links));
+        Rules.Validate(plan, plan.Digest, Schema, Store(links, [Item(foreign)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
     }
 
@@ -123,8 +123,8 @@ public sealed class CreationLinkInvariantTests
         var source = Item(Target);
         var operation = new Op("comment", OpKind.Comment, Target, source.Revision,
             body: FieldValue.String("note"), links: [new(other, "dependency", true)]);
-        var proposal = Proposal(operation);
-        Rules.Validate(proposal, proposal.Digest, Schema, new(0, [source, Item(other)]), Capabilities())
+        var plan = Plan(operation);
+        Rules.Validate(plan, plan.Digest, Schema, new(0, [source, Item(other)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.InvalidInput);
     }
 
@@ -138,10 +138,10 @@ public sealed class CreationLinkInvariantTests
         var store = new StoreSnapshot(0, drafts: [parentDraft, childDraft]);
         var parentCreate = new Op("parent", OpKind.Create, parent, fields: Fields, type: "record",
             concurrency: ConcurrencyMode.ObservedNonAtomic);
-        var ordered = new Proposal(Connection, Schema.Fingerprint, 0, [parentCreate, Create(links)]);
+        var ordered = new Plan(Connection, Schema.Fingerprint, 0, [parentCreate, Create(links)]);
         Rules.Validate(ordered, ordered.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
 
-        var reversed = new Proposal(Connection, Schema.Fingerprint, 0, [Create(links), parentCreate]);
+        var reversed = new Plan(Connection, Schema.Fingerprint, 0, [Create(links), parentCreate]);
         Rules.Validate(reversed, reversed.Digest, Schema, store, Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
     }

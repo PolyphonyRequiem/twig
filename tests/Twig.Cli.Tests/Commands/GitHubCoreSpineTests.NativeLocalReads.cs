@@ -21,7 +21,7 @@ public sealed partial class GitHubCoreSpineTests
         {
             var selected = (await first.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
             var created = (await first.ReviewLocalRelationshipAsync(selected.Fields.Ticket, true)).Value;
-            original = Model.ProposalBytes(created.Proposal);
+            original = Model.PlanBytes(created.Plan);
         }
         using var reopened = (await fixture.OpenAsync()).Value;
         var before = await fixture.SnapshotAsync();
@@ -33,7 +33,7 @@ public sealed partial class GitHubCoreSpineTests
         var loaded = await reopened.ReadLocalRelationshipReviewsAsync();
         loaded.IsSuccess.ShouldBeTrue(loaded.IsSuccess ? "" : loaded.Error.Message);
         var review = loaded.Value.ShouldHaveSingleItem();
-        Model.ProposalBytes(review.Proposal).ShouldBe(original);
+        Model.PlanBytes(review.Plan).ShouldBe(original);
         review.CaptureId.ShouldBe(captures.Single().Id, "the test did not retain the first public review reference");
         review.Outcome.ShouldNotBeNull().Journal!.Status.ShouldBe(OpStatus.Planned);
         review.Outcome.Settled.ShouldBeFalse();
@@ -44,23 +44,23 @@ public sealed partial class GitHubCoreSpineTests
         fixture.Native.CredentialCalls.ShouldBe(credentials);
         fixture.Writes.ShouldBe(0);
 
-        var applied = await reopened.ApplyLocalRelationshipAsync(review.CaptureId, review.Proposal.Digest);
+        var applied = await reopened.ApplyLocalRelationshipAsync(review.CaptureId, review.Plan.Digest);
         applied.Value.Journal!.Status.ShouldBe(OpStatus.Verified);
         using var settledEditor = (await fixture.OpenAsync()).Value;
         var settledBefore = await fixture.SnapshotAsync();
         requests = fixture.Native.Http.Requests;
         var settled = (await settledEditor.ReadLocalRelationshipReviewsAsync()).Value.ShouldHaveSingleItem();
-        Model.ProposalBytes(settled.Proposal).ShouldBe(original);
+        Model.PlanBytes(settled.Plan).ShouldBe(original);
         settled.CaptureId.ShouldBe(review.CaptureId);
         settled.Outcome!.Journal!.Status.ShouldBe(OpStatus.Verified);
         settled.Outcome.Settled.ShouldBeTrue();
         await AssertExactLocalRead(fixture, settledEditor, settled);
         AssertLocalOutcome(settled.Outcome,
-            (await settledEditor.ObserveLocalRelationshipAsync(settled.CaptureId, settled.Proposal.Digest)).Value);
+            (await settledEditor.ObserveLocalRelationshipAsync(settled.CaptureId, settled.Plan.Digest)).Value);
         AssertLocalOutcome(settled.Outcome,
-            (await settledEditor.ContinueLocalRelationshipAsync(settled.CaptureId, settled.Proposal.Digest)).Value);
+            (await settledEditor.ContinueLocalRelationshipAsync(settled.CaptureId, settled.Plan.Digest)).Value);
         await AssertExactLocalRead(fixture, settledEditor, settled);
-        (await settledEditor.ApplyLocalRelationshipAsync(settled.CaptureId, settled.Proposal.Digest)).IsSuccess.ShouldBeFalse();
+        (await settledEditor.ApplyLocalRelationshipAsync(settled.CaptureId, settled.Plan.Digest)).IsSuccess.ShouldBeFalse();
         AssertSameLocalState(settledBefore, await fixture.SnapshotAsync());
         fixture.Native.Http.Requests.ShouldBe(requests);
         fixture.Writes.ShouldBe(0);
@@ -94,13 +94,13 @@ public sealed partial class GitHubCoreSpineTests
         original.Ready.ShouldBeFalse();
         using var reopened = (await fixture.OpenAsync()).Value;
         var before = await fixture.SnapshotAsync();
-        before.Proposals.ShouldBeEmpty();
+        before.Plans.ShouldBeEmpty();
         before.Journal.ShouldBeEmpty();
         var requests = fixture.Native.Http.Requests;
         var loaded = await reopened.ReadLocalRelationshipReviewsAsync();
         loaded.IsSuccess.ShouldBeTrue(loaded.IsSuccess ? "" : loaded.Error.Message);
         var review = loaded.Value.ShouldHaveSingleItem();
-        Encoding.UTF8.GetString(Model.ProposalBytes(review.Proposal)).ShouldBe(original.IntentJson);
+        Encoding.UTF8.GetString(Model.PlanBytes(review.Plan)).ShouldBe(original.IntentJson);
         review.Outcome.ShouldNotBeNull().Journal.ShouldBeNull();
         review.Outcome.Error.ShouldNotBeNull();
         review.Outcome.Settled.ShouldBeFalse();
@@ -121,7 +121,7 @@ public sealed partial class GitHubCoreSpineTests
         {
             var selected = (await first.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
             var created = (await first.ReviewLocalRelationshipAsync(selected.Fields.Ticket, true)).Value;
-            original = Model.ProposalBytes(created.Proposal);
+            original = Model.PlanBytes(created.Plan);
             var reads = 0;
             fixture.Native.Http.BeforeIssueRead = id =>
             {
@@ -129,7 +129,7 @@ public sealed partial class GitHubCoreSpineTests
                     fixture.Native.Http.OtherIssue!["updatedAt"] = "2026-11-09T12:00:00Z";
                 return Task.CompletedTask;
             };
-            var protectedResult = await first.ApplyLocalRelationshipAsync(created.CaptureId, created.Proposal.Digest);
+            var protectedResult = await first.ApplyLocalRelationshipAsync(created.CaptureId, created.Plan.Digest);
             protectedResult.Value.Journal!.Status.ShouldBe(OpStatus.Applying);
             protectedResult.Value.Error.ShouldNotBeNull();
             fixture.Native.Http.BeforeIssueRead = null;
@@ -143,13 +143,13 @@ public sealed partial class GitHubCoreSpineTests
         var capture = (await user.ReadEditorCapturesAsync(default)).Value.Single();
         var loaded = await reopened.ReadLocalRelationshipReviewsAsync();
         var review = loaded.Value.ShouldHaveSingleItem();
-        Model.ProposalBytes(review.Proposal).ShouldBe(original);
+        Model.PlanBytes(review.Plan).ShouldBe(original);
         review.Outcome!.Journal!.Status.ShouldBe(OpStatus.Applying);
         review.Outcome.Journal.Attempt.ShouldBe(before.Journal.Single().Attempt);
         review.Outcome.Journal.Receipts.ShouldBeEmpty();
         review.Outcome.Error.ShouldNotBeNull();
         await AssertExactLocalRead(fixture, reopened, review);
-        (await reopened.ApplyLocalRelationshipAsync(review.CaptureId, review.Proposal.Digest)).IsSuccess.ShouldBeFalse();
+        (await reopened.ApplyLocalRelationshipAsync(review.CaptureId, review.Plan.Digest)).IsSuccess.ShouldBeFalse();
         AssertSameLocalState(before, await fixture.SnapshotAsync());
         (await user.ReadEditorCapturesAsync(default)).Value.Single().SameAs(capture).ShouldBeTrue();
         fixture.Native.Http.Requests.ShouldBe(requests);
@@ -171,24 +171,24 @@ public sealed partial class GitHubCoreSpineTests
         var before = await fixture.SnapshotAsync();
         var requests = fixture.Native.Http.Requests;
         (await foreign.ReadLocalRelationshipReviewsAsync()).Value.ShouldBeEmpty();
-        (await foreign.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Proposal.Digest))
+        (await foreign.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Plan.Digest))
             .Error.Code.ShouldBe(ErrorCode.Conflict);
         AssertSameLocalState(before, await fixture.SnapshotAsync());
         fixture.Native.Http.Requests.ShouldBe(requests);
         await fixture.SetPlanAsync(true);
         (await original.ReadLocalRelationshipReviewsAsync()).IsSuccess.ShouldBeFalse("a stale normal handle cannot expose intent in Plan mode");
-        (await original.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Proposal.Digest))
+        (await original.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Plan.Digest))
             .IsSuccess.ShouldBeFalse();
         using var plan = (await fixture.OpenAsync()).Value;
         plan.PlanMode.ShouldBeTrue();
-        (await plan.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Proposal.Digest))
+        (await plan.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Plan.Digest))
             .Error.Code.ShouldBe(ErrorCode.Unsupported);
         fixture.Writes.ShouldBe(0);
     }
 
     [Theory]
     [InlineData("capture")]
-    [InlineData("proposal")]
+    [InlineData("plan")]
     public async Task NativeGitHubLocalReaderMissingOriginalProofRefusesInsteadOfEmptySuccess(string damage)
     {
         using var fixture = new HumanEditorFixture();
@@ -210,7 +210,7 @@ public sealed partial class GitHubCoreSpineTests
         var result = await editor.ReadLocalRelationshipReviewsAsync();
         result.IsSuccess.ShouldBeFalse();
         result.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
-        var exact = await editor.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Proposal.Digest);
+        var exact = await editor.ReadLocalRelationshipReviewAsync(created.Value.CaptureId, created.Value.Plan.Digest);
         exact.IsSuccess.ShouldBeFalse();
         exact.Error.Code.ShouldBe(result.Error.Code);
         AssertSameLocalState(before, await fixture.SnapshotAsync());
@@ -234,25 +234,25 @@ public sealed partial class GitHubCoreSpineTests
         var credentials = fixture.Native.CredentialCalls;
         foreach (var digest in new[] { null!, "", " \t" })
             (await editor.ReadLocalRelationshipReviewAsync(review.CaptureId, digest)).Error.Code.ShouldBe(ErrorCode.InvalidInput);
-        (await editor.ReadLocalRelationshipReviewAsync(Guid.Empty, review.Proposal.Digest)).Error.Code.ShouldBe(ErrorCode.InvalidInput);
+        (await editor.ReadLocalRelationshipReviewAsync(Guid.Empty, review.Plan.Digest)).Error.Code.ShouldBe(ErrorCode.InvalidInput);
         fixture.Native.Http.Requests.ShouldBe(requests);
         fixture.Native.CredentialCalls.ShouldBe(credentials);
-        review.Proposal.Digest.ToUpperInvariant().ShouldNotBe(review.Proposal.Digest);
+        review.Plan.Digest.ToUpperInvariant().ShouldNotBe(review.Plan.Digest);
         foreach (var digest in new[] { "not-a-digest", new string('0', 64),
-            review.Proposal.Digest.ToUpperInvariant(), " " + review.Proposal.Digest, review.Proposal.Digest + " " })
+            review.Plan.Digest.ToUpperInvariant(), " " + review.Plan.Digest, review.Plan.Digest + " " })
             (await editor.ReadLocalRelationshipReviewAsync(review.CaptureId, digest)).Error.Code.ShouldBe(ErrorCode.DigestMismatch);
-        (await editor.ReadLocalRelationshipReviewAsync(Guid.NewGuid(), review.Proposal.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await editor.ReadLocalRelationshipReviewAsync(Guid.NewGuid(), review.Plan.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
         using var cancelled = new CancellationTokenSource();
         cancelled.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            editor.ReadLocalRelationshipReviewAsync(review.CaptureId, review.Proposal.Digest, cancelled.Token));
+            editor.ReadLocalRelationshipReviewAsync(review.CaptureId, review.Plan.Digest, cancelled.Token));
 
         var user = UserBenchStore.ForRegistry(fixture.Host.Registry);
         using (ConnectionOperationGate.Acquire(fixture.Host.Root, exclusive: true))
         {
             Task<Result<NativeLocalRelationshipReview>> contended;
             using (ExecutionContext.SuppressFlow())
-                contended = Task.Run(() => editor.ReadLocalRelationshipReviewAsync(review.CaptureId, review.Proposal.Digest));
+                contended = Task.Run(() => editor.ReadLocalRelationshipReviewAsync(review.CaptureId, review.Plan.Digest));
             await Assert.ThrowsAsync<ConnectionBindingResolutionException>(() => contended);
             using var releasedBench = user.AcquireAuthoringLease(fixture.Host.Bench);
         }
@@ -261,7 +261,7 @@ public sealed partial class GitHubCoreSpineTests
         (await LocalCaptureProof(fixture)).ShouldBe(proof);
         fixture.Writes.ShouldBe(0);
 
-        var observed = (await editor.ObserveLocalRelationshipAsync(review.CaptureId, review.Proposal.Digest)).Value;
+        var observed = (await editor.ObserveLocalRelationshipAsync(review.CaptureId, review.Plan.Digest)).Value;
         observed.Journal!.Status.ShouldBe(OpStatus.Planned);
         observed.Error.ShouldBeNull();
         var capture = (await user.ReadEditorCapturesAsync(default)).Value.ShouldHaveSingleItem();
@@ -275,7 +275,7 @@ public sealed partial class GitHubCoreSpineTests
         changedCapture.Value.Revision.ShouldBe(capture.Revision + 1);
         changedCapture.Value.IntentJson.ShouldBe(capture.IntentJson);
         var changedProof = await LocalCaptureProof(fixture);
-        (await editor.ReadLocalRelationshipReviewAsync(review.CaptureId, review.Proposal.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await editor.ReadLocalRelationshipReviewAsync(review.CaptureId, review.Plan.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
         (await editor.ReadLocalRelationshipReviewsAsync()).Error.Code.ShouldBe(ErrorCode.Conflict);
         AssertSameLocalState(before, await fixture.SnapshotAsync());
         (await LocalCaptureProof(fixture)).ShouldBe(changedProof);
@@ -290,10 +290,10 @@ public sealed partial class GitHubCoreSpineTests
         using var editor = (await fixture.OpenAsync()).Value;
         var pair = (await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
         var first = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, true)).Value;
-        (await editor.ApplyLocalRelationshipAsync(first.CaptureId, first.Proposal.Digest)).Value.Settled.ShouldBeTrue();
+        (await editor.ApplyLocalRelationshipAsync(first.CaptureId, first.Plan.Digest)).Value.Settled.ShouldBeTrue();
         pair = (await editor.SelectRelationshipsAsync(LocalPairOther(fixture), fixture.Key)).Value;
         var second = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, false)).Value;
-        (await editor.ApplyLocalRelationshipAsync(second.CaptureId, second.Proposal.Digest)).Value.Settled.ShouldBeTrue();
+        (await editor.ApplyLocalRelationshipAsync(second.CaptureId, second.Plan.Digest)).Value.Settled.ShouldBeTrue();
         var state = await fixture.SnapshotAsync();
         state.Relationships.ShouldHaveSingleItem().LocalVersion.ShouldBe(2);
         state.Relationships.Single().Deleted.ShouldBeTrue();
@@ -328,10 +328,10 @@ public sealed partial class GitHubCoreSpineTests
             command.Transaction = transaction;
             command.CommandText = "SELECT document FROM core_snapshots;";
             var document = System.Text.Json.Nodes.JsonNode.Parse((string)(await command.ExecuteScalarAsync())!)!;
-            foreach (var name in new[] { "Proposals", "Journal" })
+            foreach (var name in new[] { "Plans", "Journal" })
             {
                 var rows = document[name]!.AsArray();
-                var original = rows.Single(row => row!["Digest"]!.GetValue<string>() == damaged.Proposal.Digest);
+                var original = rows.Single(row => row!["Digest"]!.GetValue<string>() == damaged.Plan.Digest);
                 rows.Remove(original).ShouldBeTrue();
             }
             command.CommandText = "UPDATE core_snapshots SET document=$document;";
@@ -340,11 +340,11 @@ public sealed partial class GitHubCoreSpineTests
             transaction.Commit();
         }
         var damagedState = await fixture.SnapshotAsync();
-        damagedState.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(untouched.Proposal.Digest);
-        damagedState.Journal.ShouldHaveSingleItem().Digest.ShouldBe(untouched.Proposal.Digest);
+        damagedState.Plans.ShouldHaveSingleItem().Digest.ShouldBe(untouched.Plan.Digest);
+        damagedState.Journal.ShouldHaveSingleItem().Digest.ShouldBe(untouched.Plan.Digest);
         (await LocalCaptureProof(fixture)).ShouldBe(proof);
         await AssertExactLocalRead(fixture, editor, untouched);
-        var refused = await editor.ReadLocalRelationshipReviewAsync(damaged.CaptureId, damaged.Proposal.Digest);
+        var refused = await editor.ReadLocalRelationshipReviewAsync(damaged.CaptureId, damaged.Plan.Digest);
         refused.Error.Code.ShouldBe(ErrorCode.StorageUnavailable);
         var refusedAll = await editor.ReadLocalRelationshipReviewsAsync();
         refusedAll.Error.ShouldBe(refused.Error);
@@ -371,7 +371,7 @@ public sealed partial class GitHubCoreSpineTests
         using var editor = (await fixture.OpenAsync()).Value;
         var pair = (await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
         var created = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, true)).Value;
-        var applied = (await editor.ApplyLocalRelationshipAsync(created.CaptureId, created.Proposal.Digest)).Value;
+        var applied = (await editor.ApplyLocalRelationshipAsync(created.CaptureId, created.Plan.Digest)).Value;
         applied.Settled.ShouldBeTrue();
         applied.Journal!.Status.ShouldBe(OpStatus.Verified);
         var review = (await editor.ReadLocalRelationshipReviewsAsync()).Value.ShouldHaveSingleItem();
@@ -418,7 +418,7 @@ public sealed partial class GitHubCoreSpineTests
         var before = await fixture.SnapshotAsync();
         var proof = await LocalCaptureProof(fixture);
         var requests = fixture.Native.Http.Requests;
-        var exact = await editor.ReadLocalRelationshipReviewAsync(created.CaptureId, created.Proposal.Digest);
+        var exact = await editor.ReadLocalRelationshipReviewAsync(created.CaptureId, created.Plan.Digest);
         exact.IsSuccess.ShouldBeFalse("a cached successful operation cannot certify a changed persisted original");
         var all = await editor.ReadLocalRelationshipReviewsAsync();
         all.IsSuccess.ShouldBeFalse();
@@ -436,10 +436,10 @@ public sealed partial class GitHubCoreSpineTests
         var requests = fixture.Native.Http.Requests;
         var credentials = fixture.Native.CredentialCalls;
         var writes = fixture.Writes;
-        var exact = await editor.ReadLocalRelationshipReviewAsync(expected.CaptureId, expected.Proposal.Digest);
+        var exact = await editor.ReadLocalRelationshipReviewAsync(expected.CaptureId, expected.Plan.Digest);
         exact.IsSuccess.ShouldBeTrue(exact.IsSuccess ? "" : exact.Error.Message);
         exact.Value.CaptureId.ShouldBe(expected.CaptureId);
-        Model.ProposalBytes(exact.Value.Proposal).ShouldBe(Model.ProposalBytes(expected.Proposal));
+        Model.PlanBytes(exact.Value.Plan).ShouldBe(Model.PlanBytes(expected.Plan));
         AssertLocalOutcome(expected.Outcome.ShouldNotBeNull(), exact.Value.Outcome.ShouldNotBeNull());
         AssertSameLocalState(before, await fixture.SnapshotAsync());
         (await LocalCaptureProof(fixture)).ShouldBe(proof);

@@ -4,33 +4,33 @@ using Twig.Core;
 
 namespace Twig.Infrastructure.Services;
 
-internal static class CoreProposalFiles
+internal static class CorePlanFiles
 {
-    internal static async Task<Result<Proposal>> ReadAsync(string root, string file, CancellationToken ct)
+    internal static async Task<Result<Plan>> ReadAsync(string root, string file, CancellationToken ct)
     {
         try
         {
             var path = Path.GetFullPath(file, root);
             var relative = Path.GetRelativePath(root, path);
             if (Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
-                return Result<Proposal>.Fail(ErrorCode.InvalidInput, "Proposal files must remain inside the explicit workspace root.");
+                return Result<Plan>.Fail(ErrorCode.InvalidInput, "Plan files must remain inside the explicit workspace root.");
             await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
             if (stream.Length > 8 * 1024 * 1024)
-                return Result<Proposal>.Fail(ErrorCode.InvalidInput, "The proposal exceeds the 8 MiB input bound.");
+                return Result<Plan>.Fail(ErrorCode.InvalidInput, "The plan exceeds the 8 MiB input bound.");
             var rootElement = await JsonSerializer.DeserializeAsync(stream, CoreWorkspaceJsonContext.Default.JsonElement, ct);
-            return Result<Proposal>.Ok(Parse(rootElement));
+            return Result<Plan>.Ok(Parse(rootElement));
         }
         catch (Exception ex) when (ex is JsonException or ArgumentException or InvalidOperationException or FormatException or OverflowException)
-        { return Result<Proposal>.Fail(ErrorCode.InvalidInput, "The proposal is invalid or uses an unsupported canonical format: " + ex.Message); }
+        { return Result<Plan>.Fail(ErrorCode.InvalidInput, "The plan is invalid or uses an unsupported canonical format: " + ex.Message); }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        { return Result<Proposal>.Fail(ErrorCode.Unavailable, "The explicit proposal file could not be read."); }
+        { return Result<Plan>.Fail(ErrorCode.Unavailable, "The explicit plan file could not be read."); }
     }
 
-    internal static Proposal Parse(JsonElement json)
+    internal static Plan Parse(JsonElement json)
     {
         Object(json, "version", "connection", "schema", "storeVersion", "policyIdentity", "policyRevision", "operations");
-        if (json.GetProperty("version").GetInt32() != Proposal.FormatVersion)
-            throw new JsonException("Earlier proposal bytes are preserved, never translated into a new digest.");
+        if (json.GetProperty("version").GetInt32() != Plan.FormatVersion)
+            throw new JsonException("Earlier plan bytes are preserved, never translated into a new digest.");
         var bound = json.GetProperty("connection");
         Object(bound, "provider", "scope", "destination", "identity");
         var connection = new Connection(new(Text(bound.GetProperty("provider"))), Text(bound.GetProperty("scope")),

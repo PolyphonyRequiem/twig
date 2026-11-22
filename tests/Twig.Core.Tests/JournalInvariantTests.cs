@@ -12,7 +12,7 @@ public sealed class JournalInvariantTests
     private static readonly ItemKey Local = ItemKey.Local(Guid.Parse("00000000-0000-0000-0000-000000000001"));
     private static readonly ItemKey Remote = ItemKey.Remote(Provider, "scope", "native-id");
     private static readonly Guid Attempt = Guid.Parse("00000000-0000-0000-0000-000000000002");
-    private static readonly Proposal Creation = new(Connection, "schema", 0,
+    private static readonly Plan Creation = new(Connection, "schema", 0,
         [new("create", OpKind.Create, Local, fields: new([KeyValuePair.Create("title", FieldValue.String("new"))]),
             type: "record", concurrency: ConcurrencyMode.ObservedNonAtomic)]);
 
@@ -61,24 +61,24 @@ public sealed class JournalInvariantTests
     public void CreationAcknowledgementAndPermanentMappingHaveOneCommitBoundary()
     {
         var planned = JournalEntry.Planned(Creation.Digest, 0);
-        var imported = new StoreSnapshot(1, proposals: [Creation], journal: [planned]);
+        var imported = new StoreSnapshot(1, plans: [Creation], journal: [planned]);
         Rules.ValidateCommit(new(0), imported).ShouldBeEmpty();
         var applying = planned.Begin(Attempt).Value;
-        var dispatched = new StoreSnapshot(2, proposals: [Creation], journal: [applying]);
+        var dispatched = new StoreSnapshot(2, plans: [Creation], journal: [applying]);
         Rules.ValidateCommit(imported, dispatched).ShouldBeEmpty();
         var applied = applying.Record(Receipt(applying, OpStatus.Applied, published: true)).Value;
-        var missingMap = new StoreSnapshot(3, proposals: [Creation], journal: [applied]);
+        var missingMap = new StoreSnapshot(3, plans: [Creation], journal: [applied]);
         Rules.ValidateCommit(dispatched, missingMap).ShouldContain(e => e.Message.Contains("commit together", StringComparison.Ordinal));
         var mapping = new PublishMapping(Local, Remote, Creation.Digest, 0);
-        var acknowledged = new StoreSnapshot(3, proposals: [Creation], journal: [applied], mappings: [mapping]);
+        var acknowledged = new StoreSnapshot(3, plans: [Creation], journal: [applied], mappings: [mapping]);
         Rules.ValidateCommit(dispatched, acknowledged).ShouldBeEmpty();
         var uncertain = applied.Record(Receipt(applied, OpStatus.Indeterminate)).Value;
-        var readbackUnavailable = new StoreSnapshot(4, proposals: [Creation], journal: [uncertain], mappings: [mapping]);
+        var readbackUnavailable = new StoreSnapshot(4, plans: [Creation], journal: [uncertain], mappings: [mapping]);
         Rules.ValidateCommit(acknowledged, readbackUnavailable).ShouldBeEmpty();
-        Rules.ValidateCommit(readbackUnavailable, new(5, proposals: [Creation], journal: [uncertain]))
+        Rules.ValidateCommit(readbackUnavailable, new(5, plans: [Creation], journal: [uncertain]))
             .ShouldContain(e => e.Message.Contains("permanent", StringComparison.Ordinal));
         var rewritten = new PublishMapping(Local, ItemKey.Remote(Provider, "scope", "different"), Creation.Digest, 0);
-        Rules.ValidateCommit(acknowledged, new(4, proposals: [Creation], journal: [applied], mappings: [rewritten]))
+        Rules.ValidateCommit(acknowledged, new(4, plans: [Creation], journal: [applied], mappings: [rewritten]))
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
     }
 
@@ -87,22 +87,22 @@ public sealed class JournalInvariantTests
     {
         var op2 = new Op("second", OpKind.Create, ItemKey.Local(Guid.NewGuid()), type: "record",
             fields: FieldValues.Empty, concurrency: ConcurrencyMode.ObservedNonAtomic);
-        var proposal = new Proposal(Connection, "schema", 0, [Creation.Operations[0], op2]);
-        var first = JournalEntry.Planned(proposal.Digest, 0);
-        var second = JournalEntry.Planned(proposal.Digest, 1);
-        var before = new StoreSnapshot(1, proposals: [proposal], journal: [first, second]);
+        var plan = new Plan(Connection, "schema", 0, [Creation.Operations[0], op2]);
+        var first = JournalEntry.Planned(plan.Digest, 0);
+        var second = JournalEntry.Planned(plan.Digest, 1);
+        var before = new StoreSnapshot(1, plans: [plan], journal: [first, second]);
         var applying = first.Begin(Attempt).Value;
-        Rules.ValidateCommit(new(0), new(1, proposals: [proposal], journal: [applying, second]))
+        Rules.ValidateCommit(new(0), new(1, plans: [plan], journal: [applying, second]))
             .ShouldContain(e => e.Message.Contains("Planned", StringComparison.Ordinal));
-        Rules.ValidateCommit(before, new(2, proposals: [proposal], journal: [first, second.Begin(Guid.NewGuid()).Value]))
+        Rules.ValidateCommit(before, new(2, plans: [plan], journal: [first, second.Begin(Guid.NewGuid()).Value]))
             .ShouldContain(e => e.Message.Contains("earlier operations verify", StringComparison.Ordinal));
-        Rules.ValidateCommit(before, new(2, proposals: [proposal], journal: [first]))
+        Rules.ValidateCommit(before, new(2, plans: [plan], journal: [first]))
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
         Rules.ValidateCommit(before, new(2)).ShouldContain(e => e.Code == ErrorCode.Conflict);
-        var attempted = new StoreSnapshot(2, proposals: [proposal], journal: [applying, second]);
-        Rules.ValidateCommit(attempted, new(3, proposals: [proposal], journal: [first, second]))
+        var attempted = new StoreSnapshot(2, plans: [plan], journal: [applying, second]);
+        Rules.ValidateCommit(attempted, new(3, plans: [plan], journal: [first, second]))
             .ShouldContain(e => e.Message.Contains("replayed", StringComparison.Ordinal));
-        Rules.ValidateCommit(before, new(1, proposals: [proposal], journal: [first, second]))
+        Rules.ValidateCommit(before, new(1, plans: [plan], journal: [first, second]))
             .ShouldContain(e => e.Message.Contains("version", StringComparison.Ordinal));
     }
 
@@ -111,11 +111,11 @@ public sealed class JournalInvariantTests
     {
         var original = JournalEntry.Planned(Creation.Digest, 0).Begin(Attempt).Value;
         var unknown = original.Record(Receipt(original, OpStatus.Indeterminate)).Value;
-        var replacement = new Proposal(Connection, "different-schema", 0, Creation.Operations);
+        var replacement = new Plan(Connection, "different-schema", 0, Creation.Operations);
         replacement.Digest.ShouldNotBe(Creation.Digest);
         var replacementRow = JournalEntry.Planned(replacement.Digest, 0);
-        var before = new StoreSnapshot(1, proposals: [Creation, replacement], journal: [unknown, replacementRow]);
-        var after = new StoreSnapshot(2, proposals: [Creation, replacement],
+        var before = new StoreSnapshot(1, plans: [Creation, replacement], journal: [unknown, replacementRow]);
+        var after = new StoreSnapshot(2, plans: [Creation, replacement],
             journal: [unknown, replacementRow.Begin(Guid.NewGuid()).Value]);
         Rules.ValidateCommit(before, after)
             .ShouldContain(e => e.Message.Contains("replacement digest", StringComparison.Ordinal));

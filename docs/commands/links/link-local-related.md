@@ -25,7 +25,7 @@ metadata and native endpoint observations; **zero native mutations**, not zero
 provider contact, is the guarantee. Numeric writes freshly requalify the actual
 repository number even on a cache hit.
 
-One existing Core proposal carries one local-origin `Relate` operation. The shared
+One existing Core plan carries one local-origin `Relate` operation. The shared
 prepare/apply/verify workflow retains its digest and journal. `Verified` means
 **local CAS**, never a native tracker link. Output identifies every edge as
 `LOCAL`, `local-only`, `non-native`. Provider-origin edges are untouched.
@@ -37,9 +37,9 @@ An initial edge has no expected local version. Resurrection binds the exact
 retained tombstone version and increments it; there is no delete/compaction.
 Duplicate active edges, self-links and multiple logical matches refuse without
 claiming a new Verified effect. UUIDs need a live Core seed or their original
-Verified publication mapping and observed native endpoint. Historical proposals
+Verified publication mapping and observed native endpoint. Historical plans
 or an alias alone are not live evidence. Publication keeps original UUID edge
-keys, mappings, proposal bytes and history; subsequent number/UUID targeting
+keys, mappings, plan bytes and history; subsequent number/UUID targeting
 resolves logical identity without writing a parallel edge.
 
 ## Examples

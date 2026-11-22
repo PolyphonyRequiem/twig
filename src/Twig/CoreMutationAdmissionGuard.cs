@@ -41,7 +41,7 @@ internal static class CoreMutationAdmissionGuard
             return "Unsupported: states is retired. Use 'twig process <type>' to inspect an explicit type. No provider or credential was opened.";
         if (args.Count > 1 && !args[1].StartsWith('-')
             && args[0] is "auth" or "connection" or "bench" or "workspace" or "process"
-                or "proposal" or "plan" or "seed" or "draft" or "nav" or "link")
+                or "plan" or "seed" or "draft" or "nav" or "link")
             command += " " + args[1];
         return $"Unsupported: {command} or its UI envelope is retired from current delivery; no provider, credential or legacy workflow was opened.";
     }
@@ -73,7 +73,7 @@ internal static class CoreMutationAdmissionGuard
             "tree" => args.Contains("--all"),
             "process" => args.Count > 1 && args[1] == "layout",
             "seed" => args.Count < 2 || args[1] is not ("new" or "view" or "validate" or "publish" or "discard" or "reconcile" or "chain" or "edit" or "link" or "unlink" or "links"),
-            "proposal" or "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
+            "plan" => args.Count < 2 || args[1] is not ("validate" or "preview" or "apply" or "status"),
             "bench" => args.Count > 1 && !args[1].StartsWith('-') && args[1] is not ("list" or "create" or "rename" or "delete")
                 && !PlanningRoute(args),
             "workspace" or "ws" => args.Contains("--all") || args.Contains("--tree")
@@ -105,7 +105,7 @@ internal static class CoreMutationAdmissionGuard
         "bench" => args.Count == 1 || args.Count > 1 && args[1] is "list" or "create",
         "workspace" or "ws" => args.Count == 1 || args[1].StartsWith('-') || args[1] is "exclude" or "exclusions",
         "seed" => args.Count > 1 && args[1] is "new" or "view" or "publish" or "discard" or "validate",
-        "proposal" or "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
+        "plan" => args.Count > 1 && args[1] is "preview" or "apply" or "status" or "validate",
         "skills" or "help" or "version" => true,
         _ => false,
     };

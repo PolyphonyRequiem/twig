@@ -105,7 +105,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
             var state = await access._store.ReadAsync(Connection, ct).ConfigureAwait(false);
             if (!state.IsSuccess) throw new InvalidOperationException(state.Error.Message);
             if (state.Value.Journal.Any(row => row.Status == OpStatus.Applying && !previousAttempts.Contains(row.Attempt)
-                && state.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Origin == RelationshipOrigin.Local))
+                && state.Value.Plans.Single(plan => plan.Digest == row.Digest).Operations[row.Operation].Origin == RelationshipOrigin.Local))
             {
                 // Recheck newly acquired durable inputs before local CAS; older attempts do not block reads.
                 var admitted = await NativeCoreExecution.PublishingAsync(access._registryPath, ct).ConfigureAwait(false);
@@ -123,21 +123,21 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         public override async Task<Result<GitHubWriteAdmission>> AdmitAsync(GitHubWriteIntent intent, CancellationToken ct)
         {
             await ValidateAsync(ct).ConfigureAwait(false);
-            if (intent.Proposal.Connection != Connection || intent.Operation < 0 || intent.Operation >= intent.Proposal.Operations.Length
+            if (intent.Plan.Connection != Connection || intent.Operation < 0 || intent.Operation >= intent.Plan.Operations.Length
                 || intent.Attempt == Guid.Empty || intent.Target != Endpoint || intent.Method != "POST" || intent.MediaType != "application/json")
                 return Result<GitHubWriteAdmission>.Fail(ErrorCode.Conflict, "The GitHub request does not belong to the exact retained target/attempt.");
             var snapshot = await access._store.ReadAsync(Connection, ct).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Result<GitHubWriteAdmission>.Fail(snapshot.Error);
-            var row = snapshot.Value.Journal.SingleOrDefault(row => row.Digest == intent.Proposal.Digest && row.Operation == intent.Operation);
-            var retained = snapshot.Value.Proposals.SingleOrDefault(proposal => proposal.Digest == intent.Proposal.Digest);
+            var row = snapshot.Value.Journal.SingleOrDefault(row => row.Digest == intent.Plan.Digest && row.Operation == intent.Operation);
+            var retained = snapshot.Value.Plans.SingleOrDefault(plan => plan.Digest == intent.Plan.Digest);
             if (retained is null
                 || row is not { Status: OpStatus.Applying } || row.Attempt != intent.Attempt)
                 return Result<GitHubWriteAdmission>.Fail(ErrorCode.Conflict, "GitHub admission requires this exact durably Applying operation and attempt.");
             var policy = await new ConfiguredPolicyProjectionSource(access._paths.RepoRoot).ReadAsync(ct).ConfigureAwait(false);
             if (!policy.IsSuccess) return Result<GitHubWriteAdmission>.Fail(policy.Error);
-            if (intent.Proposal.PolicyIdentity != policy.Value.Identity || intent.Proposal.PolicyRevision != policy.Value.Revision)
+            if (intent.Plan.PolicyIdentity != policy.Value.Identity || intent.Plan.PolicyRevision != policy.Value.Revision)
                 return Result<GitHubWriteAdmission>.Fail(ErrorCode.SchemaChanged, "The actual declared Twig policy changed after preview.");
-            var op = intent.Proposal.Operations[intent.Operation];
+            var op = intent.Plan.Operations[intent.Operation];
             if (op.Concurrency != ConcurrencyMode.ObservedNonAtomic || op.Origin != RelationshipOrigin.Provider)
                 return Result<GitHubWriteAdmission>.Fail(ErrorCode.Unsupported, "Only explicitly native observed-non-atomic GitHub effects are admitted.");
             var projected = GitHubWriteIntent.Project(retained, intent.Operation, intent.Attempt);
@@ -146,12 +146,12 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
                 return Result<GitHubWriteAdmission>.Fail(ErrorCode.Conflict, "The exact native mutation document/inputs differ from the retained Core effect.");
             var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(intent.Payload)));
             var native = new CoreGitHubNativeIntent(access._store.InstanceId, Connection, ActorId, AcquisitionContext,
-                intent.Proposal.Digest, intent.Operation, intent.Attempt, intent.Method, intent.Target.AbsoluteUri,
+                intent.Plan.Digest, intent.Operation, intent.Attempt, intent.Method, intent.Target.AbsoluteUri,
                 intent.MediaType, hash, intent.Payload);
             var directory = Path.Combine(access._paths.TwigDir, "core-github-intents");
             var targets = await NativeCoreExecution.AdmitAsync(access._registryPath,
                 new(access._store.InstanceId, access._store.DatabasePath, access._paths.RepoRoot, Connection),
-                intent.Proposal, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+                intent.Plan, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
             if (!targets.IsSuccess) return Result<GitHubWriteAdmission>.Fail(targets.Error);
             try
             {

@@ -641,7 +641,7 @@ EOF closes that view; failed requests are never replayed.
 | `show_work_item_details` | Uses returned identities and up to five exact field references; optional `assignedToField`, `focusField`, and explanatory `note`; item values are never caller-supplied |
 
 Details distinguish cached observations, provider revision, unpublished items,
-local proposals and unresolved references. Unknown fields, stale snapshots,
+local plans and unresolved references. Unknown fields, stale snapshots,
 revoked access or an unavailable selected source refuse explicitly. An unrelated
 missing source does not block a healthy item's details. If no Bench is selected,
 choose one in Canvas; MCP does not change selection.

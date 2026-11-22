@@ -10,7 +10,7 @@ mutates: local
 
 ## Behavior
 
-Remove a native user-wide Bench definition. Work items, drafts, proposals,
+Remove a native user-wide Bench definition. Work items, drafts, plans,
 journals, workspace exclusions and other Benches are untouched.
 
 ```powershell

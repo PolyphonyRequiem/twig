@@ -1,10 +1,13 @@
-# Change proposals
+# Change plans
 
-A proposal is an immutable declaration of intended work-item effects, identified
-by the digest of its canonical bytes. The **Core operation journal**, not a
-proposal file or UI acknowledgement, records execution outcomes.
+Plan is the set of intended work-item changes. Local edits and seeds hold
+editable intent (including original observations and local identities); they
+are not a Plan. An editor can turn selected intent into typed Plan operations.
+A proposal is a presentation of a Plan, not a separate domain object.
+The **Core operation journal**, not a plan file or UI acknowledgement, records
+execution outcomes.
 
-Use the current canonical Core proposal format. Older ADO plan v1/provider-plan
+Use the current canonical Core plan format. Older ADO plan v1/provider-plan
 v2 documents and their review envelopes are not translated or supported alternate
 formats. The [clean-core contract](../architecture/clean-core-contract.md) is the
 detailed format and execution reference.
@@ -12,21 +15,20 @@ detailed format and execution reference.
 ## Validate, preview, apply, inspect
 
 ```sh
-twig proposal validate --file change.json -o json
-twig proposal preview --file change.json -o json
-twig proposal apply --file change.json --confirm <exact-preview-digest> -o json
-twig proposal status --file change.json -o json
+twig plan validate --file change.json -o json
+twig plan preview --file change.json -o json
+twig plan apply --file change.json --confirm <exact-preview-digest> -o json
+twig plan status --file change.json -o json
 ```
 
 Each command requires an explicit file inside the workspace's admitted file
-boundary. `plan validate/preview/apply/status` are deprecated aliases; prefer
-`proposal`. `proposal latest`, `proposal seed`, and captured draft review/export
-routes are retired.
+boundary. `plan` is the only CLI group for these routes. Run
+`twig plan validate --help` for an example of the current file format.
 
 | Step | What it establishes |
 | --- | --- |
 | Validate | Canonical format and digest only; no claim that current process, policy, or execution evidence has been checked |
-| Preview | Current connection/schema/store/policy evidence, retained operation intent, and application blockers; it can write the local proposal journal but never publishes |
+| Preview | Current connection/schema/store/policy evidence, retained operation intent, and application blockers; it can write the local plan journal but never publishes |
 | Apply | Exact digest confirmation followed by fresh admission, durable attempts, provider dispatch and verification |
 | Status | Original digest's operation statuses, attempts and receipts without applying, settling, or replaying |
 
@@ -75,12 +77,13 @@ Refresh-read affected items after journal inspection when appropriate.
 
 The CLI supports ordinary human/structured preview. Its current review model
 reports operation identity/kind and available policy decisions; it is not the
-former complete before/after presentation envelope. Inspect the proposal's full
+former complete before/after presentation envelope. Inspect the plan's full
 typed intent as well as `canApply` and blockers. The retired
 `--interactive`, `--include-rendering`, draft envelopes and old OMP presentation
 recipes are not current CLI routes.
 
-The server has a separate native Plan/review path: humans perform Save/Apply
-against the exact retained capture and digest. Agent reads, local staging, and
-SDK view acknowledgements do not grant publication authority.
+The server's native Bench Plan session keeps the selection, scope and review
+state outside Core. It assembles the same Core Plan operations per connection.
+Save/Apply uses the exact retained capture and digest; agent reads, local
+staging, and SDK view acknowledgements do not grant publication authority.
 See [server security](../server.md#security-and-data-ownership).

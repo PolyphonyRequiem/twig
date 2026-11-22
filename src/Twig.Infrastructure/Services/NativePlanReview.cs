@@ -35,11 +35,11 @@ public sealed class NativePlanReview
     public string Digest => reference.Digest;
     public Guid BenchId => reference.Document.BenchId;
     public ImmutableArray<Op> Operations => reference.Document.Scopes.SelectMany(scope =>
-        scope.Proposal is null ? ImmutableArray<Op>.Empty : Parse(scope.Proposal).Operations).ToImmutableArray();
-    public ImmutableArray<string> CoreDigests => reference.Document.Scopes.Where(scope => scope.Proposal is not null)
-        .Select(scope => Parse(scope.Proposal!).Digest).ToImmutableArray();
-    public ImmutableArray<Proposal> Proposals => reference.Document.Scopes.Where(scope => scope.Proposal is not null)
-        .Select(scope => Parse(scope.Proposal!)).ToImmutableArray();
+        scope.Plan is null ? ImmutableArray<Op>.Empty : Parse(scope.Plan).Operations).ToImmutableArray();
+    public ImmutableArray<string> CoreDigests => reference.Document.Scopes.Where(scope => scope.Plan is not null)
+        .Select(scope => Parse(scope.Plan!).Digest).ToImmutableArray();
+    public ImmutableArray<Plan> Plans => reference.Document.Scopes.Where(scope => scope.Plan is not null)
+        .Select(scope => Parse(scope.Plan!)).ToImmutableArray();
     public ImmutableArray<NativePlanSource> Sources => reference.Document.Scopes.Select(value =>
         new NativePlanSource(value.Scope.Id, value.Scope.StoreInstance, value.Scope.OriginRoot,
             value.Scope.Source, value.Scope.State.ToString())).ToImmutableArray();
@@ -127,14 +127,14 @@ public sealed class NativePlanReview
                             ? await handle.Workspace.PreviewDraftAsync(intent.Item, ct, operations.Where(op => op.Kind == OpKind.Create), metadata.Value).ConfigureAwait(false)
                             : await handle.Workspace.PreviewEditorDraftAsync(intent.Item, intent.Links, intent.ExpectedRevision, ct, capture.Endpoints, metadata.Value).ConfigureAwait(false);
                         if (!preview.IsSuccess) return Result<NativePlanReview>.Fail(preview.Error);
-                        previews.Add(preview.Value.Proposal is null ? "" : Bytes(preview.Value.Proposal));
-                        if (preview.Value.Proposal is { } proposal)
+                        previews.Add(preview.Value.Plan is null ? "" : Bytes(preview.Value.Plan));
+                        if (preview.Value.Plan is { } itemPlan)
                         {
-                            var effect = proposal.Operations.Single(op => op.Item == intent.Item);
+                            var effect = itemPlan.Operations.Single(op => op.Item == intent.Item);
                             operations.Add(effect.WithId("plan-" + operations.Count));
                         }
                     }
-                    Proposal? combined = null;
+                    Plan? combined = null;
                     if (operations.Count != 0)
                     {
                         var prepared = await handle.Workspace.PrepareAsync(operations, ct, metadata.Value).ConfigureAwait(false);
@@ -246,11 +246,11 @@ public sealed class NativePlanReview
                             snapshot.Value.Drafts.Single(draft => handle.Workspace.DraftFingerprint(draft) == capture.DraftFingerprint
                                 && draft.Key == Parse(capture.IntentJson).Operations.Single().Item),
                             scope.Previews[ordinal].Length == 0 ? null : Parse(scope.Previews[ordinal]))).ToImmutableArray();
-                        var proposal = scope.Proposal is null ? null : Parse(scope.Proposal);
+                        var plan = scope.Plan is null ? null : Parse(scope.Plan);
                         var admitted = await user.AdvancePlanReviewAsync(reference, true, reference.Delivered, index + 1, ct).ConfigureAwait(false);
                         if (!admitted.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(admitted.Error, ct).ConfigureAwait(false));
                         reference = reference with { Admitted = index + 1 };
-                        var saved = await handle.Workspace.SaveDraftSetAsync(previews, proposal, proposal?.Digest, ct).ConfigureAwait(false);
+                        var saved = await handle.Workspace.SaveDraftSetAsync(previews, plan, plan?.Digest, ct).ConfigureAwait(false);
                         if (!saved.IsSuccess || !saved.Value.EffectsVerified || saved.Value.DraftRetained || saved.Value.Error is not null)
                             return Result<NativePlanOutcome>.Ok(await Outcome(saved.IsSuccess ? saved.Value.Error
                                 ?? new(ErrorCode.Indeterminate, "Core effects or draft settlement remain unconfirmed.") : saved.Error, ct).ConfigureAwait(false));
@@ -298,11 +298,11 @@ public sealed class NativePlanReview
         if (!captures.IsSuccess) return Result<bool>.Fail(captures.Error);
         if (snapshot.Value.Version != scope.StoreVersion || scope.Captures.Any(capture => !captures.Value.Any(current => current.SameAs(capture))))
             return Result<bool>.Fail(ErrorCode.Conflict, "The exact reviewed Plan draft, capture or store revision changed.");
-        if (scope.Proposal is not null)
+        if (scope.Plan is not null)
         {
-            var checkedProposal = await handle.Workspace.CheckProposalAsync(Parse(scope.Proposal), ct).ConfigureAwait(false);
-            if (!checkedProposal.IsSuccess) return Result<bool>.Fail(checkedProposal.Error);
-            if (!checkedProposal.Value.IsEmpty) return Result<bool>.Fail(checkedProposal.Value[0]);
+            var checkedPlan = await handle.Workspace.CheckPlanAsync(Parse(scope.Plan), ct).ConfigureAwait(false);
+            if (!checkedPlan.IsSuccess) return Result<bool>.Fail(checkedPlan.Error);
+            if (!checkedPlan.Value.IsEmpty) return Result<bool>.Fail(checkedPlan.Value[0]);
         }
         return Result<bool>.Ok(true);
     }
@@ -311,9 +311,9 @@ public sealed class NativePlanReview
     {
         var snapshot = await Snapshot(scope.Scope, ct).ConfigureAwait(false);
         if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
-        var proposal = scope.Proposal is null ? null : Parse(scope.Proposal);
-        var verified = proposal?.Operations.Select((op, ordinal) => (op, ordinal)).Where(value =>
-            snapshot.Value.Journal.Any(row => row.Digest == proposal.Digest && row.Operation == value.ordinal
+        var plan = scope.Plan is null ? null : Parse(scope.Plan);
+        var verified = plan?.Operations.Select((op, ordinal) => (op, ordinal)).Where(value =>
+            snapshot.Value.Journal.Any(row => row.Digest == plan.Digest && row.Operation == value.ordinal
                 && row.Status == OpStatus.Verified)).Select(value => value.op).ToImmutableArray() ?? [];
         var deliveredCaptures = scope.Captures.Select((capture, ordinal) => (capture, ordinal)).Where(value =>
             scope.Previews[value.ordinal].Length == 0 || verified.Any(op => op.Item == Parse(value.capture.IntentJson).Operations.Single().Item))
@@ -323,9 +323,9 @@ public sealed class NativePlanReview
         var openedScope = await factory.OpenScopedAsync(scope.Scope, scope.Scope.Source, ct).ConfigureAwait(false);
         if (!openedScope.IsSuccess) return Result<bool>.Fail(openedScope.Error);
         using var scopeHandle = openedScope.Value;
-        if (proposal is not null && !verified.IsEmpty)
+        if (plan is not null && !verified.IsEmpty)
         {
-            var settled = await scopeHandle.Workspace.SettleVerifiedDraftsAsync(proposal, deliveredCaptures.Where(capture =>
+            var settled = await scopeHandle.Workspace.SettleVerifiedDraftsAsync(plan, deliveredCaptures.Where(capture =>
                 verified.Any(op => op.Item == Parse(capture.IntentJson).Operations.Single().Item)).Select(capture =>
                 new NativeVerifiedDraftReference(Parse(capture.IntentJson).Operations.Single().Item, capture.DraftFingerprint)).ToImmutableArray(), ct).ConfigureAwait(false);
             if (!settled.IsSuccess) return Result<bool>.Fail(settled.Error);
@@ -357,15 +357,15 @@ public sealed class NativePlanReview
         using var origin = opened.Value;
         if (origin.Source != scope.Scope.Source)
             return Result<bool>.Fail(ErrorCode.Conflict, "The original delivery source changed; verified effects remain protected.");
-        var pins = proposal is null ? Result<ImmutableArray<Selector>>.Ok([])
-            : await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, proposal, verified, origin.Workspace, ct).ConfigureAwait(false);
+        var pins = plan is null ? Result<ImmutableArray<Selector>>.Ok([])
+            : await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, plan, verified, origin.Workspace, ct).ConfigureAwait(false);
         if (!pins.IsSuccess) return Result<bool>.Fail(pins.Error);
         var bench = await NativeVerifiedDelivery.AddPinsAsync(user, reference.Document.UserInstance, BenchId, pins.Value, ct).ConfigureAwait(false);
         if (!bench.IsSuccess) return Result<bool>.Fail(bench.Error);
         var settledCaptures = await NativeVerifiedDelivery.SettleCapturesAsync(user, BenchId, bench.Value.Revision,
             deliveredCaptures, ct).ConfigureAwait(false);
         if (!settledCaptures.IsSuccess) return Result<bool>.Fail(settledCaptures.Error);
-        return Result<bool>.Ok(proposal is null || verified.Length == proposal.Operations.Length);
+        return Result<bool>.Ok(plan is null || verified.Length == plan.Operations.Length);
     }
 
     private async Task<NativePlanOutcome> Outcome(Error? error, CancellationToken ct)
@@ -377,32 +377,32 @@ public sealed class NativePlanReview
         {
             var snapshot = await Snapshot(scope.Scope, ct).ConfigureAwait(false);
             if (!snapshot.IsSuccess) { error ??= snapshot.Error; continue; }
-            if (scope.Proposal is not null && Verified(snapshot.Value, Parse(scope.Proposal)))
+            if (scope.Plan is not null && Verified(snapshot.Value, Parse(scope.Plan)))
             {
                 verified++;
                 deliveryPending |= reference.Document.Scopes.IndexOf(scope) >= reference.Delivered;
             }
-            if (scope.Proposal is not null)
-                verifiedOperations += Parse(scope.Proposal).Operations.Select((_, ordinal) => snapshot.Value.Journal.Any(row =>
-                    row.Digest == Parse(scope.Proposal).Digest && row.Operation == ordinal && row.Status == OpStatus.Verified)).Count(value => value);
+            if (scope.Plan is not null)
+                verifiedOperations += Parse(scope.Plan).Operations.Select((_, ordinal) => snapshot.Value.Journal.Any(row =>
+                    row.Digest == Parse(scope.Plan).Digest && row.Operation == ordinal && row.Status == OpStatus.Verified)).Count(value => value);
         }
         var complete = reference.Delivered == reference.Document.Scopes.Length
-            && verified == reference.Document.Scopes.Count(scope => scope.Proposal is not null) && error is null;
+            && verified == reference.Document.Scopes.Count(scope => scope.Plan is not null) && error is null;
         return new(complete ? "Complete" : deliveryPending ? "VerifiedDeliveryPending"
             : verifiedOperations > 0 ? "PartialProtected" : "Protected", verified, reference.Delivered,
             reference.Document.Scopes.Length - reference.Delivered, verifiedOperations, Operations.Length - verifiedOperations, error);
     }
 
-    private static bool Verified(StoreSnapshot snapshot, Proposal proposal)
-        => NativeVerifiedDelivery.Verified(snapshot, proposal);
+    private static bool Verified(StoreSnapshot snapshot, Plan plan)
+        => NativeVerifiedDelivery.Verified(snapshot, plan);
     private static async Task<Result<StoreSnapshot>> Snapshot(NativePlanScope scope, CancellationToken ct)
     {
         var store = await SqliteStore.OpenAsync(scope.DatabasePath, ct, scope.StoreInstance).ConfigureAwait(false);
         return store.IsSuccess ? await store.Value.ReadAsync(scope.Source.Connection, ct).ConfigureAwait(false)
             : Result<StoreSnapshot>.Fail(store.Error);
     }
-    private static Proposal Parse(string json) => UserBenchStore.ParseIntent(json);
-    private static string Bytes(Proposal proposal) => Encoding.UTF8.GetString(Model.ProposalBytes(proposal));
+    private static Plan Parse(string json) => UserBenchStore.ParseIntent(json);
+    private static string Bytes(Plan plan) => Encoding.UTF8.GetString(Model.PlanBytes(plan));
     private static async Task<ServiceProvider> Runtime(string root, Action<IServiceCollection>? configure, CancellationToken ct)
     {
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)

@@ -7,9 +7,9 @@ public sealed partial class GitHubProvider
 {
     private sealed record MutationShape(string Mutation, byte[] Payload);
 
-    private async Task<MutationShape> Shape(Bound bound, Discovery schema, Proposal proposal, int ordinal, Guid attempt, CancellationToken ct)
+    private async Task<MutationShape> Shape(Bound bound, Discovery schema, Plan plan, int ordinal, Guid attempt, CancellationToken ct)
     {
-        var op = proposal.Operations[ordinal];
+        var op = plan.Operations[ordinal];
         if (op.Origin == RelationshipOrigin.Local)
         {
             if (op.Kind is not (OpKind.Relate or OpKind.Unrelate) || !schema.Capabilities.LocalRelations.Contains(op.Relation!))
@@ -25,7 +25,7 @@ public sealed partial class GitHubProvider
             throw Wire.Refuse(ErrorCode.Unsupported, "GitHub update and comment are separate transport effects; no atomic batch note is supported.");
         if (op.Kind == OpKind.Create && (op.Other is not null || op.Resource is not null || !op.Links.IsEmpty))
             throw Wire.Refuse(ErrorCode.Unsupported, "This native GitHub create schema cannot couple the reviewed parent/resource/creation-link effects in one creation call.");
-        var projected = GitHubWriteIntent.Project(proposal, ordinal, attempt);
+        var projected = GitHubWriteIntent.Project(plan, ordinal, attempt);
         if (!projected.IsSuccess) throw new GitHubFailure(projected.Error);
         if (!schema.Mutations.Contains(projected.Value.Mutation))
             throw Wire.Refuse(ErrorCode.Unsupported, "The mutation is absent from the acquired native schema; no local fallback.");

@@ -73,7 +73,7 @@ internal static class ServerCommandClient
             or Win32Exception or SecurityException)
         {
             var message = dispatched
-                ? "Server command interrupted; the outcome may be unknown. Inspect native status or the proposal journal before another change. No request was replayed."
+                ? "Server command interrupted; the outcome may be unknown. Inspect native status or the plan journal before another change. No request was replayed."
                 : "The selected Twig server is unavailable or invalid. Run 'twig server status' and 'twig server start'. No command was dispatched.";
             CommandError.Write(new RendererFactory(), Console.Error, format, $"{message} {ex.Message}");
             return 1;

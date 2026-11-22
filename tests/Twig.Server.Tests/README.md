@@ -30,7 +30,7 @@ the new tests use `Twig.Server.Tests`. No production API was made public for tes
 | `GitHubEditorTests.cs` `plan` and `apply` (2 variants) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.ScalarHttp.cs`, `NativeGitHubScalarHttpUsesQualifiedNativeAuthority` | Shared native guards, isolated Stage and normal Save, retained Plan/scope identities, exact whole review/digest/apply/delivery and no replay |
 | `NormalSeedTests.cs` (all 7 variants) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.SeedHttp.cs`, `NativeAdoSeedHttpKeepsExactAuthority` | Actual owned seed projection, empty-field authoring, exact UUID/source/owner/Plan isolation, native create/receipts/cache/pin delivery, lost-response protection, original-reference continuation without replay, SDK/owner/CSRF/ticket/definition/actor guards |
 | `EditorChoiceFixture.cs` Core evaluator primitives only | `Twig.Core.Tests/CompoundLinkContractTests.cs`, `EvaluatedEditorOverlayReplacesConditionalChoicesAndStatesAndRejectsObsoleteValues` and `EvaluatedEditorOverlayWithoutMatchingAllowedRuleRemovesTheConstraint` | Conditional choice/state replacement, obsolete-value errors and actual effect refusal until both values are corrected; no matching Allowed rule is unconstrained, not constrained-empty |
-| `RelationshipTests.cs` (6 HTTP scenarios) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.RelationshipHttp.cs`, `NativeAdoLinkHttpKeepsExactAuthority` | Qualified native pair evaluation, local staging/reopen, atomic add/remove, strict input/SDK/CSRF/ticket guards and protected lost acknowledgement with exact capture/proposal/journal retention |
+| `RelationshipTests.cs` (6 HTTP scenarios) | `Twig.Cli.Tests/Commands/NativePublicationConsumerTests.RelationshipHttp.cs`, `NativeAdoLinkHttpKeepsExactAuthority` | Qualified native pair evaluation, local staging/reopen, atomic add/remove, strict input/SDK/CSRF/ticket guards and protected lost acknowledgement with exact capture/plan/journal retention |
 | `GitHubLocalRelationshipTests.cs` (5 HTTP feature scenarios and 9 binding scenarios) | `Twig.Cli.Tests/Commands/GitHubCoreSpineTests.RelationshipHttp.cs`, `NativeGitHubLinkHttpKeepsExactAuthority` | Real two-issue LOCAL qualification, nonpublishing review/CAS/tombstone lifecycle, all local-route guards, original Applying protection, actual SQLite Applied receipt continuation, and changed-binding refusals |
 
 The original assertions are retained. The Sessions and adapter executable
@@ -238,7 +238,7 @@ qualification: denied-binding and generation-binding each ran once in isolated
 processes, followed by the Panel case and two shared read-composition controls.
 The existing strict TRX verifier checked actual 1/1/3 passed rows, all selectors
 covered and zero skips. Denied/generation took 22.154/22.101 seconds, each with
-98 synthetic provider requests, zero provider writes, one capture/proposal/
+98 synthetic provider requests, zero provider writes, one capture/plan/
 journal and zero receipts. Panel/schema/diagnostics took 2.833/2.958/1.460
 seconds. The remaining already-passed carrier rows were not duplicated or
 claimed as new-tip execution. No old latency cause or performance fix is
@@ -409,10 +409,10 @@ ephemeral loopback listener and explicitly revoked owner/stopped host in
 | Original scenario/assertion | Provider-native proof and adaptation |
 | --- | --- |
 | `projection` | Stage a real owned native seed first; ready capture, UUIDv7 and null baseline; existing `/editor` opens the same qualified ID; `/seeds` projects temporary membership and the same UUID/source; permanent Bench revision/connections/selectors unchanged; zero creates/PATCHes/journal |
-| `lifecycle` | Discover exact connected type/state; all creation fields Null; incomplete Save is 400; Stage/reopen keeps UUID and capture; one actual synthetic ADO POST/commit, no PATCH; canonical SQLite proposal/create operation/digest, mapping and Applied plus Verified receipts; settled capture and permanent source-qualified remote pin; exact cached title and HTTP member, no stale local row |
-| `pin` | Real SQLite pin-update failure after actual remote commit yields VerifiedDeliveryPending; Core draft is gone, original capture remains; restore, add unrelated uncached pin 44, enumerate/observe original reference, wrong digest 409, continue twice; same proposal/attempt/receipts/mapping and one POST; both pins survive; uncached 44 explicitly makes HTTP projection Unavailable, never a false empty-success or failed delivery |
+| `lifecycle` | Discover exact connected type/state; all creation fields Null; incomplete Save is 400; Stage/reopen keeps UUID and capture; one actual synthetic ADO POST/commit, no PATCH; canonical SQLite plan/create operation/digest, mapping and Applied plus Verified receipts; settled capture and permanent source-qualified remote pin; exact cached title and HTTP member, no stale local row |
+| `pin` | Real SQLite pin-update failure after actual remote commit yields VerifiedDeliveryPending; Core draft is gone, original capture remains; restore, add unrelated uncached pin 44, enumerate/observe original reference, wrong digest 409, continue twice; same plan/attempt/receipts/mapping and one POST; both pins survive; uncached 44 explicitly makes HTTP projection Unavailable, never a false empty-success or failed delivery |
 | `origin` | Real synthetic provider current-item read failure only after two verification readbacks; verified journal but pending delivery/no pin; restore and enumerate the original capture without a Core draft, observe/wrong-digest/continue twice; exact native cache/pin delivery and no new create/journal/receipt |
-| `unknown` | Actual synthetic remote commit followed by lost response; Indeterminate journal with original receipt, no mapping/pin, original UUID draft and unsettled capture retained; enumerate/observe original reference, wrong digest refused, repeated delivery stays Protected; receipt content/attempt/proposal/UUID unchanged and no replay |
+| `unknown` | Actual synthetic remote commit followed by lost response; Indeterminate journal with original receipt, no mapping/pin, original UUID draft and unsettled capture retained; enumerate/observe original reference, wrong digest refused, repeated delivery stays Protected; receipt content/attempt/plan/UUID unchanged and no replay |
 | `guards` (shared preconditions also run in all non-projection cases) | SDK cannot enumerate/create/observe/deliver; invalid owner capability and missing CSRF refuse before any provider HTTP/capture; invalid connected type is 400; unselected source is 409 and retires old ticket; real Bench definition revision advance rejects the next ticket; changed actual provider principal rejects Save and withholds seed content; zero provider mutations and no settled capture |
 | `ownership` | Real CLI draft, different-Bench seed and isolated-Plan seed have distinct keys; exact original capture binds user instance, Bench, root, source/store and normal scope; only the normal seed is owned/member; both visible unowned drafts are HTTP NotFound for edit and nonmembers, Plan seed stays outside the normal store and is Unsupported through native selection; normal publication preserves foreign debt and Plan owner |
 
@@ -443,7 +443,7 @@ lines 39-49 and 73-79. Title overlays replace severity A/obsolete with B and
 state Start with Finish. Current obsolete values remain invalid; correcting
 only one leaves errors, while Finish/B removes them. Actual
 `Core.EvaluateEditorFields` errors are compared with `Core.ValidateEffect`
-refusals for the retained proposal/journal; no synthetic fixture Save is used.
+refusals for the retained plan/journal; no synthetic fixture Save is used.
 The second Fact changes a matching condition to no matching Allowed rule and
 asserts `HasAllowedConstraint: false`, an empty suggestion list and a genuinely
 valid unlisted value. Existing
@@ -509,11 +509,11 @@ changing the original twenty rows or their budgets. It is not equivalent to
 `incoming`, which starts without an edge and performs add then remove (two
 effects). The added row starts with a real synthetic provider edge 43 -> 42,
 stages incoming removal with empty fields through HTTP, and checks one ready,
-unsettled canonical capture, zero-field intent/draft, no proposal/journal or
+unsettled canonical capture, zero-field intent/draft, no plan/journal or
 provider write, and the still-observed provider edge. HTTP scalar/pair reopen
 retains that original removal and incident evidence; empty-fields Save must
 settle the same capture with exactly one revision-guarded target-42 PATCH,
-one canonical removal proposal/journal, original attempt-bound receipts,
+one canonical removal plan/journal, original attempt-bound receipts,
 no creates, and both endpoint revisions advanced once.
 
 This additional source-only comparison used Canvas commit
@@ -532,7 +532,7 @@ DOM, request construction by the UI and Edit-mode readback remain unqualified.
 The new row passed its first isolated bounded execution on the integrated
 source at `b9740f094e0a681284efd4508549b7954efa92f4` (30.027 seconds,
 one passed, zero skipped). Actual synthetic counters were 264 provider HTTP,
-one PATCH/committed write, zero creates, one capture/proposal/journal and two
+one PATCH/committed write, zero creates, one capture/plan/journal and two
 receipts. Its exact selector is the same ADO method below with
 `&DisplayName~observed-removal`; the label deliberately does not contain
 `incoming`, preserving the existing incoming selector's single result.
@@ -550,7 +550,7 @@ active dotnet test/vstest/testhost process before further execution.
 One authorized phase-only outgoing reproduction passed in 44.978 seconds:
 fixture ready at 5.780 seconds, first Save completed at 29.196 seconds, and
 final removal Save ran from 38.293 to 44.228 seconds (480 provider HTTP,
-two PATCHes/commits, two captures/proposals/journal rows, four receipts).
+two PATCHes/commits, two captures/plans/journal rows, four receipts).
 This establishes no causal repair or base/environment attribution and does
 not replace the failed complete gate. Temporary timing diagnostics were
 removed; no deadlines, guards or assertions were relaxed and no further gate
@@ -574,13 +574,13 @@ the shared host. There are no timeout catches, retries or accepted partial runs.
 
 | Method | Original scenarios | Retained native assertions |
 | --- | --- | --- |
-| `NativePublicationConsumerTests.NativeAdoLinkHttpKeepsExactAuthority` | association, outgoing, incoming, hierarchy | Actual source/endpoint projection; prospective Done close gate without state/capture changes; scalar Save refusal of pair ticket; owned local Stage with title and one delta; scalar debt disclosure; original capture on reopen; empty-new-fields Save; one target PATCH per add/remove including incoming direction, real target/endpoint revisions, canonical Batch proposal, original digest/journal/receipt and settled capture |
-| same | guards, protected | SDK and CSRF gates before provider acquisition; unknown/null/missing input 400; stale endpoint and closed ticket 409; protected committed effect after lost acknowledgement; no restage/replay; exact drafts, canonical proposal bytes, all original journal/receipt evidence and capture `SameAs` readback |
+| `NativePublicationConsumerTests.NativeAdoLinkHttpKeepsExactAuthority` | association, outgoing, incoming, hierarchy | Actual source/endpoint projection; prospective Done close gate without state/capture changes; scalar Save refusal of pair ticket; owned local Stage with title and one delta; scalar debt disclosure; original capture on reopen; empty-new-fields Save; one target PATCH per add/remove including incoming direction, real target/endpoint revisions, canonical Batch plan, original digest/journal/receipt and settled capture |
+| same | guards, protected | SDK and CSRF gates before provider acquisition; unknown/null/missing input 400; stale endpoint and closed ticket 409; protected committed effect after lost acknowledgement; no restage/replay; exact drafts, canonical plan bytes, all original journal/receipt evidence and capture `SameAs` readback |
 | `GitHubCoreSpineTests.NativeGitHubLinkHttpKeepsExactAuthority` | counterfactual, guards | Qualified two-published-issue projection, `localOnly`, exactly one undirected Association and readonly scalar fields; all five LOCAL SDK routes 403, owner CSRF 403, self/unknown endpoint 404, strict null/missing/unknown body 400, combined scalar/ADO refusal; wrong digest/attempt 409, noncanonical ordinal 400, consumed pair/closed ticket 409; unchanged pristine/original evidence |
-| same | lifecycle | Close plus HTTP rediscovery of original canonical proposal/digest, first local CAS Verified/settled, repeat Apply 409, read-only observation, reverse pair version 1, canonical removal expected version 1, tombstone version 2; no provider mutations |
+| same | lifecycle | Close plus HTTP rediscovery of original canonical plan/digest, first local CAS Verified/settled, repeat Apply 409, read-only observation, reverse pair version 1, canonical removal expected version 1, tombstone version 2; no provider mutations |
 | same | protected | Genuine endpoint change after durable Applying: original nonempty attempt, no receipts and no LOCAL edge; byte-exact rediscovery; Apply 409; observation preserves original Core/capture/provenance evidence |
 | same | delivery | Real SQLite writer fence after local CAS leaves Applied plus `canContinue`/no `canApply`; explicit HTTP rediscovery and Continue verify/settle the same original digest/ordinal/attempt, retain the first receipt byte-for-byte, append only verification; no replacement/replay |
-| same | binding-actor, binding-repository, binding-schema, binding-endpoint, binding-mode, binding-store, binding-bench, binding-denied | Actual respective provider/normal-mode/store-version/Bench evidence changes; cannot verify any effect, exact original capture/proposal/journal/provenance remains, zero local CAS and zero provider writes |
+| same | binding-actor, binding-repository, binding-schema, binding-endpoint, binding-mode, binding-store, binding-bench, binding-denied | Actual respective provider/normal-mode/store-version/Bench evidence changes; cannot verify any effect, exact original capture/plan/journal/provenance remains, zero local CAS and zero provider writes |
 | same | binding-generation | Public profile retirement adaptation described below; fresh valid owner still cannot apply the exact retired original ticket/capture/digest |
 
 All HTTP paths compose production `NativeBenchHost`, `NativePanel`,
@@ -598,7 +598,7 @@ must prove the same qualification/shape/direction/readonly assertions. HTTP
 `/editor/local/reviews` still exercises the production native canonical reader
 and compares its returned bytes/digest with the original. Instead of opening a
 second native editor solely to repeat that lookup, additional durable readback
-compares the real capture `IntentJson` and Core `ProposalBytes`. Preservation
+compares the real capture `IntentJson` and Core `PlanBytes`. Preservation
 checks compare the complete native state and capture `SameAs`; once a capture
 exists they also compare actual SQLite capture/history/registry provenance
 rows through the existing helper. Pristine state has no capture or initialized
@@ -616,7 +616,7 @@ explicitly reconnects the same profile through public `ConnectOwner`, and
 restores the same exact source and Bench. A successful authenticated session
 GET proves the new owner capability is valid. Applying the exact *old*
 ticket/capture/digest/ordinal/attempt must then return **409**, not a stale-token
-401/403. Core state, canonical capture/proposal/journal and provenance remain
+401/403. Core state, canonical capture/plan/journal and provenance remain
 unchanged, with no LOCAL CAS or provider write. This covers real public
 profile-retirement authority; it does not isolate a forged in-memory generation
 while deliberately holding every other internal field constant.
@@ -641,7 +641,7 @@ for GitHub. They remain unchanged.
 
 The extra ADO protected `True` postcondition is independently executable as
 `FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.NativePublicRelationshipsOriginalUncertainReceiptIsProtectedWithoutReplay&DisplayName~True`.
-It verifies original title debt, exact receipts/proposal and reopen/scalar/pair
+It verifies original title debt, exact receipts/plan and reopen/scalar/pair
 refusals after a committed uncertain effect, not merely the new HTTP guard.
 All twelve mapped original dispatches in the table were also executed
 individually with the unchanged bounded verifier, exactly one passed result
@@ -661,7 +661,7 @@ transport/durable counters (not gateway admission counts). GitHub provider
 mutation count is **zero in every row**; LOCAL versions are native SQLite CAS,
 never publication. ADO creates are zero.
 
-| Case | Provider HTTP | PATCH / committed | LOCAL version | Captures / proposals / journal | Receipts |
+| Case | Provider HTTP | PATCH / committed | LOCAL version | Captures / plans / journal | Receipts |
 | --- | ---: | --- | ---: | --- | --- |
 | ADO association/outgoing/incoming/hierarchy (each) | 480 | 2 / 2 | - | 2 / 2 / 2 | 4 |
 | ADO guards | 90 | 0 / 0 | - | 1 / 0 / 0 | 0 |

@@ -35,29 +35,29 @@ internal sealed partial class CoreWorkspace
             : Result<bool>.Fail(ErrorCode.SchemaChanged, "Declared policy changed during this exact review operation.");
     }
 
-    internal async Task<Result<bool>> SettleVerifiedDraftsAsync(Proposal proposal,
+    internal async Task<Result<bool>> SettleVerifiedDraftsAsync(Plan plan,
         ImmutableArray<NativeVerifiedDraftReference> captures, CancellationToken ct)
     {
         using var lease = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         var snapshot = current.Value;
-        if (proposal.Connection != connection || !snapshot.Proposals.Any(value => value.Digest == proposal.Digest))
+        if (plan.Connection != connection || !snapshot.Plans.Any(value => value.Digest == plan.Digest))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "Exact original Verified Core receipts are required for local-only settlement.");
         if (captures.Select(capture => capture.Key).Distinct().Count() != captures.Length)
             return Result<bool>.Fail(ErrorCode.InvalidInput, "The original reviewed draft set must have unique exact identities.");
         foreach (var capture in captures)
         {
-            var ordinal = proposal.Operations.Select((op, index) => (op, index))
+            var ordinal = plan.Operations.Select((op, index) => (op, index))
                 .Where(value => value.op.Item == capture.Key).Select(value => (int?)value.index).SingleOrDefault();
             if (ordinal is null || !snapshot.Journal.Any(row =>
-                row.Digest == proposal.Digest && row.Operation == ordinal && row.Status == OpStatus.Verified))
+                row.Digest == plan.Digest && row.Operation == ordinal && row.Status == OpStatus.Verified))
                 return Result<bool>.Fail(ErrorCode.Indeterminate, "Only attributable original Verified operations can settle local draft intent.");
             var draft = snapshot.Drafts.SingleOrDefault(value => value.Key == capture.Key);
             if (draft is not null && DraftFingerprint(draft) != capture.Fingerprint)
                 return Result<bool>.Fail(ErrorCode.Conflict, "Remote effects verified; newer native draft intent was preserved.");
             if (capture.Key.IsLocal && !snapshot.Mappings.Any(mapping =>
-                mapping.Local == capture.Key && mapping.ProposalDigest == proposal.Digest))
+                mapping.Local == capture.Key && mapping.PlanDigest == plan.Digest))
                 return Result<bool>.Fail(ErrorCode.Indeterminate, "The original Verified seed mapping is required; its UUID was not recreated.");
         }
         var keys = captures.Select(capture => capture.Key).ToHashSet();

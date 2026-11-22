@@ -8,7 +8,7 @@ Core seed UUIDs/negative aliases for explicit LOCAL Related links. Virtual links
 seeds live under `seed link` / `seed unlink` instead.
 
 Published relationship verbs require an explicitly initialized Core ADO workspace
-and use one proposal/journal workflow. Success requires separately verified native
+and use one plan/journal workflow. Success requires separately verified native
 effects, not best-effort resync. Reparent and relationship comments remain
 unsupported gaps, refused before HTTP. Artifact and local-link routes have separate
 qualification status; their presence here does not imply a complete Core/UI cutover.
@@ -44,7 +44,7 @@ zero total HTTP.
   nonpositive/self targets refuse with usage exit `2` before HTTP. Unpublished
   seeds remain under `seed link`; native links never publish or rewrite local UUIDs.
   Unmapped/unknown seeds refuse, and mapped endpoints remain subject to the
-  same partial/unknown proposal fences.
+  same partial/unknown plan fences.
 - **Local targeting.** Write `link local related <target> --id <source>` or
   `unrelate` with the same shape. Both endpoints must have live Core evidence;
   numeric locators, negative seed aliases and original canonical GUIDv7s are supported.
@@ -63,7 +63,7 @@ zero total HTTP.
   survive mirror refresh.
 - **Published-item output.** `human` and `minimal` render the result and link
   evidence; `json`, `json-full` and `json-compact` emit one parseable document
-  with message, count, native links, `status: Verified` and proposal digest.
+  with message, count, native links, `status: Verified` and plan digest.
   `ids` refuses (`2`) because it loses relationship/journal evidence.
   Errors are format-aware on stderr; no success document is emitted on failure.
 - **Remaining gaps.** `link reparent` cannot bind replacement to one safe typed

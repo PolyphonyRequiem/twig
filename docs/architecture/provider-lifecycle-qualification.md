@@ -9,13 +9,13 @@
 The `ADO shared lifecycle qualification` and `GitHub shared lifecycle
 qualification` CI steps exercise production DI, SQLite repositories, provider
 adapters, declared-policy loading/evaluation, capability admission and the shared
-proposal lifecycle. Only credentials and external work HTTP use synthetic
+plan lifecycle. Only credentials and external work HTTP use synthetic
 transports. Every selected test must execute and pass; `eng/verify-trx.py`
 rejects missing selectors, skipped cases, incomplete runs and inconsistent
 counters. Each command retains the existing external 60-second deadline and
 uploads its TRX on Linux and Windows. macOS qualification is temporarily suspended.
 
-The named `OfflineProviderLifecycle_` cases read an item, author a proposal,
+The named `OfflineProviderLifecycle_` cases read an item, author a plan,
 preview it without publication, refuse an incorrect digest, apply the exact
 digest, verify independent provider readback and replay without another write.
 ADO also reopens its disk store and journal. GitHub proves that provider

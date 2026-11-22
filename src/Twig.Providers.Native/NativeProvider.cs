@@ -62,101 +62,101 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             return new QueryPage(selected, [], null, true);
         });
 
-    public Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default)
-        => Guard(proposal.Connection, async () =>
+    public Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default)
+        => Guard(plan.Connection, async () =>
         {
             var before = await Snapshot(ct);
             var acquired = Mirror(before, await authority.Read(ct));
-            Check(Model.Validate(proposal, confirmation, Schema(), acquired, Capabilities));
-            foreach (var op in proposal.Operations) Shape(op);
-            Fence(proposal, before);
-            if (before.Proposals.Any(value => value.Digest == proposal.Digest))
+            Check(Model.Validate(plan, confirmation, Schema(), acquired, Capabilities));
+            foreach (var op in plan.Operations) Shape(op);
+            Fence(plan, before);
+            if (before.Plans.Any(value => value.Digest == plan.Digest))
                 throw new NativeFailure(ErrorCode.Conflict, "Retained intent cannot be reset.");
             return await Commit(before, Copy(acquired, before.Version + 1,
-                proposals: before.Proposals.Add(proposal),
-                journal: before.Journal.AddRange(proposal.Operations.Select((_, n) => JournalEntry.Planned(proposal.Digest, n)))), ct);
+                plans: before.Plans.Add(plan),
+                journal: before.Journal.AddRange(plan.Operations.Select((_, n) => JournalEntry.Planned(plan.Digest, n)))), ct);
         });
 
-    public Task<Result<Receipt>> ApplyAsync(Proposal proposal, int operation, Guid attempt, CancellationToken ct)
-        => Guard(proposal.Connection, async () =>
+    public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => Guard(plan.Connection, async () =>
         {
             if (attempt == Guid.Empty) throw new NativeFailure(ErrorCode.InvalidInput, "The first attempt needs its durable UUID.");
             var before = await Snapshot(ct);
             var acquired = Mirror(before, await authority.Read(ct));
-            Check(Model.ValidateEffect(proposal, operation, Schema(), acquired, Capabilities));
-            var op = proposal.Operations[operation];
+            Check(Model.ValidateEffect(plan, operation, Schema(), acquired, Capabilities));
+            var op = plan.Operations[operation];
             Shape(op);
-            Fence(proposal, before);
-            var began = before.Journal.Single(row => row.Digest == proposal.Digest && row.Operation == operation).Begin(attempt);
+            Fence(plan, before);
+            var began = before.Journal.Single(row => row.Digest == plan.Digest && row.Operation == operation).Begin(attempt);
             if (!began.IsSuccess) throw new NativeFailure(began.Error.Code, began.Error.Message);
             await Commit(before, Copy(acquired, before.Version + 1, journal: Replace(before.Journal, began.Value)), ct);
             Receipt receipt;
-            try { receipt = await authority.Execute(proposal, operation, attempt, ct); }
+            try { receipt = await authority.Execute(plan, operation, attempt, ct); }
             catch (Exception ex) when (ex is NativeFailure or Microsoft.Data.Sqlite.SqliteException or IOException or OperationCanceledException)
             {
                 // A failed commit acknowledgement is not proof of no effect. Recovery reads the authority ledger.
-                receipt = new(proposal.Digest, operation, attempt, OpStatus.Indeterminate,
+                receipt = new(plan.Digest, operation, attempt, OpStatus.Indeterminate,
                     [$"Native effect acknowledgement unavailable ({ex.GetType().Name}); original Applying fence retained."],
                     error: new(ErrorCode.Indeterminate, "Observe the original attempt; no replay."));
                 return receipt;
             }
-            return await Persist(proposal, receipt, null);
+            return await Persist(plan, receipt, null);
         });
 
-    public Task<Result<Receipt>> VerifyAsync(Proposal proposal, Receipt acknowledgement, CancellationToken ct)
-        => Guard(proposal.Connection, async () =>
+    public Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Guard(plan.Connection, async () =>
         {
             var before = await Snapshot(ct);
-            var row = Row(before, proposal, acknowledgement.Operation);
+            var row = Row(before, plan, acknowledgement.Operation);
             if (row.Status != OpStatus.Applied || row.Attempt != acknowledgement.Attempt || row.Receipts.Length != 1
                 || !Same(row.Receipts[0], acknowledgement))
                 throw new NativeFailure(ErrorCode.Conflict, "Verification requires the exact durable Applied acknowledgement.");
-            var authoritative = await authority.Recover(proposal, acknowledgement.Operation, acknowledgement.Attempt, ct);
+            var authoritative = await authority.Recover(plan, acknowledgement.Operation, acknowledgement.Attempt, ct);
             if (authoritative is null || !Same(authoritative, acknowledgement))
                 throw new NativeFailure(ErrorCode.Conflict, "The original attributable native effect is unavailable.");
             var items = await authority.Read(ct);
-            var op = proposal.Operations[acknowledgement.Operation];
+            var op = plan.Operations[acknowledgement.Operation];
             var observed = items.SingleOrDefault(item => item.Key == (acknowledgement.PublishedKey ?? op.Item));
-            var matches = proposal.SchemaFingerprint == Schema().Fingerprint && observed is not null
+            var matches = plan.SchemaFingerprint == Schema().Fingerprint && observed is not null
                 && observed.Revision == acknowledgement.Revision
                 && op.Fields.All(field => observed.Fields.TryGetValue(field.Key, out var value) && value.Equals(field.Value));
-            var receipt = new Receipt(proposal.Digest, acknowledgement.Operation, acknowledgement.Attempt,
+            var receipt = new Receipt(plan.Digest, acknowledgement.Operation, acknowledgement.Attempt,
                 matches ? OpStatus.Verified : OpStatus.Partial,
                 [$"source:{Connection.ResourceScope}", $"principal:{Connection.IdentityRef}", "Separate authoritative readback; no replay."],
                 observed?.Revision, acknowledgement.PublishedKey,
                 matches ? null : new(ErrorCode.Partial, "The exact native effect is no longer fully observed."));
-            return await Persist(proposal, receipt, items);
+            return await Persist(plan, receipt, items);
         });
 
-    public Task<Result<Receipt>> RecoverAsync(Proposal proposal, int operation, CancellationToken ct = default)
-        => Guard(proposal.Connection, async () =>
+    public Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)
+        => Guard(plan.Connection, async () =>
         {
             var before = await Snapshot(ct);
-            var row = Row(before, proposal, operation);
+            var row = Row(before, plan, operation);
             if (row.Status == OpStatus.Applied)
             {
-                var verified = await VerifyAsync(proposal, row.Receipts[0], ct);
+                var verified = await VerifyAsync(plan, row.Receipts[0], ct);
                 if (!verified.IsSuccess) throw new NativeFailure(verified.Error.Code, verified.Error.Message);
                 return verified.Value;
             }
             if (row.Status == OpStatus.Applying)
             {
-                var original = await authority.Recover(proposal, operation, row.Attempt, ct);
-                return await Persist(proposal, original ?? new(proposal.Digest, operation, row.Attempt, OpStatus.Indeterminate,
+                var original = await authority.Recover(plan, operation, row.Attempt, ct);
+                return await Persist(plan, original ?? new(plan.Digest, operation, row.Attempt, OpStatus.Indeterminate,
                     ["No attributable authority receipt for the original Applying attempt; no replay."],
                     error: new(ErrorCode.Indeterminate, "Original attempt remains protected.")), null);
             }
             return row.Receipts.IsEmpty ? throw new NativeFailure(ErrorCode.Conflict, "Unattempted intent is not recovery.") : row.Receipts[^1];
         });
 
-    private async Task<Receipt> Persist(Proposal proposal, Receipt receipt, ImmutableArray<WorkItem>? observations)
+    private async Task<Receipt> Persist(Plan plan, Receipt receipt, ImmutableArray<WorkItem>? observations)
     {
         var before = await Snapshot(CancellationToken.None);
-        var recorded = Row(before, proposal, receipt.Operation).Record(receipt);
+        var recorded = Row(before, plan, receipt.Operation).Record(receipt);
         if (!recorded.IsSuccess) throw new NativeFailure(recorded.Error.Code, recorded.Error.Message);
         var mappings = before.Mappings;
         if (receipt.Status == OpStatus.Applied && receipt.PublishedKey is { } key)
-            mappings = mappings.Add(new(proposal.Operations[receipt.Operation].Item, key, proposal.Digest, receipt.Operation));
+            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, key, plan.Digest, receipt.Operation));
         var mirrored = observations is { } items ? Mirror(before, items) : before;
         await Commit(before, Copy(mirrored, before.Version + 1, journal: Replace(before.Journal, recorded.Value), mappings: mappings),
             CancellationToken.None);
@@ -176,22 +176,22 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             throw new NativeFailure(ErrorCode.Unsupported, "Native items support schema-qualified scalar creation and atomic edits only.");
     }
 
-    private static void Fence(Proposal proposal, StoreSnapshot before)
+    private static void Fence(Plan plan, StoreSnapshot before)
     {
         foreach (var row in before.Journal.Where(row => row.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Indeterminate or OpStatus.Partial))
         {
-            var previous = before.Proposals.Single(value => value.Digest == row.Digest).Operations[row.Operation];
+            var previous = before.Plans.Single(value => value.Digest == row.Digest).Operations[row.Operation];
             var target = before.Mappings.SingleOrDefault(mapping => mapping.Local == previous.Item)?.Remote ?? previous.Item;
-            if (proposal.Operations.Any(op => op.Item == previous.Item || op.Item == target))
+            if (plan.Operations.Any(op => op.Item == previous.Item || op.Item == target))
                 throw new NativeFailure(ErrorCode.Indeterminate, "An unresolved original operation fences this target across replacement digests.");
         }
     }
 
-    private static JournalEntry Row(StoreSnapshot before, Proposal proposal, int operation)
-        => operation >= 0 && operation < proposal.Operations.Length
-            && before.Proposals.Any(value => value.Digest == proposal.Digest)
-            && before.Journal.SingleOrDefault(row => row.Digest == proposal.Digest && row.Operation == operation) is { } found
-                ? found : throw new NativeFailure(ErrorCode.Conflict, "The exact retained proposal and ordinal are required.");
+    private static JournalEntry Row(StoreSnapshot before, Plan plan, int operation)
+        => operation >= 0 && operation < plan.Operations.Length
+            && before.Plans.Any(value => value.Digest == plan.Digest)
+            && before.Journal.SingleOrDefault(row => row.Digest == plan.Digest && row.Operation == operation) is { } found
+                ? found : throw new NativeFailure(ErrorCode.Conflict, "The exact retained plan and ordinal are required.");
     private Task<Result<T>> Guard<T>(Connection connection, Func<Task<T>> action)
         => NativeGuard.Run(async () =>
         {
@@ -220,7 +220,7 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
     private static StoreSnapshot Mirror(StoreSnapshot before, ImmutableArray<WorkItem> observations)
         => Copy(before, before.Version, items: observations);
     private static StoreSnapshot Copy(StoreSnapshot before, long version, IEnumerable<WorkItem>? items = null,
-        IEnumerable<Proposal>? proposals = null, IEnumerable<JournalEntry>? journal = null, IEnumerable<PublishMapping>? mappings = null)
-        => new(version, items ?? before.Items, before.Relationships, before.Drafts, proposals ?? before.Proposals,
+        IEnumerable<Plan>? plans = null, IEnumerable<JournalEntry>? journal = null, IEnumerable<PublishMapping>? mappings = null)
+        => new(version, items ?? before.Items, before.Relationships, before.Drafts, plans ?? before.Plans,
             journal ?? before.Journal, mappings ?? before.Mappings, before.Benches);
 }

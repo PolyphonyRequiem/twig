@@ -131,10 +131,10 @@ public sealed partial class GitHubCoreSpineTests
             {
                 var result = (await Send("/editor/local/reviews", readBody)).AsArray().Single(value =>
                     value!["captureId"]!.GetValue<string>() == original["captureId"]!.GetValue<string>())!;
-                result["canonicalProposal"]!.GetValue<string>().ShouldBe(original["canonicalProposal"]!.GetValue<string>());
+                result["canonicalPlan"]!.GetValue<string>().ShouldBe(original["canonicalPlan"]!.GetValue<string>());
                 result["digest"]!.GetValue<string>().ShouldBe(original["digest"]!.GetValue<string>());
                 await native.AssertCanonicalAsync(Guid.Parse(result["captureId"]!.GetValue<string>()),
-                    result["canonicalProposal"]!.GetValue<string>(), result["digest"]!.GetValue<string>()).WaitAsync(ct);
+                    result["canonicalPlan"]!.GetValue<string>(), result["digest"]!.GetValue<string>()).WaitAsync(ct);
                 return result;
             }
             if (scenario == "counterfactual")
@@ -283,7 +283,7 @@ public sealed partial class GitHubCoreSpineTests
             var final = await native.Human.SnapshotAsync().WaitAsync(ct);
             _linkHttpOutput?.WriteLine($"GITHUB LOCAL HTTP {scenario}: providerHttp={native.Human.Native.Http.Requests}, " +
                 $"providerWrites={native.Human.Writes}, localVersion={final.Relationships.SingleOrDefault()?.LocalVersion ?? 0}, " +
-                $"captures={(await store.ReadEditorCapturesAsync(ct)).Value.Length}, proposals={final.Proposals.Length}, " +
+                $"captures={(await store.ReadEditorCapturesAsync(ct)).Value.Length}, plans={final.Plans.Length}, " +
                 $"journal={final.Journal.Length}, receipts={final.Journal.Sum(row => row.Receipts.Length)}");
         }
         finally

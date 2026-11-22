@@ -1,7 +1,7 @@
 ---
 command: link unlink
 group: links
-summary: Remove a native predecessor, successor or related edge through a verified Core proposal.
+summary: Remove a native predecessor, successor or related edge through a verified Core plan.
 stability: experimental
 mutates: ado
 ---

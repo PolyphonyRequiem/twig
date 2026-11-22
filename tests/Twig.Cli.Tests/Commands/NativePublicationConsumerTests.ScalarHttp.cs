@@ -237,9 +237,9 @@ public sealed partial class NativePublicationConsumerTests
                     HumanPatchAttempts.ShouldBe(1);
                     snapshot.Drafts.ShouldBeEmpty();
                     snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
-                    var proposal = snapshot.Proposals.Single();
-                    proposal.SchemaFingerprint.ShouldBe(source["schemaFingerprint"]!.GetValue<string>());
-                    proposal.PolicyRevision.ShouldNotBeNullOrWhiteSpace();
+                    var plan = snapshot.Plans.Single();
+                    plan.SchemaFingerprint.ShouldBe(source["schemaFingerprint"]!.GetValue<string>());
+                    plan.PolicyRevision.ShouldNotBeNullOrWhiteSpace();
                     _transport.TitleOf(42).ShouldBe("Scoped private native edit");
                 }
             }

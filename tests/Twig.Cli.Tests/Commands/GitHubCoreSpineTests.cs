@@ -99,7 +99,7 @@ public sealed partial class GitHubCoreSpineTests
         var captured = await f.Snapshot();
         captured.Items.Single().Key.NativeId.ShouldBe("I_opaque");
         captured.Items.Single().Fields["github.number"].ShouldBe(FieldValue.Integer(42));
-        captured.Proposals.ShouldBeEmpty();
+        captured.Plans.ShouldBeEmpty();
         f.Http.Defect = defect;
         if (defect == "node-number-moved") f.Http.Issue["number"] = 43;
         var requests = f.Http.Requests;
@@ -113,7 +113,7 @@ public sealed partial class GitHubCoreSpineTests
         var after = await f.Snapshot();
         after.Version.ShouldBe(captured.Version, "mismatched native locator evidence must not even refresh the mirror");
         after.Items.Single().ShouldBe(captured.Items.Single());
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
     }
 
@@ -132,7 +132,7 @@ public sealed partial class GitHubCoreSpineTests
         var after = await f.Snapshot();
         after.Version.ShouldBe(captured.Version);
         after.Drafts.Single().ShouldBe(captured.Drafts.Single());
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
     }
 
     [Fact]
@@ -251,7 +251,7 @@ public sealed partial class GitHubCoreSpineTests
         created.Journal.Single().Status.ShouldBe(OpStatus.Verified);
         created.Items.Single().Fields["github.number"].ShouldBe(FieldValue.Integer(42));
         f.Http.Creates.ShouldBe(1);
-        var creationBytes = Core.Core.ProposalBytes(created.Proposals.Single());
+        var creationBytes = Core.Core.PlanBytes(created.Plans.Single());
         var requests = f.Http.Requests;
         var credentials = f.CredentialCalls;
         f.Run("show", "42", "-o", "json").ShouldBe(0, f.Error);
@@ -266,7 +266,7 @@ public sealed partial class GitHubCoreSpineTests
         var cached = await f.Snapshot();
         cached.Version.ShouldBe(created.Version);
         cached.Mappings.Single().ShouldBe(mapping);
-        Core.Core.ProposalBytes(cached.Proposals.Single()).ShouldBe(creationBytes);
+        Core.Core.PlanBytes(cached.Plans.Single()).ShouldBe(creationBytes);
         File.Exists(Path.Combine(f.Root, ".twig", "core-context.json")).ShouldBeFalse();
     }
 
@@ -283,7 +283,7 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("state", "CLOSED", "--id", "42", "-o", "json").ShouldBe(0, f.Error);
         f.Http.Issue["state"]!.GetValue<string>().ShouldBe("CLOSED", "this must be OPEN -> CLOSED, not a no-op");
         var changed = await f.Snapshot();
-        var transition = changed.Proposals.Single(p => p.Operations.Any(op => op.Id == "state"));
+        var transition = changed.Plans.Single(p => p.Operations.Any(op => op.Id == "state"));
         transition.Operations.Single().Concurrency.ShouldBe(ConcurrencyMode.ObservedNonAtomic);
         changed.Journal.Single(row => row.Digest == transition.Digest).Status.ShouldBe(OpStatus.Verified);
         changed.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
@@ -388,7 +388,7 @@ public sealed partial class GitHubCoreSpineTests
         f.Http.Defect = defect;
         f.Run("update", "title", "must not write", "--id", "42", "-o", "json").ShouldBe(1);
         f.Http.Writes.ShouldBe(0);
-        (await f.Snapshot()).Proposals.ShouldBeEmpty();
+        (await f.Snapshot()).Plans.ShouldBeEmpty();
     }
 
     internal sealed class Fixture : IDisposable
@@ -492,7 +492,7 @@ public sealed partial class GitHubCoreSpineTests
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;
             var capture = await Snapshot();
             var saved = await store.CommitAsync(_document.Connection, capture.Version, new(capture.Version + 1, items,
-                relationships ?? capture.Relationships, capture.Drafts, capture.Proposals, capture.Journal, capture.Mappings, capture.Benches), default);
+                relationships ?? capture.Relationships, capture.Drafts, capture.Plans, capture.Journal, capture.Mappings, capture.Benches), default);
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         }
         internal async Task CreatePinnedBench(string name)

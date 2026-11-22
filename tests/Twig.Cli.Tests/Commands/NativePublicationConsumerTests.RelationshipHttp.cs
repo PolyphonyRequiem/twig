@@ -95,8 +95,8 @@ public sealed partial class NativePublicationConsumerTests
                     var after = await Snapshot();
                     if (includeVersion) after.Version.ShouldBe(snapshot.Version);
                     after.Drafts.ShouldBe(snapshot.Drafts);
-                    after.Proposals.Select(p => Convert.ToHexString(Twig.Core.Core.ProposalBytes(p)))
-                        .ShouldBe(snapshot.Proposals.Select(p => Convert.ToHexString(Twig.Core.Core.ProposalBytes(p))));
+                    after.Plans.Select(p => Convert.ToHexString(Twig.Core.Core.PlanBytes(p)))
+                        .ShouldBe(snapshot.Plans.Select(p => Convert.ToHexString(Twig.Core.Core.PlanBytes(p))));
                     LinkHttpJournal(after).ShouldBe(LinkHttpJournal(snapshot));
                     var retained = (await store.ReadEditorCapturesAsync(ct)).Value;
                     retained.Length.ShouldBe(captures.Length);
@@ -161,17 +161,17 @@ public sealed partial class NativePublicationConsumerTests
                 other.RelationshipsComplete.ShouldBeTrue();
                 if (title is not null) item.Fields["System.Title"].Text.ShouldBe(title);
                 snapshot.Drafts.ShouldBeEmpty();
-                snapshot.Proposals.Length.ShouldBe(effects);
+                snapshot.Plans.Length.ShouldBe(effects);
                 snapshot.Journal.Length.ShouldBe(effects);
                 snapshot.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified && row.Attempt != Guid.Empty);
                 snapshot.Relationships.Contains(new(outgoing ? item.Key : other.Key, outgoing ? other.Key : item.Key,
                     relation, RelationshipOrigin.Provider)).ShouldBe(!removed);
-                var proposal = snapshot.Proposals.Last();
-                var op = proposal.Operations.Single();
+                var plan = snapshot.Plans.Last();
+                var op = plan.Operations.Single();
                 op.Kind.ShouldBe(OpKind.Batch);
                 op.Item.ShouldBe(item.Key);
                 op.Links.ShouldBe([new(other.Key, relation, outgoing, removed)]);
-                snapshot.Journal.Last().Digest.ShouldBe(proposal.Digest);
+                snapshot.Journal.Last().Digest.ShouldBe(plan.Digest);
                 snapshot.Journal.Last().Receipts.Last().Revision.ShouldNotBeNull().Item.ShouldBe(item.Key);
                 (await store.ReadEditorCapturesAsync(ct)).Value.ShouldAllBe(capture => capture.Settled);
             }
@@ -196,7 +196,7 @@ public sealed partial class NativePublicationConsumerTests
                 operation.Links.ShouldBe([new(other.Key, relation, false, true)]);
                 before.Drafts.ShouldHaveSingleItem().Changes.Count.ShouldBe(0);
                 before.Drafts.Single().Links.ShouldBeEmpty();
-                before.Proposals.ShouldBeEmpty();
+                before.Plans.ShouldBeEmpty();
                 before.Journal.ShouldBeEmpty();
                 before.Relationships.ShouldContain(new Relationship(other.Key, item.Key, relation, RelationshipOrigin.Provider));
                 HumanPatchAttempts.ShouldBe(0);
@@ -218,7 +218,7 @@ public sealed partial class NativePublicationConsumerTests
                 saved["draftRetained"]!.GetValue<bool>().ShouldBeFalse();
                 await AssertEffect(1, relation, false, true);
                 var after = await Snapshot();
-                after.Proposals.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Fields.Count.ShouldBe(0);
+                after.Plans.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem().Fields.Count.ShouldBe(0);
                 var journal = after.Journal.ShouldHaveSingleItem();
                 journal.Receipts.Length.ShouldBe(2);
                 journal.Receipts.ShouldAllBe(receipt => receipt.Attempt == journal.Attempt
@@ -337,7 +337,7 @@ public sealed partial class NativePublicationConsumerTests
             _agentHttpOutput?.WriteLine($"ADO LINK HTTP {scenario}: providerHttp={_transport.TotalRequests}, " +
                 $"patchAttempts={HumanPatchAttempts}, committedWrites={_transport.CommittedWrites}, creates={_transport.PostCount}, " +
                 $"captures={(await store.ReadEditorCapturesAsync(ct)).Value.Length}, " +
-                $"proposals={final.Proposals.Length}, journal={final.Journal.Length}, receipts={final.Journal.Sum(row => row.Receipts.Length)}");
+                $"plans={final.Plans.Length}, journal={final.Journal.Length}, receipts={final.Journal.Sum(row => row.Receipts.Length)}");
         }
         finally
         {

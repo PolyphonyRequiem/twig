@@ -40,7 +40,7 @@ internal sealed class ConnectionWritesCommand(
             if (reconcile)
             {
                 CommandError.Write(renderers, Console.Error, output,
-                    "Unsupported: native reconciliation is retired. Core proposal status is execution authority; inspection cannot settle, replay or clear uncertainty.");
+                    "Unsupported: native reconciliation is retired. Core plan status is execution authority; inspection cannot settle, replay or clear uncertainty.");
                 return exit = 1;
             }
             var normalized = OutputFormats.Normalize(output);
@@ -56,7 +56,7 @@ internal sealed class ConnectionWritesCommand(
             reports = reports.Select(report => report with
             {
                 CanReconcile = false,
-                NextSteps = ["Correlated native transport evidence only. Core proposal status is execution authority; inspection does not settle, replay or clear fences."],
+                NextSteps = ["Correlated native transport evidence only. Core plan status is execution authority; inspection does not settle, replay or clear fences."],
             }).ToArray();
             if (normalized is "json" or "json-full" or "json-compact")
             {
@@ -146,15 +146,15 @@ internal sealed class ConnectionWritesCommand(
                 || intent.Operation < 0 || intent.Method != "POST" || intent.MediaType != "application/json"
                 || intent.RequestHash != Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(intent.Payload))))
                 throw new InvalidOperationException("GitHub transport intent identity/hash is invalid; original uncertainty remains.");
-            var proposal = captured.Value.Proposals.SingleOrDefault(value => value.Digest == intent.Digest);
+            var plan = captured.Value.Plans.SingleOrDefault(value => value.Digest == intent.Digest);
             var journal = captured.Value.Journal.SingleOrDefault(value => value.Digest == intent.Digest && value.Operation == intent.Operation);
-            if (proposal is null || journal is null || journal.Attempt != intent.Attempt
-                || intent.Operation >= proposal.Operations.Length)
+            if (plan is null || journal is null || journal.Attempt != intent.Attempt
+                || intent.Operation >= plan.Operations.Length)
                 throw new InvalidOperationException("GitHub transport intent is not correlated with the original Core digest/ordinal/attempt.");
-            var projected = GitHubWriteIntent.Project(proposal, intent.Operation, intent.Attempt);
+            var projected = GitHubWriteIntent.Project(plan, intent.Operation, intent.Attempt);
             if (!projected.IsSuccess || projected.Value.Payload != intent.Payload
                 || scope!.GraphQlEndpoint.AbsoluteUri != intent.Target)
-                throw new InvalidOperationException("GitHub transport request differs from the retained Core proposal.");
+                throw new InvalidOperationException("GitHub transport request differs from the retained Core plan.");
             var ackPath = file + ".ack";
             var hasAck = files.Contains(ackPath, StringComparer.Ordinal);
             int? status = null;
@@ -178,7 +178,7 @@ internal sealed class ConnectionWritesCommand(
                 ["state"] = RenderCell.String(hasAck ? "correlated-transport-acknowledgement" : "unknown-transport-outcome"),
                 ["statusCode"] = RenderCell.String(status?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? ""),
                 ["coreJournalState"] = RenderCell.String(journal.Status.ToString()),
-                ["authority"] = RenderCell.String("Correlated transport evidence only. Core proposal status is execution authority; no settlement, replay or fence change."),
+                ["authority"] = RenderCell.String("Correlated transport evidence only. Core plan status is execution authority; no settlement, replay or fence change."),
             }));
         }
         if (rows.Count == 0)

@@ -12,7 +12,7 @@ using Twig.Rendering;
 
 namespace Twig.Commands;
 
-/// <summary>Explicit local associations through the existing Core proposal and journal.</summary>
+/// <summary>Explicit local associations through the existing Core plan and journal.</summary>
 internal sealed class LocalRelationshipCommand(
     CoreWorkspaceFactory factory,
     RendererFactory rendererFactory,

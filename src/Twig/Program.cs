@@ -827,7 +827,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 
     // ── Link commands (published work items) ────────────────────────
 
-    /// <summary>Set the parent of an unparented published item through a verified Core proposal.</summary>
+    /// <summary>Set the parent of an unparented published item through a verified Core plan.</summary>
     /// <param name="targetId">Work item ID to set as the parent.</param>
     /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
     /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
@@ -837,7 +837,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> LinkParent([Argument] int targetId, [Argument] int? childId = null, int? id = null, int? child = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().ParentAsync(targetId, id, output, ct, child, childId);
 
-    /// <summary>Remove the one observed native parent through a verified Core proposal.</summary>
+    /// <summary>Remove the one observed native parent through a verified Core plan.</summary>
     /// <param name="childId">Optional positional child ID; conflicts with different --id/--child targets.</param>
     /// <param name="child">Explicit child ID option; conflicts with a different positional child or --id.</param>
     /// <param name="id">Explicit positive child ID; required for all machine output, even when --child is supplied.</param>
@@ -889,7 +889,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     public async Task<int> LinkUnrelate([Argument] int targetId, int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await services.GetRequiredService<LinkCommand>().UnrelateAsync(targetId, id, output, ct);
 
-    /// <summary>Create an explicit LOCAL, non-native Related association through a Verified local CAS proposal. May acquire native metadata/observations; never mutates native links.</summary>
+    /// <summary>Create an explicit LOCAL, non-native Related association through a Verified local CAS plan. May acquire native metadata/observations; never mutates native links.</summary>
     /// <param name="target">Explicit native number, negative seed alias or original canonical lowercase GUIDv7.</param>
     /// <param name="id">Required explicit source, using the same locator forms. No active-item fallback.</param>
     /// <param name="output">-o, Output format: human, json, json-full, json-compact, minimal. Bare ids refused.</param>
@@ -1308,7 +1308,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Prepare a v1 append-comment proposal from fresh qualified native context, without posting, journal import or file writes.</summary>
+    /// <summary>Prepare a v1 append-comment plan from fresh qualified native context, without posting, journal import or file writes.</summary>
     /// <param name="stdin">Read strict version 1 JSON through EOF (required, default false), at most 262144 UTF-8 bytes/depth 32: context, format (plain or markdown), and exact text (at most 16KiB UTF-8). Stale or unqualified context refuses.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal; no ids. Includes native formatted body and canonical digest; effective body limit 64KiB UTF-8.</param>
     /// <param name="ct">Cancellation token. No comment POST, authorization, retry, active-item or current-Bench change.</param>
@@ -1350,7 +1350,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Retain one exact qualified recoverable draft as local proposal intent, never authorize or apply.</summary>
+    /// <summary>Retain one exact qualified recoverable draft as local plan intent, never authorize or apply.</summary>
     /// <param name="stdin">Read one strict version 1 JSON request through EOF (required, default false); maximum 262144 UTF-8 bytes and depth 32. No changes or authorizer may be supplied.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal. JSON reports committed and structured refusals.</param>
     /// <param name="ct">Cancellation token; no retry, rebase, export or remote publication.</param>
@@ -1369,7 +1369,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         => await Task.FromResult(Unsupported(output));
 
     /// <summary>Review the exact effects of one retained native capture without exporting or changing its journal.</summary>
-    /// <param name="digest">Lowercase 64-character SHA-256 digest returned by <c>draft retain</c>; omitted values produce a usage refusal. No proposal file or path is read.</param>
+    /// <param name="digest">Lowercase 64-character SHA-256 digest returned by <c>draft retain</c>; omitted values produce a usage refusal. No plan file or path is read.</param>
     /// <param name="output">-o, Output format: human (default) shows exact nullable field effects and freshness/authority limits; minimal shows digest and effect count; json emits the closed review envelope.</param>
     /// <param name="ct">Cancellation token; no authorization, apply, preview timestamp or journal mutation is performed.</param>
     [Command("draft review")]
@@ -1387,7 +1387,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         bool document = false, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Capture exact recoverable intent locally and export canonical proposal bytes; never authorize or apply.</summary>
+    /// <summary>Capture exact recoverable intent locally and export canonical plan bytes; never authorize or apply.</summary>
     /// <param name="id">Published native work-item ID (required).</param>
     /// <param name="bench">Explicit saved Bench name or ID (required); never selects or switches the current Bench.</param>
     /// <param name="checkoutRoot">Exact native qualified checkout root from inspection (required).</param>
@@ -1796,7 +1796,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default) =>
         Task.FromResult(Unsupported(output));
 
-    /// <summary>Report relationship and fixed proposal mutation capabilities for the active provider; declarations are not write permission. GitHub proposals require explicit observed-non-atomic concurrency. Optionally discover GitHub schema support with a read-only authenticated query.</summary>
+    /// <summary>Report relationship and fixed plan mutation capabilities for the active provider; declarations are not write permission. GitHub plans require explicit observed-non-atomic concurrency. Optionally discover GitHub schema support with a read-only authenticated query.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="githubSchema">Discover GitHub Issue fields, states and relationship schema. Requires the active GitHub provider; does not discover issue-type, label, assignee or milestone values.</param>
     [Command("connection capabilities")]
@@ -1894,7 +1894,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         return Task.FromResult(Unsupported());
     }
 
-    // ── Proposal lifecycle (native, formerly "plan") ──────────────────
+    // ── Plan commands ──────────────────
 
     /// <summary>Assess cached current compliance and explicit repair alternatives. Never mutates ADO.</summary>
     /// <param name="ids">Required comma-separated positive published item IDs (1 to 200); no implicit active item or board-wide claim.</param>
@@ -1903,32 +1903,32 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     internal async Task<int> PolicyAssess(string ids, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Render one explicitly selected policy repair as a native proposal. No authorization or apply.</summary>
+    /// <summary>Render one explicitly selected policy repair as a native plan. No authorization or apply.</summary>
     /// <param name="ids">Required comma-separated assessed positive IDs; include a desired parent and its ancestors.</param>
     /// <param name="evidence">Required evidence digest from policy assess; changed facts/policy refuse.</param>
     /// <param name="finding">Required finding ID from the same assessment.</param>
     /// <param name="strategy">Required strategy ID from that finding; no default material choice.</param>
     /// <param name="parent">Explicit replacement parent ID, only for reparent; default none.</param>
     /// <param name="output">-o, Output format: human (default), json, minimal.</param>
-    /// <param name="proposalOnly">With JSON output, emit only native proposal JSON for redirection to a new file; default false.</param>
+    /// <param name="planOnly">With JSON output, emit only native plan JSON for redirection to a new file; default false.</param>
     [Command("policy reconcile")]
     internal async Task<int> PolicyReconcile(string ids, string evidence, string finding, string strategy,
-        int? parent = null, string output = OutputFormatterFactory.DefaultFormat, bool proposalOnly = false, CancellationToken ct = default)
+        int? parent = null, string output = OutputFormatterFactory.DefaultFormat, bool planOnly = false, CancellationToken ct = default)
         => await Task.FromResult(Unsupported(output));
 
-    /// <summary>Validate a proposal's canonical file format offline. Preview separately checks application evidence; no mutation.</summary>
-    /// <param name="file">Required proposal JSON file inside the current workspace root; Core requires its current format without translating older bytes.</param>
+    /// <summary>Validate a plan's canonical file format offline. Preview separately checks application evidence; no mutation.</summary>
+    /// <param name="file">Required plan JSON file inside the current workspace root; Core requires its current format without translating older bytes.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("proposal validate|plan validate")]
+    [Command("plan validate")]
     public async Task<int> PlanValidate(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.ValidateProposalAsync(file, output, ct);
+            return await core.ValidatePlanAsync(file, output, ct);
         return MissingCore(output);
     }
 
-    /// <summary>Preview a proposal with an optional digest guard. No ADO mutation.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
+    /// <summary>Preview a plan with an optional digest guard. No ADO mutation.</summary>
+    /// <param name="file">Path to the canonical Plan JSON file inside the current workspace root.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     /// <param name="full">Retired; has no effect on preview output.</param>
     /// <param name="interactive">Retired; interactive review is not supported.</param>
@@ -1936,7 +1936,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="width">Retired; has no effect on preview output.</param>
     /// <param name="color">Retired; has no effect on preview output.</param>
     /// <param name="expectDigest">Refuse unless the current canonical digest matches exactly, before import or review.</param>
-    [Command("proposal preview|plan preview")]
+    [Command("plan preview")]
     public async Task<int> PlanPreview(
         string? file = null, string output = OutputFormatterFactory.DefaultFormat, bool full = false,
         bool interactive = false, bool includeRendering = false, int? width = null, string color = "never",
@@ -1947,69 +1947,36 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
             if (interactive || includeRendering)
             {
                 CommandError.Write(new RendererFactory(), Console.Error, output,
-                    "Core interactive proposal presentation is not yet connected in this in-progress cutover.");
+                    "Core interactive plan presentation is not yet connected in this in-progress cutover.");
                 return 1;
             }
-            return await core.PreviewProposalAsync(file, output, ct, expectDigest);
+            return await core.PreviewPlanAsync(file, output, ct, expectDigest);
         }
         return MissingCore(output);
     }
 
-    /// <summary>Show the latest successfully previewed unresolved proposal in the current workspace.</summary>
+    /// <summary>Apply a plan when --confirm &lt;digest&gt; matches the current file digest exactly.</summary>
+    /// <param name="file">Path to the canonical Plan JSON file inside the current workspace root.</param>
+    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical plan bytes. Must match exactly.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("proposal latest")]
-    internal async Task<int> PlanLatest(string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
-
-    /// <summary>Apply a proposal when --confirm &lt;digest&gt; matches the current file digest exactly. Canonical verb is <c>proposal apply</c>; <c>plan apply</c> is a retained deprecated alias.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
-    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical proposal bytes. Must match exactly.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("proposal apply|plan apply")]
+    [Command("plan apply")]
     public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.ApplyProposalAsync(file, confirm, output, ct);
+            return await core.ApplyPlanAsync(file, confirm, output, ct);
         return MissingCore(output);
     }
 
-    /// <summary>Inspect journal states and receipts for an exact proposal digest without applying or settling it; exit 1 when absent.</summary>
-    /// <param name="file">Required proposal JSON file inside the current workspace root; its current canonical digest selects the journal.</param>
+    /// <summary>Inspect journal states and receipts for an exact plan digest without applying or settling it; exit 1 when absent.</summary>
+    /// <param name="file">Required plan JSON file inside the current workspace root; its current canonical digest selects the journal.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("proposal status|plan status")]
+    [Command("plan status")]
     public async Task<int> PlanStatus(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.ProposalStatusAsync(file, output, ct);
+            return await core.PlanStatusAsync(file, output, ct);
         return MissingCore(output);
     }
-
-    /// <summary>Describe a staged seed (identity + fingerprint) for proposal authoring. Canonical verb is <c>proposal seed</c>; <c>plan seed</c> is a retained deprecated alias.</summary>
-    /// <param name="id">Negative display alias of a currently-staged seed.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("proposal seed|plan seed")]
-    internal async Task<int> PlanSeed(int? id = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
-
-    /// <summary>Settle a never-admitted operation as retired, by fresh readback, or as superseded by a Verified replacement. Append-only native receipt; never masquerades as apply success.</summary>
-    /// <param name="file">Path to the proposal v1 JSON file. Must resolve inside the current workspace root.</param>
-    /// <param name="confirm">Lowercase-hex SHA-256 digest of the original canonical proposal bytes the receipt is bound to. Must match the journalled digest exactly.</param>
-    /// <param name="operation">Op id of the original journalled operation being settled.</param>
-    /// <param name="outcome">Outcome kind: retire | readback | supersede.</param>
-    /// <param name="replacementDigest">For --outcome supersede only: canonical digest of the replacement proposal.</param>
-    /// <param name="replacementOperation">For --outcome supersede only: op id of the Verified replacement operation.</param>
-    /// <param name="output">-o, Output format: human, json, minimal.</param>
-    [Command("proposal reconcile")]
-    internal async Task<int> PlanReconcile(
-        string? file = null,
-        string? confirm = null,
-        string? operation = null,
-        string? outcome = null,
-        string? replacementDigest = null,
-        string? replacementOperation = null,
-        string output = OutputFormatterFactory.DefaultFormat,
-        CancellationToken ct = default)
-        => await Task.FromResult(Unsupported(output));
 
     /// <summary>Inspect captured typed draft fields, original baselines and seed relationships in retained draft order. Read-only.</summary>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
@@ -2251,25 +2218,15 @@ internal static class GroupedHelp
         "area list",
         "area sync",
 
-        // Proposal lifecycle (native, formerly "plan"). Legacy `plan <verb>` entries
-        // stay registered so the alias resolves in grouped help and SubcommandGuard.
-        "proposal",
+        // Plan commands
         "policy",
         "policy assess",
         "policy reconcile",
-        "proposal validate",
-        "proposal latest",
-        "proposal preview",
-        "proposal apply",
-        "proposal status",
-        "proposal seed",
-        "proposal reconcile",
         "plan",
         "plan validate",
         "plan preview",
         "plan apply",
         "plan status",
-        "plan seed",
         "pending",
 
         // Group prefixes for compound commands without standalone handlers

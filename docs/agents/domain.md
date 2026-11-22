@@ -15,7 +15,7 @@ are resolved.
 
 ## Vocabulary and decisions
 
-Use glossary terms consistently in tickets, proposals, code and tests. Reconsider
+Use glossary terms consistently in tickets, plans, code and tests. Reconsider
 invented synonyms; note genuine terminology gaps for domain modeling.
 
 Surface any conflict with an existing ADR explicitly rather than silently

@@ -80,7 +80,6 @@ internal static class SubcommandGuard
         "ohmyposh",
         "plan",
         "policy",
-        "proposal",
         "skills",
         "workspace sprint",
         "link local",

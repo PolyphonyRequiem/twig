@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using Twig.Commands;
+using Twig.Core;
 using Twig.DependencyInjection;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Persistence;
@@ -29,7 +30,7 @@ public sealed partial class NativePublicationConsumerTests
                 System.Text.RegularExpressions.RegexOptions.Multiline).ShouldBeFalse("inspect raw CAF declarations, not a filtered presentation");
             catalog.ToString().ShouldContain("auth login");
             catalog.ToString().ShouldContain("connection status");
-            catalog.ToString().ShouldContain("proposal apply");
+            catalog.ToString().ShouldContain("plan apply");
         }
         finally { Console.SetOut(previous); }
     }
@@ -39,7 +40,7 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("query", "--title", "never read")]
     [InlineData("pending")]
     [InlineData("seed", "view")]
-    [InlineData("proposal", "status", "--file", "never-open.json")]
+    [InlineData("plan", "status", "--file", "never-open.json")]
     [InlineData("bench", "sources")]
     [InlineData("bench", "planning", "refresh")]
     [InlineData("workspace", "area", "add", "Project\\Area")]
@@ -137,7 +138,11 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("draft save")]
     [InlineData("connection reconcile-write")]
     [InlineData("connection migrate")]
-    [InlineData("proposal latest")]
+    [InlineData("plan latest")]
+    [InlineData("proposal validate")]
+    [InlineData("proposal preview")]
+    [InlineData("proposal apply")]
+    [InlineData("proposal status")]
     [InlineData("policy assess")]
     public void ClosedCatalogRefusesRetiredCafRoutesBeforeComposition(string route)
     {
@@ -210,11 +215,42 @@ public sealed partial class NativePublicationConsumerTests
             (await root.TreeSet(output: "json")).ShouldBe(1);
             (await root.History(42, output: "json")).ShouldBe(1);
             (await root.Mcp()).ShouldBe(1);
-            (await root.PlanLatest(output: "json")).ShouldBe(1);
             (await root.ConnectionReconcileWrite(output: "json")).ShouldBe(1);
             provider.DidNotReceive().GetService(Arg.Any<Type>());
         }
         finally { Console.SetError(oldError); }
+    }
+
+    [Fact]
+    public void InstalledPlanHelpListsOnlyCanonicalRoutesAndPrintsAParseableSeedPlan()
+    {
+        using var output = new StringWriter();
+        var prior = Console.Out;
+        var priorExit = Environment.ExitCode;
+        var run = Twig.TwigConsoleApp.CreateRunner(_ => { });
+        try
+        {
+            Console.SetOut(output);
+            Environment.ExitCode = 0;
+            ProgressiveHelp.TryShow(["plan", "--help"], run).ShouldBeTrue();
+            Environment.ExitCode.ShouldBe(0);
+            foreach (var verb in new[] { "validate", "preview", "apply", "status" })
+                output.ToString().ShouldContain($"plan {verb}");
+            output.ToString().ShouldNotContain("proposal");
+            output.ToString().ShouldNotContain("plan seed");
+            output.GetStringBuilder().Clear();
+            ProgressiveHelp.TryShow(["plan", "validate", "--help"], run).ShouldBeTrue();
+            Environment.ExitCode.ShouldBe(0);
+            using var example = JsonDocument.Parse(output.ToString().Split('\n').Single(line => line.StartsWith('{')));
+            var plan = CorePlanFiles.Parse(example.RootElement);
+            plan.Operations.ShouldHaveSingleItem().Kind.ShouldBe(OpKind.Create);
+            plan.Operations[0].Item.IsLocal.ShouldBeTrue();
+        }
+        finally
+        {
+            Console.SetOut(prior);
+            Environment.ExitCode = priorExit;
+        }
     }
 
     [Fact]

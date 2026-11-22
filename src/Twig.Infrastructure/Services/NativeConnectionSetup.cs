@@ -1,4 +1,6 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Twig.Core;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
@@ -19,6 +21,7 @@ public sealed record NativeAdoSetupTarget(string Organization, string Project, s
     string? Team = null, string? GitProject = null) : NativeSetupTarget;
 public sealed record NativeGitHubSetupTarget(string Host, string Repository, string Account) : NativeSetupTarget;
 public sealed record NativeGitHubAppSetupTarget(string Host, string Repository, string Identity, string ClientId) : NativeSetupTarget;
+public sealed record NativeGitHubAccount(string Login, bool Active);
 public sealed record NativeTwigSetupTarget(string Database) : NativeSetupTarget;
 public sealed record NativeFreshSetupRequest(string WorkspaceRoot, NativeSetupTarget Target, string? StoreFile = null);
 public sealed record NativeManagedSetupResult(string WorkspaceRoot, NativeSourceObservation Observation);
@@ -52,6 +55,8 @@ public sealed partial class NativeConnectionSetup
     private readonly Func<LoopbackPkceFlow> pkce;
     private readonly CoreTransportOverride? transport;
     private readonly IBoundedProcessRunner? processes;
+    private static readonly string[] GitHubTokenVariables =
+        ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"];
     private readonly string? managedRoot;
 
     public NativeConnectionSetup(string metadataHome)
@@ -194,6 +199,57 @@ public sealed partial class NativeConnectionSetup
         catch (Exception ex) when (NativeSetupEffects.IsExpected(ex)) { return effects.Exception<NativeManagedSetupResult>(ex); }
     }
 
+    public async Task<Result<NativeGitHubAccount[]>> ListGitHubAccountsAsync(CancellationToken ct)
+    {
+        const string host = "github.com";
+        var status = await (processes ?? new BoundedProcessRunner()).RunAsync("gh",
+            ["auth", "status", "--hostname", host, "--json", "hosts", "--no-refresh"],
+            TimeSpan.FromSeconds(15), 64 * 1024, ct, GitHubTokenVariables).ConfigureAwait(false);
+        if (status.Outcome == BoundedProcessOutcome.NotStarted)
+            return Result<NativeGitHubAccount[]>.Fail(ErrorCode.Unavailable, "Install GitHub CLI on the Twig daemon host, then refresh.");
+        if (status.Outcome != BoundedProcessOutcome.Exited || status.ExitCode != 0)
+            return Result<NativeGitHubAccount[]>.Fail(ErrorCode.Unavailable,
+                "GitHub CLI account discovery did not complete. Use a gh version that supports auth status --json and --no-refresh, then refresh.");
+
+        try
+        {
+            using var json = JsonDocument.Parse(status.StandardOutput);
+            var hosts = json.RootElement.GetProperty("hosts");
+            if (!hosts.TryGetProperty(host, out var accounts))
+                return Result<NativeGitHubAccount[]>.Ok([]);
+            var usable = new Dictionary<string, NativeGitHubAccount>(StringComparer.OrdinalIgnoreCase);
+            var verificationFailed = false;
+            foreach (var account in accounts.EnumerateArray())
+            {
+                var state = account.GetProperty("state").GetString();
+                if (state != "success")
+                {
+                    var rejected = state == "refresh_expired" || state == "error"
+                        && account.TryGetProperty("error", out var detail)
+                        && detail.GetString()?.StartsWith("HTTP 401", StringComparison.Ordinal) == true;
+                    verificationFailed |= !rejected;
+                    continue;
+                }
+                var login = account.GetProperty("login").GetString();
+                if (login is null || !IsGitHubLogin(login)) continue;
+                var active = account.GetProperty("active").GetBoolean();
+                if (active || !usable.ContainsKey(login)) usable[login] = new(login, active);
+            }
+            if (usable.Count == 0 && verificationFailed)
+                return Result<NativeGitHubAccount[]>.Fail(ErrorCode.Unavailable,
+                    "GitHub CLI could not verify signed-in accounts. Check your connection to GitHub, then refresh.");
+            return Result<NativeGitHubAccount[]>.Ok(usable.Values.OrderByDescending(account => account.Active)
+                .ThenBy(account => account.Login, StringComparer.OrdinalIgnoreCase).ToArray());
+        }
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
+        {
+            return Result<NativeGitHubAccount[]>.Fail(ErrorCode.Unavailable, "GitHub CLI returned an unreadable account list. Update gh, then refresh.");
+        }
+    }
+
+    public static bool IsGitHubLogin(string login) =>
+        login.Length <= 39 && Regex.IsMatch(login, @"\A[A-Za-z0-9][A-Za-z0-9-]*(?:_[A-Za-z0-9]+)?\z", RegexOptions.CultureInvariant);
+
     internal static async Task<Result<NativeGitHubSetupTarget>> ResolveManagedGitHubAccountAsync(
         NativeGitHubSetupTarget target, IBoundedProcessRunner runner, CancellationToken ct)
     {
@@ -202,10 +258,9 @@ public sealed partial class NativeConnectionSetup
         if (target.Account.Length != 0) return Result<NativeGitHubSetupTarget>.Ok(target);
         var account = await runner.RunAsync("gh", ["api", "--hostname", target.Host, "user", "--jq", ".login"],
             TimeSpan.FromSeconds(10), 256, ct,
-            ["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]).ConfigureAwait(false);
+            GitHubTokenVariables).ConfigureAwait(false);
         if (account.Outcome != BoundedProcessOutcome.Exited || account.ExitCode != 0
-            || !System.Text.RegularExpressions.Regex.IsMatch(account.StandardOutput.Trim(),
-                @"\A[A-Za-z0-9][A-Za-z0-9-]{0,38}\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+            || !IsGitHubLogin(account.StandardOutput.Trim()))
             return Result<NativeGitHubSetupTarget>.Fail(ErrorCode.Unavailable,
                 "The signed-in GitHub CLI account could not be verified. Sign in through gh and add the connection again; no account was switched.");
         return Result<NativeGitHubSetupTarget>.Ok(target with { Account = account.StandardOutput.Trim() });

@@ -1501,17 +1501,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
-        var workspace = handle.Workspace;
-        var snapshot = await workspace.SnapshotAsync(ct);
-        if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var draft = plan.Operations.Length == 1 ? snapshot.Value.RetainedItems.FirstOrDefault(d =>
-            d.Key == plan.Operations[0].Item && d.Fields.Equals(plan.Operations[0].Fields)
-            && (plan.Operations[0].Kind != OpKind.Create || (d as Seed)?.Parent == plan.Operations[0].Other
-                && (d as Seed)?.ParentRelation == plan.Operations[0].Relation && (d as Seed)?.Resource == plan.Operations[0].Resource
-                && ((d as Seed)?.Links ?? []).SequenceEqual(plan.Operations[0].Links))
-            && (d.Key.IsLocal || (d as LocalEdits)?.EditBaseline?.Revision == plan.Operations[0].ExpectedRevision)) : null;
-        var applied = draft is null ? await workspace.ApplyAsync(plan, ct)
-            : await workspace.SaveDraftAsync(new(draft, plan), ct);
+        var applied = await handle.Workspace.ApplyFilePlanAsync(plan, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
         if (!applied.Value.EffectsVerified) return Error(output, "The plan has an unresolved effect; no blind replay was performed.");

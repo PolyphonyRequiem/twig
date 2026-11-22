@@ -266,7 +266,7 @@ public sealed class NativePlanReview
                             return Result<NativePlanOutcome>.Ok(await Outcome(saved.IsSuccess ? saved.Value.Error
                                 ?? new(ErrorCode.Indeterminate, "Core effects or draft settlement remain unconfirmed.") : saved.Error, ct).ConfigureAwait(false));
                     }
-                    var delivered = await Deliver(scope, factory, ct).ConfigureAwait(false);
+                    var delivered = await Deliver(scope, handle.Workspace, factory, ct).ConfigureAwait(false);
                     if (!delivered.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(delivered.Error, ct).ConfigureAwait(false));
                     if (!delivered.Value)
                         return Result<NativePlanOutcome>.Ok(await Outcome(new(ErrorCode.Indeterminate,
@@ -318,65 +318,31 @@ public sealed class NativePlanReview
         return Result<bool>.Ok(true);
     }
 
-    private async Task<Result<bool>> Deliver(NativePlanReviewScope scope, CoreWorkspaceFactory factory, CancellationToken ct)
+    private async Task<Result<bool>> Deliver(NativePlanReviewScope scope, CoreWorkspace workspace, CoreWorkspaceFactory factory, CancellationToken ct)
     {
-        var snapshot = await Snapshot(scope.Scope, ct).ConfigureAwait(false);
-        if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
         var plan = scope.Plan is null ? null : Parse(scope.Plan);
-        var verified = plan?.Operations.Select((op, ordinal) => (op, ordinal)).Where(value =>
-            snapshot.Value.Journal.Any(row => row.Digest == plan.Digest && row.Operation == value.ordinal
-                && row.Status == OpStatus.Verified)).Select(value => value.op).ToImmutableArray() ?? [];
-        var deliveredCaptures = scope.Captures.Select((capture, ordinal) => (capture, ordinal)).Where(value =>
-            scope.Previews[value.ordinal].Length == 0 || verified.Any(op => op.Item == Parse(value.capture.IntentJson).Operations.Single().Item))
-            .Select(value => value.capture).ToImmutableArray();
-        if (deliveredCaptures.IsEmpty)
-            return Result<bool>.Fail(ErrorCode.Indeterminate, "No original Verified effect or converged local settlement is available. Delivery never dispatches or guesses an outcome.");
-        var openedScope = await factory.OpenScopedAsync(scope.Scope, scope.Scope.Source, ct).ConfigureAwait(false);
-        if (!openedScope.IsSuccess) return Result<bool>.Fail(openedScope.Error);
-        using var scopeHandle = openedScope.Value;
-        if (plan is not null && !verified.IsEmpty)
-        {
-            var settled = await scopeHandle.Workspace.SettleVerifiedDraftsAsync(plan, deliveredCaptures.Where(capture =>
-                verified.Any(op => op.Item == Parse(capture.IntentJson).Operations.Single().Item)).Select(capture =>
-                new NativeVerifiedDraftReference(Parse(capture.IntentJson).Operations.Single().Item, capture.DraftFingerprint)).ToImmutableArray(), ct).ConfigureAwait(false);
-            if (!settled.IsSuccess) return Result<bool>.Fail(settled.Error);
-        }
-        var converged = deliveredCaptures.Where(capture => !verified.Any(op => op.Item == Parse(capture.IntentJson).Operations.Single().Item)).ToArray();
-        if (converged.Length != 0)
-        {
-            var pending = ImmutableArray.CreateBuilder<CoreDraftPreview>();
-            foreach (var capture in converged)
-            {
-                var key = Parse(capture.IntentJson).Operations.Single().Item;
-                var draft = snapshot.Value.RetainedItems.SingleOrDefault(value => value.Key == key);
-                if (draft is null) continue;
-                if (CoreWorkspace.Fingerprint(scope.Scope.Source.Connection, draft) != capture.DraftFingerprint)
-                    return Result<bool>.Fail(ErrorCode.Conflict, "Converged local settlement cannot consume changed Plan intent.");
-                pending.Add(new(draft, null));
-            }
-            if (pending.Count != 0)
-            {
-                // These immutable per-item previews contain no Core effects; this path only settles freshly converged local intent.
-                var settled = await scopeHandle.Workspace.SaveDraftSetAsync(pending, null, ct).ConfigureAwait(false);
-                if (!settled.IsSuccess) return Result<bool>.Fail(settled.Error);
-                if (settled.Value.DraftRetained || settled.Value.Error is not null)
-                    return Result<bool>.Fail(settled.Value.Error ?? new(ErrorCode.Conflict, "Local no-effect settlement remains pending."));
-            }
-        }
+        var captures = scope.Captures.Select(capture => (Capture: capture,
+            Key: Parse(capture.IntentJson).Operations.Single().Item)).ToImmutableArray();
+        var recovered = await workspace.RecoverPlanDraftsAsync(plan, captures.Select((value, ordinal) =>
+            new CorePlanDeliveryCapture(new(value.Key, value.Capture.DraftFingerprint),
+                scope.Previews[ordinal].Length == 0)).ToImmutableArray(), ct).ConfigureAwait(false);
+        if (!recovered.IsSuccess) return Result<bool>.Fail(recovered.Error);
+        var evidence = recovered.Value;
+        var deliveredCaptures = captures.Where(value => evidence.DeliveredKeys.Contains(value.Key))
+            .Select(value => value.Capture).ToImmutableArray();
         var opened = await factory.OpenAsync(ct).ConfigureAwait(false);
         if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
         using var origin = opened.Value;
         if (origin.Source != scope.Scope.Source)
             return Result<bool>.Fail(ErrorCode.Conflict, "The original delivery source changed; verified effects remain protected.");
-        var pins = plan is null ? Result<ImmutableArray<Selector>>.Ok([])
-            : await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, plan, verified, origin.Workspace, ct).ConfigureAwait(false);
+        var pins = await NativeVerifiedDelivery.ReadbackAsync(evidence.Targets, origin.Workspace, ct).ConfigureAwait(false);
         if (!pins.IsSuccess) return Result<bool>.Fail(pins.Error);
         var bench = await NativeVerifiedDelivery.AddPinsAsync(user, reference.Document.UserInstance, BenchId, pins.Value, ct).ConfigureAwait(false);
         if (!bench.IsSuccess) return Result<bool>.Fail(bench.Error);
         var settledCaptures = await NativeVerifiedDelivery.SettleCapturesAsync(user, BenchId, bench.Value.Revision,
             deliveredCaptures, ct).ConfigureAwait(false);
         if (!settledCaptures.IsSuccess) return Result<bool>.Fail(settledCaptures.Error);
-        return Result<bool>.Ok(plan is null || verified.Length == plan.Operations.Length);
+        return Result<bool>.Ok(evidence.AllEffectsVerified);
     }
 
     private async Task<NativePlanOutcome> Outcome(Error? error, CancellationToken ct)
@@ -388,14 +354,15 @@ public sealed class NativePlanReview
         {
             var snapshot = await Snapshot(scope.Scope, ct).ConfigureAwait(false);
             if (!snapshot.IsSuccess) { error ??= snapshot.Error; continue; }
-            if (scope.Plan is not null && Verified(snapshot.Value, Parse(scope.Plan)))
+            if (scope.Plan is null) continue;
+            var plan = Parse(scope.Plan);
+            var count = CoreWorkspace.VerifiedPlanOperations(snapshot.Value, plan).Length;
+            if (count == plan.Operations.Length)
             {
                 verified++;
                 deliveryPending |= reference.Document.Scopes.IndexOf(scope) >= reference.Delivered;
             }
-            if (scope.Plan is not null)
-                verifiedOperations += Parse(scope.Plan).Operations.Select((_, ordinal) => snapshot.Value.Journal.Any(row =>
-                    row.Digest == Parse(scope.Plan).Digest && row.Operation == ordinal && row.Status == OpStatus.Verified)).Count(value => value);
+            verifiedOperations += count;
         }
         var complete = reference.Delivered == reference.Document.Scopes.Length
             && verified == reference.Document.Scopes.Count(scope => scope.Plan is not null) && error is null;
@@ -404,8 +371,6 @@ public sealed class NativePlanReview
             reference.Document.Scopes.Length - reference.Delivered, verifiedOperations, Operations.Length - verifiedOperations, error);
     }
 
-    private static bool Verified(StoreSnapshot snapshot, Plan plan)
-        => NativeVerifiedDelivery.Verified(snapshot, plan);
     private static async Task<Result<StoreSnapshot>> Snapshot(NativePlanScope scope, CancellationToken ct)
     {
         var store = await SqliteStore.OpenAsync(scope.DatabasePath, ct, scope.StoreInstance).ConfigureAwait(false);

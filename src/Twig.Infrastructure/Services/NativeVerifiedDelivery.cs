@@ -7,32 +7,18 @@ namespace Twig.Infrastructure.Services;
 internal static class NativeVerifiedDelivery
 {
     internal static bool Verified(StoreSnapshot snapshot, Plan plan)
-        => snapshot.Plans.Any(current => current.Digest == plan.Digest)
-            && plan.Operations.Select((_, ordinal) => snapshot.Journal.Any(row =>
-                row.Digest == plan.Digest && row.Operation == ordinal && row.Status == OpStatus.Verified)).All(value => value);
+        => CoreWorkspace.VerifiedPlanOperations(snapshot, plan).Length == plan.Operations.Length;
 
-    internal static async Task<Result<ImmutableArray<Selector>>> ReadbackAsync(StoreSnapshot snapshot,
-        Plan plan, ImmutableArray<Op> verified, CoreWorkspace origin, CancellationToken ct)
+    internal static async Task<Result<ImmutableArray<Selector>>> ReadbackAsync(
+        ImmutableArray<CoreVerifiedDeliveryTarget> targets, CoreWorkspace origin, CancellationToken ct)
     {
         var pins = ImmutableArray.CreateBuilder<Selector>();
-        foreach (var op in verified)
+        foreach (var target in targets)
         {
-            var ordinal = plan.Operations.IndexOf(op);
-            if (ordinal < 0 || !snapshot.Plans.Any(value => value.Digest == plan.Digest)
-                || !snapshot.Journal.Any(row => row.Digest == plan.Digest && row.Operation == ordinal
-                    && row.Status == OpStatus.Verified))
-                return Result<ImmutableArray<Selector>>.Fail(ErrorCode.Indeterminate, "Only original Verified journal operations can be delivered.");
-            var key = op.Item;
-            if (key.IsLocal)
-            {
-                var mapping = snapshot.Mappings.SingleOrDefault(value => value.Local == key && value.PlanDigest == plan.Digest);
-                if (mapping is null)
-                    return Result<ImmutableArray<Selector>>.Fail(ErrorCode.Indeterminate, "The attributable Verified seed mapping is unavailable.");
-                key = mapping.Remote;
-                pins.Add(new(SelectorKind.Pin, key, connection: plan.Connection));
-            }
-            var read = await origin.ReadAsync(key, ct).ConfigureAwait(false);
+            var read = await origin.ReadAsync(target.Key, ct).ConfigureAwait(false);
             if (!read.IsSuccess) return Result<ImmutableArray<Selector>>.Fail(read.Error);
+            if (target.PublishedSeed)
+                pins.Add(new(SelectorKind.Pin, target.Key, connection: origin.Connection));
         }
         return Result<ImmutableArray<Selector>>.Ok(pins.ToImmutable());
     }

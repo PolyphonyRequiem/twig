@@ -40,10 +40,15 @@ public static partial class NativeBenchHost
     private static void MapSeeds(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
         Func<HttpContext, Guid, Task<ViewSession>> authorize)
     {
-        app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/seeds", async (HttpContext http, Guid id, Guid bench) =>
+        app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/seeds",
+            (HttpContext http, Guid id, Guid bench) => Read(http, id, bench, null));
+        app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/sources/{sourceId:guid}/seeds",
+            (HttpContext http, Guid id, Guid bench, Guid sourceId) => Read(http, id, bench, sourceId));
+
+        async Task Read(HttpContext http, Guid id, Guid bench, Guid? sourceId)
         {
             var session = await authorize(http, id);
-            await Bound(http, session, null, bench, async (source, ct) =>
+            await Bound(http, session, sourceId, bench, async (source, ct) =>
             {
                 var seeds = SeedRequired(await panel.ReadSeedsAsync(source, bench, ct));
                 foreach (var seed in seeds.Seeds) SeedDenial(seed.Publication?.Error);
@@ -62,23 +67,31 @@ public static partial class NativeBenchHost
                     seeds.Seeds.Select(seed => new OwnedSeedDto(ViewMapping.Key(new(source.Source.Id, seed.Item)),
                         seed.Item.LocalId.ToString("D"), seed.CaptureId, seed.Ready, seed.Draft is not null,
                         seed.Publication is null ? null : SeedPublication(seed.Publication, source))).ToArray(), source.Stamp.StoreInstance));
-            });
-        });
+            }, useEditor: false);
+        }
+
         app.MapPost("/api/v1/views/{id:guid}/editor/seed", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
             var body = await Body<NormalSeedCreateBody>(http);
-            if (body.Type.Length is < 1 or > 256) throw new HttpFailure(400, "InvalidInput", "Choose an explicit connected type reference.");
-            CancelEditor(session);
+            if (body.Type is not { Length: >= 1 and <= 256 })
+                throw new HttpFailure(400, "InvalidInput", "Choose an explicit connected type reference.");
             await Bound(http, session, body.SourceId, body.BenchId, async (source, ct) =>
             {
                 var form = SeedRequired(await panel.EditorOperationAsync(source, async token =>
                 {
                     var state = session.Editor;
-                    state.Native?.Dispose(); state.Native = null;
-                    state.Native = SeedEditor(await panel.OpenEditorAsync(source, body.BenchId, token));
-                    state.Context = source; state.Bench = body.BenchId;
-                    return SeedRequired(await state.Native.CreateSeedAsync(body.Type, token));
+                    var editor = SeedEditor(await panel.OpenEditorAsync(source, body.BenchId, token));
+                    try
+                    {
+                        var created = SeedRequired(await editor.CreateSeedAsync(body.Type, token));
+                        token.ThrowIfCancellationRequested();
+                        state.Native?.Dispose();
+                        state.Native = editor; state.Ticket = Guid.Empty; state.NormalSeed = false;
+                        state.Context = source; state.Bench = body.BenchId;
+                        return created;
+                    }
+                    finally { if (!ReferenceEquals(state.Native, editor)) editor.Dispose(); }
                 }, ct));
                 session.Editor.Ticket = form.Ticket; session.Editor.Type = form.Type; session.Editor.NormalSeed = true;
                 session.Editor.Item = form.Item;
@@ -116,7 +129,6 @@ public static partial class NativeBenchHost
                 if (result.Error?.Code == ErrorCode.Conflict)
                     using (SeedEditor(await panel.OpenEditorAsync(source, bench, ct))) { }
                 SeedDenial(result.Error);
-                session.Editor.Native?.Dispose(); session.Editor.Native = null; session.Editor.Ticket = Guid.Empty;
                 session.Plan.Invalidate();
                 if (digest is not null) updates.Publish(0);
                 ct.ThrowIfCancellationRequested();
@@ -125,31 +137,40 @@ public static partial class NativeBenchHost
         }
 
         async Task Bound(HttpContext http, ViewSession session, Guid? sourceId, Guid bench,
-            Func<NativePanelContext, CancellationToken, Task> action)
+            Func<NativePanelContext, CancellationToken, Task> action, bool useEditor = true)
         {
             var state = session.Editor;
             CancellationToken navigation;
             lock (state) navigation = state.Navigation.Token;
             using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(http.RequestAborted, navigation);
-            await state.Gate.WaitAsync(lifetime.Token);
+            if (useEditor) await state.Gate.WaitAsync(lifetime.Token);
             try
             {
-                var source = Context(session);
+                NativePanelContext source;
                 lock (session)
-                    if (sourceId is { } id && !session.DisplayContexts.Values.Any(value => value.Source.Id == id && value == source))
-                        throw new HttpFailure(409, "ContextRequired", "Use the exact viewing connection to create an item.");
+                    source = sourceId is { } id
+                        ? session.DisplayContexts.Values.SingleOrDefault(value => value.Source.Id == id)
+                            ?? throw new HttpFailure(409, "ContextRequired", "The requested connection is not admitted in this view.")
+                        : Context(session);
                 if (source.Stamp.Connection.Provider.Value != "ado")
-                    throw new HttpFailure(422, "Unsupported", "Item creation requires the selected ADO connection; GitHub creation is unsupported.");
+                    throw new HttpFailure(422, "Unsupported", "Item creation requires an admitted Azure DevOps connection.");
                 if (SeedRequired(await panel.ReadPlanAsync(bench, lifetime.Token)).Enabled
                     || session.CurrentBenchId != bench)
                     throw new HttpFailure(409, "Conflict", "Choose this exact Bench in normal mode before continuing its item creation.");
+                lock (session)
+                    if (session.CurrentBenchId != bench || sourceId is not null
+                        && !session.DisplayContexts.Values.Contains(source))
+                        throw new HttpFailure(409, "ContextRequired", "The Bench or requested connection changed.");
                 lifetime.Token.ThrowIfCancellationRequested();
                 await action(source, lifetime.Token);
             }
             finally
             {
-                if (state.Retired) { state.Native?.Dispose(); state.Native = null; }
-                state.Gate.Release();
+                if (useEditor)
+                {
+                    if (state.Retired) { state.Native?.Dispose(); state.Native = null; }
+                    state.Gate.Release();
+                }
             }
         }
     }

@@ -280,8 +280,12 @@ public static partial class NativeBenchHost
                 currentBench = RepositoryBench(sessions, session, repository, shared, retained);
             else if (repository is null && session.AppliedChoices is { } previous && previous.BenchId != retained)
                 currentBench = retained;
+            var preferredViewing = sameScope && before.Choices.ViewingRoot is { } viewingRoot
+                ? opened.GetValueOrDefault(viewingRoot) : null;
+            var restoredDisplay = preferredViewing is null ? opened.Values.AsEnumerable() : opened.Values
+                .Where(source => source.Stamp.Connection != preferredViewing.Stamp.Connection).Append(preferredViewing);
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
-                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cached)).ToArray()
+                ? Require(await panel.ResolveConnectionsAsync(selected, restoredDisplay, ct, available, cached)).ToArray()
                 : [];
             var instance = shared.InstanceId;
             if (instance != session.CatalogId)
@@ -354,12 +358,12 @@ public static partial class NativeBenchHost
         }
         var viewing = captured.Viewing is { } anchor && bench.Connections.Contains(anchor.Stamp.Connection) ? await Keep(anchor) : null;
         var add = viewing is not null && ReferenceEquals(viewing, captured.Add) ? viewing : await Keep(captured.Add);
-        var refused = new[] { (Prior: captured.Viewing, Kept: viewing), (Prior: captured.Add, Kept: add) }
-            .Where(choice => choice.Prior is not null && choice.Kept is null)
-            .Select(choice => choice.Prior!.Stamp.Connection).ToHashSet();
-        var permitted = bench.Connections.Where(connection => !refused.Contains(connection)
+        var permitted = bench.Connections.Where(connection => !(captured.Viewing?.Stamp.Connection == connection && viewing is null)
             && available?.Contains(connection) != false).ToHashSet();
-        var previous = captured.Display.Where(source => permitted.Contains(source.Stamp.Connection));
+        var previous = captured.Display.Where(source => permitted.Contains(source.Stamp.Connection)
+            && source.Stamp.Connection != viewing?.Stamp.Connection
+            && (!ReferenceEquals(source, captured.Add) || add is not null));
+        if (viewing is not null) previous = previous.Append(viewing);
         var resolved = Require(await panel.ResolveConnectionsAsync(bench.Id, previous, ct, permitted,
             cachedAdmissionOnly: captured.Repository is not null)).ToArray();
         return (resolved.FirstOrDefault(source => ReferenceEquals(source, viewing)), add, resolved);

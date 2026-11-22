@@ -243,26 +243,25 @@ public static partial class NativeBenchHost
                     if (latest.InstanceId != shared.InstanceId
                         || (target is not null && latest.Benches.SingleOrDefault(bench => bench.Id == target.Id)?.Revision != target.Revision))
                         throw SelectionChanged();
-                    var current = CaptureSelection(session);
-                    if (!captured.Matches(current))
-                    {
-                        // Only the provisional startup selection may move underneath an explicit choice.
-                        if (captured.StartupResolved || !current.StartupResolved
-                            || captured.ExplicitRevision != current.ExplicitRevision
-                            || !ReferenceEquals(captured.Repository, current.Repository))
-                            throw SelectionChanged();
-                        captured = current;
-                        continue;
-                    }
-                    session.Agent.Invalidate();
-                    CancelEditor(session);
-                    session.Setup.Invalidate();
-                    sessions.CommitSelection(session, before, body.BenchId, choices.Viewing, choices.Add, choices.Display, () =>
+                    var current = captured;
+                    if (sessions.TryCommitSelection(session, before, body.BenchId, choices.Viewing, choices.Add, choices.Display, () =>
                     {
                         _ = sessions.Content(id, Bearer(context), true);
-                        if (!captured.Matches(CaptureSelection(session))) throw SelectionChanged();
-                    });
-                    break;
+                        current = CaptureSelection(session);
+                        return captured.Matches(current);
+                    }))
+                    {
+                        session.Agent.Invalidate();
+                        CancelEditor(session);
+                        session.Setup.Invalidate();
+                        break;
+                    }
+                    // Only the provisional startup selection may move underneath an explicit choice.
+                    if (captured.StartupResolved || !current.StartupResolved
+                        || captured.ExplicitRevision != current.ExplicitRevision
+                        || !ReferenceEquals(captured.Repository, current.Repository))
+                        throw SelectionChanged();
+                    captured = current;
                 }
                 finally { session.RepositoryGate.Release(); }
             }

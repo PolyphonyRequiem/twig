@@ -33,6 +33,7 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
         ExplicitSelectionRevision++;
     }
     internal bool StartupSelectionResolved { get; set; }
+    internal Guid? StandaloneBenchId { get; set; }
     internal Guid? CurrentBenchId
     {
         get => currentBenchId;
@@ -373,7 +374,8 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                 if (existing is { Canvas: true, OwnerAuthenticated: false } && existing.Expires > time.GetUtcNow())
                     return (ConnectOwnerCore(instance, existing.Id, body.ProfileId, explicitConnect: false), true);
                 if (existing is not null) { Retire(existing); sessions.Remove(existing.Id); }
-                var connection = ConnectOwnerCore(instance, null, body.ProfileId, explicitConnect: false,
+                var replacement = existing?.RuntimeContext is { } runtime ? RegisterNativeCanvas(instance, runtime).ViewId : (Guid?)null;
+                var connection = ConnectOwnerCore(instance, replacement, body.ProfileId, explicitConnect: false,
                     existing is { OwnerAuthenticated: true } ? existing.ProfileGeneration : null);
                 return (connection, true);
             }
@@ -401,7 +403,8 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     public NativeViewStateInfo SaveState(ViewSession session, NativeViewStateBody body)
         => SaveState(session, body, null);
 
-    private NativeViewStateInfo SaveState(ViewSession session, NativeViewStateBody body, NativePanelContext[]? exactContexts)
+    private NativeViewStateInfo SaveState(ViewSession session, NativeViewStateBody body, NativePanelContext[]? exactContexts,
+        Action? commitRepository = null)
     {
         lock (gate)
         {
@@ -422,16 +425,32 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                     : prior
                     ?? throw new HttpFailure(409, "ContextRequired", "Choose each intended connection explicitly before saving its reference.");
             }).ToArray();
-            document = document with { Revision = checked(document.Revision + 1), Choices = body.Choices, Sources = references };
-            WriteDocument(session, document);
-            if (session.RuntimeContext is null)
+            var standalone = session.RuntimeContext is null && body.Choices.RepositoryRoot is null;
+            var next = document with { Revision = checked(document.Revision + 1),
+                Choices = standalone ? body.Choices with { BenchId = document.Choices.BenchId } : body.Choices, Sources = references };
+            if (session.RuntimeContext is null && exactContexts is null)
                 WriteAtomic(DefaultProfilePath(session.CatalogId), session.ProfileId.ToString("D"));
+            WriteDocument(session, next);
+            try { commitRepository?.Invoke(); }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+            {
+                try { WriteDocument(session, document); }
+                catch (Exception rollback) when (rollback is IOException or UnauthorizedAccessException)
+                {
+                    throw new HttpFailure(503, "SelectionPersistenceUncertain",
+                        "The repository choice could not be confirmed and the view profile could not be restored. Reload before choosing again.");
+                }
+                throw;
+            }
             lock (session)
+            {
+                if (standalone) session.StandaloneBenchId = body.Choices.BenchId;
                 foreach (var reference in references)
                     if (contexts.Any(context => ViewSession.PathComparer.Equals(context.Root, reference.Root)))
                         session.SourceRecovery[reference.Root] = new(reference.Root, "retained", null);
-            ApplyPreferences(session, document);
-            return StateInfo(session, document);
+            }
+            ApplyPreferences(session, next);
+            return StateInfo(session, next);
         }
     }
 
@@ -464,26 +483,26 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         }
     }
 
-    internal void CommitSelection(ViewSession session, NativeViewStateInfo before, Guid? bench,
-        NativePanelContext? viewing, NativePanelContext? add, NativePanelContext[] display, Action validate)
+    internal bool TryCommitSelection(ViewSession session, NativeViewStateInfo before, Guid? bench,
+        NativePanelContext? viewing, NativePanelContext? add, NativePanelContext[] display, Func<bool> validate)
     {
         lock (gate)
         lock (session)
         {
             RequireOwner(session);
-            validate();
+            if (!validate()) return false;
             var saved = SaveState(session, new(before.Revision, before.Choices with
             {
                 RepositoryRoot = session.RepositoryRoot, BenchId = bench,
                 ViewingRoot = viewing?.Root, AddRoot = add?.Root,
                 DisplayRoots = [], GroupSource = null, GroupField = null,
-            }), new[] { viewing, add }.OfType<NativePanelContext>().ToArray());
-            if (session.RepositoryBindings is { } repository)
+            }), new[] { viewing, add }.OfType<NativePanelContext>().ToArray(), () =>
             {
+                if (session.RepositoryBindings is not { } repository) return;
                 var path = RepositoryBenchPath(session.CatalogId, repository.RepositoryId);
                 if (bench is { } selected) WriteAtomic(path, selected.ToString("D"));
                 else File.Delete(path);
-            }
+            });
             session.AppliedChoices = saved.Choices;
             session.CurrentBenchId = bench;
             session.AdvanceSelectionRevision();
@@ -493,6 +512,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             session.PopulationContext = add;
             session.DisplayContexts.Clear();
             foreach (var source in display) session.DisplayContexts[source.Stamp.Connection] = source;
+            return true;
         }
     }
 
@@ -525,6 +545,8 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
                 ?? new(reference.Root, retained.Contains(reference.Root) ? "retained" : "not-opened", null)).ToArray();
         }
         var choices = document.Choices;
+        if (session.RuntimeContext is null && choices.RepositoryRoot is null)
+            choices = choices with { BenchId = session.StandaloneBenchId };
         if (session.RuntimeRepositoryApplied && session.RuntimeContext is not null && !session.RepositoryContextOverridden
             && !ViewSession.PathComparer.Equals(choices.RepositoryRoot, session.RuntimeRepositoryRoot))
             choices = choices with { RepositoryRoot = session.RuntimeRepositoryRoot, BenchId = null,
@@ -535,7 +557,9 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     internal static string[] Roots(NativeViewChoices choices) => new[] { choices.ViewingRoot, choices.AddRoot }
         .OfType<string>().Concat(choices.DisplayRoots).Distinct(ViewSession.PathComparer).ToArray();
     private static void ApplyPreferences(ViewSession session, NativeViewDocument document)
-        => session.Preferences = new(document.Revision, document.Choices.BenchId, document.Choices.Layout,
+        => session.Preferences = new(document.Revision,
+            session.RuntimeContext is null && document.Choices.RepositoryRoot is null ? session.StandaloneBenchId : document.Choices.BenchId,
+            document.Choices.Layout,
             document.Choices.GroupSource, document.Choices.GroupField);
     private static void Retire(ViewSession session)
     {

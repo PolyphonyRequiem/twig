@@ -63,7 +63,9 @@ bindings can constrain available sources without rewriting shared Bench intent.
 On context entry for a verified repository, the daemon tries the owner's last
 valid explicit choice for that repository (shared with linked worktrees), then
 its saved Default Bench. Without a verified repository, only the session's
-choice is considered. A concurrent explicit choice takes precedence over
+choice is considered. SDK sessions can restore their own choice; a fresh
+standalone view does not inherit one from the shared owner profile.
+A concurrent explicit choice takes precedence over
 startup selection. Changing Benches keeps the exact viewing source if it still
 belongs to the new Bench, and keeps the Add items source if it is still admitted
 in the current scope. A successful workspace without a

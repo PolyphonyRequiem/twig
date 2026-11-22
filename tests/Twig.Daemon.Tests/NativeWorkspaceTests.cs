@@ -205,7 +205,7 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
-    public async Task SavedSelectionFromAnotherAttachmentIsAdoptedWithoutResettingExplicitCurrentSelection()
+    public async Task StandaloneAttachmentsSharingAnOwnerProfileDoNotShareBenchSelection()
     {
         await Start();
         var first = await Bench("First");
@@ -215,10 +215,34 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         var otherSession = sessions.Content(other.ViewId, other.ContentCapability, true);
         var before = sessions.ReadState(otherSession);
         sessions.SaveState(otherSession, new(before.Revision, before.Choices with { BenchId = second.Id }));
-        (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(second.Id);
-        await Select(first.Id, second.Id);
+        (await Workspace()).GetProperty("view").ValueKind.ShouldBe(JsonValueKind.Null);
+        await Select(first.Id);
         (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(first.Id);
         (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(first.Id);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task HistoryWriteFailureDoesNotCommitProfileOrLiveSelection(bool clear)
+    {
+        await Start();
+        var first = await Bench("First");
+        var second = await Bench("Second");
+        var repository = await Repository("repository");
+        await SetRepository(repository);
+        await Select(first.Id);
+        var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+        var before = sessions.ReadState(session);
+        var history = Directory.GetFiles(Path.Combine(root, "profiles"), "repository-bench-*").Single();
+        File.Delete(history);
+        Directory.CreateDirectory(history);
+        using var response = await PutSelection(clear ? null : second.Id, first.Id);
+        response.IsSuccessStatusCode.ShouldBeFalse();
+        var after = sessions.ReadState(session);
+        after.Revision.ShouldBe(before.Revision);
+        after.Choices.BenchId.ShouldBe(first.Id);
+        after.CurrentBenchId.ShouldBe(first.Id);
     }
 
     [Fact]
@@ -471,6 +495,27 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task BenchSwitchKeepsExactViewingRootWhenAddSharesItsConnection()
+    {
+        await Start();
+        var viewing = await Source("viewing", destination: "shared");
+        var add = await Source("add", destination: "shared");
+        var first = await Bench("First", viewing.Stamp.Connection);
+        var next = await Bench("Next", viewing.Stamp.Connection);
+        await Select(first.Id);
+        using var viewResponse = await client.PutAsJsonAsync(View + "context", new ContextBody(viewing.Root),
+            TransportJson.Default.ContextBody);
+        viewResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var addResponse = await client.PutAsJsonAsync(View + "population-context", new PopulationContextBody(add.Root),
+            TransportJson.Default.PopulationContextBody);
+        addResponse.StatusCode.ShouldBe(HttpStatusCode.OK);
+        await Select(next.Id, first.Id);
+        var workspace = await Workspace();
+        workspace.GetProperty("summary").GetProperty("contextRoot").GetString().ShouldBe(viewing.Root);
+        workspace.GetProperty("summary").GetProperty("populationRoot").GetString().ShouldBe(add.Root);
+    }
+
+    [Fact]
     public async Task BenchSwitchRetainsExactViewingAndAddChoicesStillInScope()
     {
         await Start();
@@ -599,12 +644,12 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
     }
 
-    private async Task<NativePanelContext> Source(string name, bool admit = true, string identity = "fixture-identity")
+    private async Task<NativePanelContext> Source(string name, bool admit = true, string identity = "fixture-identity", string? destination = null)
     {
         var path = Path.Combine(root, name);
         Directory.CreateDirectory(Path.Combine(path, ".twig"));
         var store = (await SqliteStore.CreateAsync(Path.Combine(path, ".twig", "core.db"))).Value;
-        var connection = new Connection(new("ado"), "fixture-collection", name, identity);
+        var connection = new Connection(new("ado"), "fixture-collection", destination ?? name, identity);
         (await definitions.View(store, path, store.InstanceId).ReadAsync(connection, default)).IsSuccess.ShouldBeTrue();
         gateway.Stamps[path] = new(connection, store.InstanceId, "fixture-principal", "fixture-authority");
         gateway.Snapshots[path] = new(1);
@@ -653,9 +698,9 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
     }
 
-    private Task<HttpResponseMessage> PutSelection(Guid next, Guid? previous = null)
+    private Task<HttpResponseMessage> PutSelection(Guid? next, Guid? previous = null)
         => client.PutAsync(View + "selection", new StringContent(
-            $$"""{"expectedBenchId":{{(previous is null ? "null" : "\"" + previous + "\"")}},"benchId":"{{next}}"}""",
+            $$"""{"expectedBenchId":{{(previous is null ? "null" : "\"" + previous + "\"")}},"benchId":{{(next is null ? "null" : "\"" + next + "\"")}}}""",
             Encoding.UTF8, "application/json"));
 
     private async Task<JsonElement> Workspace()

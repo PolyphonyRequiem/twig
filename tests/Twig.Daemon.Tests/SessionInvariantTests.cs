@@ -228,8 +228,10 @@ internal static class SessionTests
         var evidence = Path.Combine(root, "evidence");
         var panel = new NativePanel(store, gateway, new NativeSourceAdapter(evidence, gateway, new()));
         var sessions = new ViewSessions(Path.Combine(root, "profiles"));
-        var profile = Guid.NewGuid();
-        var first = sessions.ConnectOwner(storeId, null, profile);
+        var runtime = new CanvasRuntimeContext("configured-session", null, null, null, null, false);
+        var origin = sessions.RegisterNativeCanvas(storeId, runtime);
+        var profile = sessions.ResolveOwnerProfile(storeId, new(null, null, origin.ViewId)).ProfileId;
+        var first = sessions.ConnectOwner(storeId, origin.ViewId, profile);
         var firstSession = sessions.Content(first.ViewId, first.ContentCapability, true);
         var admitted = Required(await panel.OpenAsync(source, ct));
         firstSession.NativeContext = admitted;
@@ -241,7 +243,7 @@ internal static class SessionTests
         gateway.Selection[source] = bench;
         var saved = sessions.SaveState(firstSession, new(0, NativeViewChoices.Empty with
         { ViewingRoot = source, DisplayRoots = [source], BenchId = bench }));
-        var canvas = sessions.RegisterNativeCanvas(storeId);
+        var canvas = sessions.RegisterNativeCanvas(storeId, runtime);
         var owner = sessions.ConnectOwner(storeId, canvas.ViewId, profile);
         await using var host = await Host.Start(panel, sessions, ct);
         var route = $"/api/v1/views/{owner.ViewId:D}/initial-view";
@@ -407,8 +409,10 @@ internal static class SessionTests
         var panel = new NativePanel(store, gateway, new NativeSourceAdapter(Path.Combine(root, "evidence"), gateway, new()));
         var preferences = Path.Combine(root, "presentation");
         var sessions = new ViewSessions(preferences);
-        var profile = Guid.NewGuid();
-        var owner = sessions.ConnectOwner(storeId, null, profile);
+        var runtime = new CanvasRuntimeContext("cached-session", null, null, null, null, false);
+        var origin = sessions.RegisterNativeCanvas(storeId, runtime);
+        var profile = sessions.ResolveOwnerProfile(storeId, new(null, null, origin.ViewId)).ProfileId;
+        var owner = sessions.ConnectOwner(storeId, origin.ViewId, profile);
         var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
         session.NativeContext = Required(await panel.OpenAsync(sourceA, ct));
         session.DisplayContexts.Add(session.NativeContext.Stamp.Connection, session.NativeContext);
@@ -424,12 +428,12 @@ internal static class SessionTests
             "Current profiles must not persist obsolete display opt-in compatibility fields.");
         sessions.SaveState(session, new(state.Revision, choices with { Layout = "tree" }));
         var restarted = new ViewSessions(preferences);
-        var resolved = restarted.ResolveOwnerProfile(storeId, new(null, null));
+        var freshCanvas = restarted.RegisterNativeCanvas(storeId, runtime);
+        var resolved = restarted.ResolveOwnerProfile(storeId, new(null, null, freshCanvas.ViewId));
         Check(resolved.ProfileId == profile && resolved.StoreId == storeId,
             "A new rendering origin without browser storage resolves the durable owner profile after daemon restart.");
-        Check(restarted.ResolveOwnerProfile(storeId, new(storeId, Guid.NewGuid())).ProfileId == profile,
+        Check(restarted.ResolveOwnerProfile(storeId, new(storeId, Guid.NewGuid(), freshCanvas.ViewId)).ProfileId == profile,
             "A random origin-local identity cannot replace the retained application profile.");
-        var freshCanvas = restarted.RegisterNativeCanvas(storeId);
         var next = restarted.ConnectOwner(storeId, freshCanvas.ViewId, resolved.ProfileId);
         var nextSession = restarted.Content(next.ViewId, next.ContentCapability, true);
         Check(nextSession.NativeContext is null && nextSession.PopulationContext is null && !nextSession.Attached
@@ -511,8 +515,9 @@ internal static class SessionTests
         NativePanel Panel() => new(store, gateway, new NativeSourceAdapter(Path.Combine(root, "evidence"), gateway, changes));
         var panel = Panel();
         var sessions = new ViewSessions(preferences, timeProvider: clock);
-        var profile = Guid.NewGuid();
-        var registration = sessions.RegisterNativeCanvas(storeId);
+        var runtime = new CanvasRuntimeContext("owner-session");
+        var registration = sessions.RegisterNativeCanvas(storeId, runtime);
+        var profile = sessions.ResolveOwnerProfile(storeId, new(null, null, registration.ViewId)).ProfileId;
         var owner = sessions.ConnectOwner(storeId, registration.ViewId, profile);
         var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
         session.NativeContext = Required(await panel.OpenAsync(sourceA, ct));
@@ -581,10 +586,10 @@ internal static class SessionTests
         var otherConnection = otherRegistry.ConnectOwner(storeId, null, profile);
         var otherSession = otherRegistry.Content(otherConnection.ViewId, otherConnection.ContentCapability, true);
         var otherState = otherRegistry.ReadState(otherSession);
-        Check(otherState.Choices.BenchId == chosenBench
+        Check(otherState.Choices.BenchId is null
             && otherState.Choices.GroupSource == choices.GroupSource
             && otherState.Choices.GroupField == choices.GroupField,
-            "Same-owner reconnect retains explicit Bench and grouping references.");
+            "A fresh standalone view retains shared grouping preferences but not another view's Bench choice.");
         sessions.SaveState(session, new(otherState.Revision, choices));
         Expect("ViewStateConflict", () => otherRegistry.SaveState(otherSession, new(otherState.Revision, choices with { Layout = "list" })));
         var revision = sessions.ReadState(session).Revision;
@@ -617,7 +622,8 @@ internal static class SessionTests
             var expired = await expiryHost.Send("POST", "/api/v1/windows-renew",
                 new OwnerRenewBody(owner.ViewId, profile, storeId), owner.ContentCapability, "same-owner", ct);
             Check(expired.Status == 200 && expired.Body!["recovered"]!.GetValue<bool>()
-                && expired.Body["viewId"]!.GetValue<Guid>() != owner.ViewId && session.Editor.Retired,
+                && expired.Body["viewId"]!.GetValue<Guid>() != owner.ViewId && session.Editor.Retired
+                && expired.Body["viewState"]!["currentBenchId"]!.GetValue<Guid>() == chosenBench,
                 "An expired human capability must recover through OS auth and retained references, not keep a stale editor grant alive.");
         }
         var restarted = new ViewSessions(preferences, timeProvider: clock);
@@ -625,8 +631,9 @@ internal static class SessionTests
         {
             gateway.Reads.Clear();
             gateway.NextReadDelay = TimeSpan.FromMilliseconds(100);
+            var reattached = restarted.RegisterNativeCanvas(storeId, runtime);
             var renewed = await host.Send("POST", "/api/v1/windows-renew",
-                new OwnerRenewBody(owner.ViewId, profile, storeId), owner.ContentCapability, "same-owner", ct);
+                new OwnerRenewBody(reattached.ViewId, profile, storeId), null, "same-owner", ct);
             Check(renewed.Status == 200 && renewed.Body!["recovered"]!.GetValue<bool>(),
                 "A server restart must recover a same-owner profile without device enrollment.");
             var body = renewed.Body!;

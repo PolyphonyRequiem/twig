@@ -365,19 +365,55 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         })!;
         await git.WaitForExitAsync();
         git.ExitCode.ShouldBe(0);
-        (await definitions.SaveRepositoryAsync(repository, 0, [allowed.Stamp.Connection], bench.Id)).IsSuccess.ShouldBeTrue();
+        (await definitions.SaveRepositoryAsync(repository, 0, [allowed.Stamp.Connection], bench.Id,
+            attachedBenches: [bench.Id])).IsSuccess.ShouldBeTrue();
         var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
         var state = sessions.ReadState(session);
         sessions.SaveState(session, new(state.Revision, state.Choices with { RepositoryRoot = repository, BenchId = bench.Id }));
+        var beforeRefresh = sessions.ReadState(session).Revision;
+        var schemaReads = gateway.SchemaReads;
+        var onlineReads = gateway.OnlineReads;
         var workspace = await Workspace();
+        var setup = workspace.GetProperty("summary").GetProperty("repositorySetup");
+        setup.GetProperty("state").GetString().ShouldBe("Selected");
+        setup.GetProperty("selectedBench").GetGuid().ShouldBe(bench.Id);
+        setup.GetProperty("connections").EnumerateArray()
+            .Single(value => value.GetProperty("connection").GetProperty("destination").GetString() == "unassigned")
+            .GetProperty("state").GetString().ShouldBe("CanBindExact");
         var sources = workspace.GetProperty("view").GetProperty("sources").EnumerateArray().ToArray();
         sources.Single(value => value.GetProperty("sourceId").GetGuid() == allowed.Source.Id)
             .GetProperty("errorCode").ValueKind.ShouldBe(JsonValueKind.Null);
         var withheld = sources.Single(value => value.GetProperty("connection").GetProperty("destination").GetString() == "unassigned");
         withheld.GetProperty("errorCode").GetString().ShouldBe("PolicyViolation");
         withheld.GetProperty("items").GetArrayLength().ShouldBe(0);
+        sessions.ReadState(session).Revision.ShouldBe(beforeRefresh);
+        gateway.SchemaReads.ShouldBe(schemaReads);
+        gateway.OnlineReads.ShouldBe(onlineReads);
+        var bindings = (await definitions.ReadRepositoryAsync(repository)).Value;
+        var revision = bindings.Revision;
+        var bind = new BindRepositoryConnectionBody(revision, bench.Id, bench.Revision, unassigned.Stamp.Connection,
+            RepositoryId: bindings.RepositoryId, OperationId: Guid.NewGuid());
+        using var applied = await client.PutAsJsonAsync(View + "repository-connection", bind, TransportJson.Default.BindRepositoryConnectionBody);
+        applied.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var replay = await client.PutAsJsonAsync(View + "repository-connection", bind, TransportJson.Default.BindRepositoryConnectionBody);
+        replay.StatusCode.ShouldBe(HttpStatusCode.OK);
+        using var conflict = await client.PutAsJsonAsync(View + "repository-connection",
+            bind with { ExpectedRevision = revision + 1 }, TransportJson.Default.BindRepositoryConnectionBody);
+        conflict.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await definitions.ReadRepositoryAsync(repository)).Value.Revision.ShouldBe(revision + 1);
+        var excluded = await definitions.SaveRepositoryAsync(repository, revision + 1, [allowed.Stamp.Connection], bench.Id,
+            attachedBenches: [bench.Id], excludedConnections: [unassigned.Stamp.Connection]);
+        excluded.IsSuccess.ShouldBeTrue();
+        using var denied = await client.PutAsJsonAsync(View + "repository-connection",
+            bind with { ExpectedRevision = excluded.Value.Revision, OperationId = Guid.NewGuid() },
+            TransportJson.Default.BindRepositoryConnectionBody);
+        denied.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
         (await definitions.ReadAsync()).Value.Benches.Single().Connections
             .ShouldBe([allowed.Stamp.Connection, unassigned.Stamp.Connection]);
+        (await definitions.SaveRepositoryAsync(repository, excluded.Value.Revision, [], null, attachedBenches: [])).IsSuccess.ShouldBeTrue();
+        var empty = await Workspace();
+        empty.GetProperty("summary").GetProperty("repositorySetup").GetProperty("state").GetString().ShouldBe("NoAttachments");
+        empty.GetProperty("view").ValueKind.ShouldBe(JsonValueKind.Null);
     }
 
     [Fact]

@@ -112,8 +112,8 @@ internal static class SessionTests
         var selected = Guid.NewGuid();
         _ = Required(await store.SaveAsync(new(fallback, "Default", []), 0, ct));
         _ = Required(await store.SaveAsync(new(selected, "Previously selected", []), 0, ct));
-        var bindings = Required(await store.SaveRepositoryAsync(repository, 0, [], fallback, ct));
-        _ = Required(await store.SaveRepositoryAsync(unrelated, 0, [], fallback, ct));
+        var bindings = Required(await store.SaveRepositoryAsync(repository, 0, [], fallback, ct, [fallback, selected]));
+        _ = Required(await store.SaveRepositoryAsync(unrelated, 0, [], fallback, ct, [fallback]));
         Check(Required(await store.ReadRepositoryAsync(linked, ct)).RepositoryId == bindings.RepositoryId,
             "The linked worktree must resolve to the same verified repository identity.");
         if (common is not null)
@@ -218,7 +218,7 @@ internal static class SessionTests
             await Git(separate, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
                 "commit", "--quiet", "--allow-empty", "-m", "Fixture");
             await Git(separate, "worktree", "add", "--quiet", "-b", "separate-linked", separateLinked);
-            _ = Required(await store.SaveRepositoryAsync(separate, 0, [], fallback, ct));
+            _ = Required(await store.SaveRepositoryAsync(separate, 0, [], fallback, ct, [fallback]));
             var nested = Path.Combine(separateLinked, "nested");
             Directory.CreateDirectory(nested);
             Check(Required(await store.ReadRepositoryAsync(nested, ct)).RepositoryRoot == separate,

@@ -89,6 +89,23 @@ authoritative copy. A repository/worktree does not own a Bench, and opening a
 workspace creates no default Bench. The CLI has no selected Bench. The native
 server/Canvas can retain selection within a presentation session or view.
 
+In a repository view, Twig groups linked worktrees by their verified Git common
+directory, not by remote URL, branch, or checkout location. The owner explicitly
+attaches existing Benches. An empty attachment list is a saved choice, not a
+request for setup. A view keeps its eligible selection; otherwise Twig uses
+repository-wide explicit-use history, the attached default, or a sole eligible
+attachment, in that order. A connection blocker does not switch the Bench.
+
+Native workspace responses carry `summary.repositorySetup` for Canvas. Use
+`PUT /repository-bindings` with the binding revision to set `attachedBenches`,
+`defaultBench`, and `excludedConnections`. Use `PUT /repository-connection`
+with an operation ID, repository ID, binding revision and selected Bench revision for an exact connection already
+on that Bench. This changes only owner-local wiring, not the Bench definition.
+Multiple registrations require disambiguation; Twig does not infer another
+account. Private setup accepts an explicitly named existing native database
+only when its source and owner match; other providers require an existing
+registration. An uncertain private initialization is not replayed.
+
 Selectors retain item, subtree and typed query semantics and now carry their exact
 connection. Area/iteration predicates stay rules, not frozen result lists.
 One Bench can retain selectors from multiple connections; a native workspace's

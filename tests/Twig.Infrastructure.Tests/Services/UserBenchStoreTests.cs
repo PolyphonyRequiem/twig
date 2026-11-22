@@ -40,6 +40,25 @@ public sealed class UserBenchStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task RepositoryAttachmentsDistinguishUnconfiguredFromExplicitlyEmpty()
+    {
+        Directory.CreateDirectory(directory);
+        await Git(directory, "init", "--quiet");
+        var bench = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Existing", []), 0));
+        Required(await Store.ReadRepositoryAsync(directory)).AttachmentsConfigured.ShouldBeFalse();
+        (await Store.SaveRepositoryAsync(directory, 0, [], bench.Id, default, [], [])).Error.Code
+            .ShouldBe(ErrorCode.InvalidInput);
+        var empty = Required(await Store.SaveRepositoryAsync(directory, 0, [], null, default, [], []));
+        empty.AttachmentsConfigured.ShouldBeTrue();
+        empty.AttachedBenches.ShouldBeEmpty();
+        var unchanged = Required(await Store.SaveRepositoryAsync(directory, empty.Revision, [], null, default, [], []));
+        unchanged.Revision.ShouldBe(empty.Revision);
+        var attached = Required(await Store.SaveRepositoryAsync(directory, empty.Revision, [], bench.Id, default, [bench.Id], []));
+        attached.AttachedBenches.ShouldBe([bench.Id]);
+        attached.DefaultBench.ShouldBe(bench.Id);
+    }
+
+    [Fact]
     public async Task RepositoryBindingsAreUserLocalReusableAndIndependentOfSavedBenchIntent()
     {
         Directory.CreateDirectory(directory);

@@ -143,6 +143,14 @@ public sealed partial class NativeConnectionSetup
     /// <summary>Creates a native-owned private client context for an explicit provider target without modifying a source checkout.</summary>
     public async Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target,
         CancellationToken ct = default)
+        => await InitializeManagedAsync(target, null, ct).ConfigureAwait(false);
+
+    public Task<Result<NativeManagedSetupResult>> InitializeRepositoryPrivateAsync(string database, Connection expected,
+        CancellationToken ct)
+        => InitializeManagedAsync(new NativeTwigSetupTarget(database), expected, ct);
+
+    private async Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target,
+        Connection? expected, CancellationToken ct)
     {
         var effects = new NativeSetupEffects();
         try
@@ -171,11 +179,54 @@ public sealed partial class NativeConnectionSetup
             for (var path = managedRoot; path is not null; path = Path.GetDirectoryName(path))
                 if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
                     return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.PolicyViolation, "Managed connection storage cannot traverse a linked directory."));
-            var root = Path.Combine(managedRoot, Guid.NewGuid().ToString("N"));
+            if (expected is not null && (expected.Provider.Value != "twig" || !Guid.TryParseExact(expected.Destination, "D", out _)))
+                return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.InvalidInput, "Private repository initialization requires an exact existing native database."));
+            if (expected is not null && target is NativeTwigSetupTarget requested)
+            {
+                var service = bindings(effects);
+                try
+                {
+                    var authorityPath = Path.Combine(Path.GetDirectoryName(service.RegistryPath)!,
+                        "native-databases", "database-" + requested.Database + ".db");
+                    for (var path = authorityPath; path is not null; path = Path.GetDirectoryName(path))
+                        if (Path.Exists(path) && (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                            return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.PolicyViolation, "The native database path traverses a link."));
+                    var authority = await Twig.Providers.Native.NativeAuthority.OpenAsync(authorityPath, ct).ConfigureAwait(false);
+                    if (!authority.IsSuccess || authority.Value.Connection != expected)
+                        return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Conflict, "The existing database is not the requested source and owner."));
+                }
+                finally { if (ownsBindings && service is IDisposable disposable) disposable.Dispose(); }
+            }
+            var root = Path.Combine(managedRoot, expected is null ? Guid.NewGuid().ToString("N")
+                : "repository-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+                    System.Text.Encoding.UTF8.GetBytes(expected.Destination))));
             effects.Phase = NativeSetupPhase.Initialization;
             effects.Before(NativeSetupEffectKind.ManagedWorkspace);
             Directory.CreateDirectory(managedRoot);
+            if (expected is not null && File.Exists(root + ".lock"))
+            {
+                if (Directory.Exists(root) && (File.GetAttributes(root) & FileAttributes.ReparsePoint) != 0)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.PolicyViolation, "The private workspace is a linked directory."));
+                if ((File.GetAttributes(root + ".lock") & FileAttributes.ReparsePoint) != 0)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.PolicyViolation, "The private setup reservation is a linked file."));
+                if (new FileInfo(root + ".lock").Length != 36
+                    || !Guid.TryParseExact(await File.ReadAllTextAsync(root + ".lock", ct).ConfigureAwait(false), "D", out var store)
+                    || store == Guid.Empty)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Indeterminate, "Private initialization has no verified store receipt. No initialization was replayed."));
+                var service = bindings(effects);
+                try
+                {
+                    var retained = await NativeSourceReader.ReadAsync(root, null, false,
+                        services => Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions.AddSingleton(services, service),
+                        ct).ConfigureAwait(false);
+                    return retained.IsSuccess && retained.Value.Source.Connection == expected && retained.Value.Source.StoreInstance == store
+                        ? Result<NativeManagedSetupResult>.Ok(new(root, retained.Value))
+                        : effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Indeterminate, "Existing private setup could not be verified. No initialization was replayed."));
+                }
+                finally { if (ownsBindings && service is IDisposable disposable) disposable.Dispose(); }
+            }
             using var reservation = new FileStream(root + ".lock", FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            reservation.Flush(true);
             if (Path.Exists(root)) throw new IOException("The new managed context already exists.");
             // A private Git anchor is a client-cache implementation detail, never a native source or Bench identity.
             var initialized = await new BoundedProcessRunner().RunAsync("git", ["init", "--quiet", "--template=", root],
@@ -186,7 +237,14 @@ public sealed partial class NativeConnectionSetup
                 return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Unavailable,
                     "The private connection context could not be initialized. Possible local effects remain; setup was not retried."));
             effects.Confirm(NativeSetupEffectKind.ManagedWorkspace);
-            var observed = await InitializeFreshAsync(new(root, target), effects, ct).ConfigureAwait(false);
+            var observed = await InitializeFreshAsync(new(root, target), effects, ct, expected).ConfigureAwait(false);
+            if (expected is not null && observed.IsSuccess)
+            {
+                if (observed.Value.Source.Connection != expected)
+                    return effects.Fail<NativeManagedSetupResult>(new(ErrorCode.Conflict, "Private initialization observed a different connection."));
+                reservation.Write(System.Text.Encoding.ASCII.GetBytes(observed.Value.Source.StoreInstance.ToString("D")));
+                reservation.Flush(true);
+            }
             return observed.IsSuccess ? Result<NativeManagedSetupResult>.Ok(new(root, observed.Value))
                 : Result<NativeManagedSetupResult>.Fail(observed.Error);
         }
@@ -224,7 +282,7 @@ public sealed partial class NativeConnectionSetup
     }
 
     private async Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request,
-        NativeSetupEffects effects, CancellationToken ct)
+        NativeSetupEffects effects, CancellationToken ct, Connection? expectedNativeAuthority = null)
     {
         IConnectionBindingService? resolved = null;
         try
@@ -252,7 +310,7 @@ public sealed partial class NativeConnectionSetup
                     break;
                 case NativeTwigSetupTarget native when NativeDatabaseName.IsValid(native.Database):
                     arguments = new(request.WorkspaceRoot, "", "", null, null, "twig",
-                        null, null, null, request.StoreFile, null, Database: native.Database);
+                        null, null, null, request.StoreFile, null, Database: native.Database, ExpectedNativeAuthority: expectedNativeAuthority);
                     break;
                 default:
                     return effects.Fail<NativeSourceObservation>(new(ErrorCode.InvalidInput, "Choose an explicit ADO binding, named GitHub account or named Twig database; no default was inferred."));

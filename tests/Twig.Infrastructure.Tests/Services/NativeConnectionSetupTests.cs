@@ -12,6 +12,39 @@ namespace Twig.Infrastructure.Tests.Services;
 public sealed class NativeConnectionSetupTests
 {
     [Fact]
+    public async Task RepositoryPrivateSetupOnlyReusesTheExactExistingNativeAuthority()
+    {
+        var home = Path.Combine(Path.GetTempPath(), "twig-private-setup-" + Guid.NewGuid().ToString("N"));
+        var authorities = Path.Combine(home, "native-databases");
+        Directory.CreateDirectory(authorities);
+        try
+        {
+            var authority = await Twig.Providers.Native.NativeAuthority.CreateAsync(Path.Combine(authorities, "database-fixture.db"));
+            authority.IsSuccess.ShouldBeTrue();
+            var setup = new NativeConnectionSetup(home);
+            var expected = authority.Value.Connection;
+            var missing = await setup.InitializeRepositoryPrivateAsync("missing", expected, default);
+            missing.IsSuccess.ShouldBeFalse();
+            File.Exists(Path.Combine(authorities, "database-missing.db")).ShouldBeFalse();
+            var result = await setup.InitializeRepositoryPrivateAsync("fixture", expected, default);
+            result.IsSuccess.ShouldBeTrue(result.IsSuccess ? null : result.Error.Message);
+            result.Value.Observation.Source.Connection.ShouldBe(expected);
+            var registrations = await new UserBenchStore(Path.Combine(home, "benches.db")).WorkspacesAsync(default);
+            registrations.Value.ShouldContain(workspace => workspace.Root == result.Value.WorkspaceRoot
+                && workspace.Connection == expected && workspace.StoreInstance == result.Value.Observation.Source.StoreInstance);
+            var retry = await setup.InitializeRepositoryPrivateAsync("fixture", expected, default);
+            retry.IsSuccess.ShouldBeTrue(retry.IsSuccess ? null : retry.Error.Message);
+            retry.Value.Observation.Source.ShouldBe(result.Value.Observation.Source);
+            retry.Value.WorkspaceRoot.ShouldBe(result.Value.WorkspaceRoot);
+        }
+        finally
+        {
+            SqliteConnection.ClearAllPools();
+            Directory.Delete(home, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task FreshInitInspectsTheCheckoutUnderItsLeaseAndPreservesAnInterleavedFile()
     {
         var root = Path.Combine(Path.GetTempPath(), "twig-init-interleave-" + Guid.NewGuid().ToString("N"));

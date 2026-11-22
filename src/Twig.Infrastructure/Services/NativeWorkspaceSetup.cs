@@ -11,7 +11,7 @@ namespace Twig.Infrastructure.Services;
 internal sealed record NativeWorkspaceSetupArguments(string WorkspaceRoot, string Organization, string Project,
     string? Team, string? GitProject, string? Provider, string? Host, string? Repository,
     string? Binding, string? StoreFile, string? Account, string? GlobalDisplayPath = null, string? Database = null,
-    NativeGitHubAppSetupTarget? GitHubApp = null);
+    NativeGitHubAppSetupTarget? GitHubApp = null, Connection? ExpectedNativeAuthority = null);
 internal sealed record NativeCreationReceipt(CoreWorkspaceDocument Document, NativeSourceStamp Source, string? NativeDatabase = null);
 
 internal static class NativeWorkspaceSetup
@@ -133,7 +133,7 @@ internal static class NativeWorkspaceSetup
             // An explicit device connection survives workspace setup failure. Registering it
             // does not admit the checkout; workspace initialization still requires the lease.
             if (kind == "github" && (args.Account is not null || args.GitHubApp is not null)
-                || kind == "twig" && args.Database is not null)
+                || kind == "twig" && args.Database is not null && args.ExpectedNativeAuthority is null)
             {
                 var requirement = ProviderConnectionRequirement.FromConfiguration(config);
                 var catalog = new DeviceConnectionCatalog(bindings.RegistryPath);
@@ -237,7 +237,7 @@ internal static class NativeWorkspaceSetup
             // The checkout lease excludes cooperating operations, not external replacements.
             // Do not unlink setup artifacts by path, even if their bytes still match.
             var result = await CoreWorkspaceInitializer.InitializeWithEvidenceAsync(config, paths, bindings,
-                database, ct, transport, processes, effects).ConfigureAwait(false);
+                database, ct, transport, processes, effects, args.ExpectedNativeAuthority).ConfigureAwait(false);
             return result.IsSuccess ? result : effects.Fail<NativeCreationReceipt>(result.Error, RetryGuidance);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return effects.Cancel<NativeCreationReceipt>(FailureGuidance()); }

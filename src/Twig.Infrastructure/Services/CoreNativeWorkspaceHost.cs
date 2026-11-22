@@ -31,7 +31,7 @@ internal sealed class CoreNativeWorkspaceHost(TwigPaths paths, IConnectionBindin
     }
 
     internal async Task<Result<NativeCreationReceipt>> InitializeAsync(string databasePath, CancellationToken ct,
-        NativeSetupEffects? effects)
+        NativeSetupEffects? effects, Connection? expectedAuthority = null)
     {
         var location = ValidateLocation();
         if (!location.IsSuccess) return Result<NativeCreationReceipt>.Fail(location.Error);
@@ -40,10 +40,12 @@ internal sealed class CoreNativeWorkspaceHost(TwigPaths paths, IConnectionBindin
             return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict,
                 "The named native database has partial SQLite evidence; no replacement authority was created.");
         Directory.CreateDirectory(Path.GetDirectoryName(AuthorityPath)!);
-        var source = File.Exists(AuthorityPath)
+        var source = expectedAuthority is not null || File.Exists(AuthorityPath)
             ? await NativeAuthority.OpenAsync(AuthorityPath, ct).ConfigureAwait(false)
             : await NativeAuthority.CreateAsync(AuthorityPath, ct).ConfigureAwait(false);
         if (!source.IsSuccess) return Result<NativeCreationReceipt>.Fail(source.Error);
+        if (expectedAuthority is not null && source.Value.Connection != expectedAuthority)
+            return Result<NativeCreationReceipt>.Fail(ErrorCode.Conflict, "The existing native database is not the requested source and owner.");
         effects?.Confirm(NativeSetupEffectKind.NativeAuthority);
         effects?.Before(NativeSetupEffectKind.CoreStore);
         var created = await SqliteStore.CreateAsync(databasePath, ct).ConfigureAwait(false);

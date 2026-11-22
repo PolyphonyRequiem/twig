@@ -5,6 +5,8 @@ namespace Bench.Infrastructure;
 
 public interface INativeConnectionSetupGateway
 {
+    Task<Result<NativeManagedSetupResult>> InitializeRepositoryPrivateAsync(string database, Connection expected, CancellationToken ct)
+        => Task.FromResult(Result<NativeManagedSetupResult>.Fail(ErrorCode.Unsupported, "Private repository setup is unavailable."));
     Task<Result<NativeAadEnrollment[]>> ListAadIdentitiesAsync(CancellationToken ct)
         => Task.FromResult(Result<NativeAadEnrollment[]>.Fail(ErrorCode.Unsupported, "Saved AAD identities are unavailable."));
     Task<Result<NativeAdoDiscoveryPage>> DiscoverAdoAsync(NativeAdoDiscoveryRequest request, CancellationToken ct)
@@ -31,4 +33,6 @@ public sealed class NativeConnectionSetupGateway(NativeConnectionSetup setup) : 
         => setup.InitializeFreshAsync(request, ct);
     public Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target, CancellationToken ct)
         => setup.InitializeManagedAsync(target, ct);
+    public Task<Result<NativeManagedSetupResult>> InitializeRepositoryPrivateAsync(string database, Connection expected, CancellationToken ct)
+        => setup.InitializeRepositoryPrivateAsync(database, expected, ct);
 }

@@ -70,9 +70,14 @@ public sealed partial class UserBenchStore
 
     private static (string Id, string Root) RepositoryIdentity(string root)
     {
-        if (!Path.IsPathFullyQualified(root) || !Directory.Exists(root)
-            || !WorktreeAnchorDetector.TryDetect(root, out var anchor, out _))
+        if (!Path.IsPathFullyQualified(root))
             throw new ArgumentException("Choose an absolute path inside an existing Git worktree.");
+        if (!WorktreeAnchorDetector.TryDetect(root, out var anchor, out var failure, distinguishProbeFailure: true))
+        {
+            if (failure == "git-probe-unavailable")
+                throw new IOException("Git could not verify the repository context. Retry from an accessible working directory.");
+            throw new ArgumentException("Choose an absolute path inside an existing Git worktree.");
+        }
         if (!WorktreeAnchorDetector.TryRepositoryRoot(anchor, out var repositoryRoot))
             throw new DirectoryNotFoundException("The main repository checkout is unavailable. No worktree-specific repository controls were used.");
         return (OperatingSystem.IsWindows() ? anchor.GitCommonDir.ToUpperInvariant() : anchor.GitCommonDir, repositoryRoot);

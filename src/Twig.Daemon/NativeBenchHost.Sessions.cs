@@ -193,26 +193,29 @@ public static partial class NativeBenchHost
         try
         {
             await SynchronizeRepository(panel, sessions, session, ct);
+            long initialSelectionRevision;
+            lock (session) initialSelectionRevision = session.SelectionRevision;
             var before = sessions.ReadState(session);
-            if (onlyIfNeeded && session.ReferencesRestored && session.AppliedChoices is { } applied
+            if (onlyIfNeeded && session.StartupSelectionResolved && session.ReferencesRestored && session.AppliedChoices is { } applied
                 && applied.BenchId == before.Choices.BenchId
                 && ViewSession.PathComparer.Equals(applied.ViewingRoot, before.Choices.ViewingRoot)
                 && ViewSession.PathComparer.Equals(applied.AddRoot, before.Choices.AddRoot)
                 && ViewSession.PathComparer.Equals(applied.RepositoryRoot, before.Choices.RepositoryRoot)
                 && applied.DisplayRoots.SequenceEqual(before.Choices.DisplayRoots, ViewSession.PathComparer))
                 return before;
-            var available = AvailableConnections(session);
+            var repository = session.RepositoryBindings;
+            var available = repository?.Connections.ToHashSet();
+            var cached = cachedAdmissionOnly || repository is not null;
             var registry = Require(await panel.WorkspacesAsync(ct));
-            var references = sessions.StateReferences(session);
+            var retainedRoots = ViewSessions.Roots(before.Choices).ToHashSet(ViewSession.PathComparer);
+            var references = sessions.StateReferences(session).Where(reference => retainedRoots.Contains(reference.Root));
             NativePanelContext? initialViewing;
             NativePanelContext? initialPopulation;
-            long initialSelectionRevision;
             KeyValuePair<Twig.Core.Connection, NativePanelContext>[] initialDisplay;
             lock (session)
             {
                 initialViewing = session.NativeContext;
                 initialPopulation = session.PopulationContext;
-                initialSelectionRevision = session.SelectionRevision;
                 initialDisplay = session.DisplayContexts.ToArray();
             }
             var opened = new Dictionary<string, NativePanelContext>(ViewSession.PathComparer);
@@ -237,7 +240,8 @@ public static partial class NativeBenchHost
                         timeout.CancelAfter(TimeSpan.FromSeconds(5));
                         try
                         {
-                            var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations);
+                            var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations,
+                                cachedAdmissionOnly: cached);
                             if (cachedAdmissionOnly && !result.IsSuccess && result.Error.Code == Twig.Core.ErrorCode.Conflict)
                                 throw new HttpFailure(409, "SourceChanged", "A retained source binding changed. Choose the exact intended connection explicitly.");
                             if (!result.IsSuccess) state = new(reference.Root, "unavailable", result.Error.Code.ToString());
@@ -265,13 +269,15 @@ public static partial class NativeBenchHost
                 }
             }
             var shared = Require(await panel.ListAsync(ct));
-            var currentBench = before.Choices.BenchId
-                ?? (session.RepositoryBindings is { } bindings
-                    ? await RepositoryBench(panel, sessions, session, bindings, ct) : null)
-                ?? (session.RuntimeContext is null && session.RepositoryBindings is null && shared.Benches.Length == 1
-                    ? shared.Benches[0].Id : (Guid?)null);
+            var retained = ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, session.RepositoryRoot)
+                ? before.Choices.BenchId : null;
+            var currentBench = before.CurrentBenchId;
+            if (!session.StartupSelectionResolved)
+                currentBench = RepositoryBench(sessions, session, repository, shared, retained);
+            else if (session.AppliedChoices is { } previous && previous.BenchId != retained)
+                currentBench = retained;
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
-                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cachedAdmissionOnly)).ToArray()
+                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cached)).ToArray()
                 : [];
             var instance = shared.InstanceId;
             if (instance != session.CatalogId)
@@ -280,7 +286,7 @@ public static partial class NativeBenchHost
             {
                 lock (session)
                 {
-                    if (session.SelectionRevision != initialSelectionRevision
+                    if (session.SelectionRevision != initialSelectionRevision || !ReferenceEquals(session.RepositoryBindings, repository)
                         || !ReferenceEquals(session.NativeContext, initialViewing)
                         || !ReferenceEquals(session.PopulationContext, initialPopulation)
                         || session.DisplayContexts.Count != initialDisplay.Length
@@ -299,6 +305,7 @@ public static partial class NativeBenchHost
                     session.SourceRecovery.Clear();
                     foreach (var source in recovery) session.SourceRecovery.Add(source.Key, source.Value);
                     session.CurrentBenchId = currentBench;
+                    session.StartupSelectionResolved = true;
                     session.ReferencesRestored = true;
                     session.AppliedChoices = before.Choices;
                 }

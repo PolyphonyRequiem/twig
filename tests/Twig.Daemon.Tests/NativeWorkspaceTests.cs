@@ -315,6 +315,52 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task WorkspaceDoesNotGuessABenchOrTurnADeletedDefaultIntoASelectionError()
+    {
+        await Start();
+        var fallback = await Bench("Default");
+        var workspace = await Workspace();
+        workspace.GetProperty("viewState").GetProperty("currentBenchId").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        var repository = await Repository("repository");
+        (await definitions.SaveRepositoryAsync(repository, 0, [], fallback.Id)).IsSuccess.ShouldBeTrue();
+        await SetRepository(repository);
+        (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(fallback.Id);
+        (await definitions.DeleteAsync(fallback.Id, fallback.Revision)).IsSuccess.ShouldBeTrue();
+        (await Workspace()).GetProperty("selectionError").GetProperty("code").GetString().ShouldBe("NotFound");
+        await SetRepository(null);
+        await SetRepository(repository);
+        workspace = await Workspace();
+        workspace.GetProperty("viewState").GetProperty("currentBenchId").ValueKind.ShouldBe(JsonValueKind.Null);
+        workspace.GetProperty("view").ValueKind.ShouldBe(JsonValueKind.Null);
+        workspace.GetProperty("selectionError").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
+    public async Task RefreshDoesNotApplyANewDefaultAndUnreadableRetainedChoiceFailsClosed()
+    {
+        await Start();
+        var choice = await Bench("Remembered");
+        var fallback = await Bench("Default");
+        var repository = await Repository("repository");
+        await SetRepository(repository);
+        (await Workspace()).GetProperty("viewState").GetProperty("currentBenchId").ValueKind.ShouldBe(JsonValueKind.Null);
+
+        (await definitions.SaveRepositoryAsync(repository, 0, [], fallback.Id)).IsSuccess.ShouldBeTrue();
+        (await Workspace()).GetProperty("viewState").GetProperty("currentBenchId").ValueKind.ShouldBe(JsonValueKind.Null);
+        await Select(choice.Id);
+        await SetRepository(null);
+        (await Workspace()).GetProperty("viewState").GetProperty("currentBenchId").ValueKind.ShouldBe(JsonValueKind.Null);
+        var history = Directory.GetFiles(Path.Combine(root, "profiles"), "repository-bench-*").Single();
+        await SetRepository(repository);
+        using (File.Open(history, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        using (var refused = await client.GetAsync(View + "workspace"))
+            refused.IsSuccessStatusCode.ShouldBeFalse();
+        (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(choice.Id);
+        (await definitions.ReadRepositoryAsync(repository)).Value.DefaultBench.ShouldBe(fallback.Id);
+    }
+
+    [Fact]
     public async Task RepositoryScopeWithholdsUnassignedSourceWithoutRetargetingSavedBench()
     {
         await Start();
@@ -422,6 +468,28 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
         var state = sessions.ReadState(session);
         sessions.SaveState(session, new(state.Revision, state.Choices with { BenchId = bench }));
+    }
+
+    private async Task<string> Repository(string name)
+    {
+        var path = Path.Combine(root, name);
+        Directory.CreateDirectory(path);
+        var start = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            WorkingDirectory = path, UseShellExecute = false, CreateNoWindow = true,
+            ArgumentList = { "init", "--quiet" },
+        };
+        using var git = System.Diagnostics.Process.Start(start)!;
+        await git.WaitForExitAsync();
+        git.ExitCode.ShouldBe(0);
+        return path;
+    }
+
+    private async Task SetRepository(string? path)
+    {
+        using var response = await client.PutAsJsonAsync(View + "repository-context", new RepositoryContextBody(path),
+            TransportJson.Default.RepositoryContextBody);
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
     }
 
     private async Task Select(Guid next, Guid? previous = null)

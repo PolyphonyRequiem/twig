@@ -102,6 +102,7 @@ internal static class SessionTests
         _ = Required(await store.SaveAsync(new(fallback, "Default", []), 0, ct));
         _ = Required(await store.SaveAsync(new(selected, "Previously selected", []), 0, ct));
         var bindings = Required(await store.SaveRepositoryAsync(repository, 0, [], fallback, ct));
+        var pathComparer = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
         _ = Required(await store.SaveRepositoryAsync(unrelated, 0, [], fallback, ct));
         Check(Required(await store.ReadRepositoryAsync(linked, ct)).RepositoryId == bindings.RepositoryId,
             "The linked worktree must resolve to the same verified repository identity.");
@@ -146,13 +147,13 @@ internal static class SessionTests
             Check(await Initial(host, next) == selected,
                 "A new session in a linked worktree must auto-load the repository's last-selected Bench after restart.");
             var linkedState = restarted.ReadState(restarted.Content(next.ViewId, next.ContentCapability, true));
-            Check(linkedState.Choices.RepositoryRoot == repository,
+            Check(pathComparer.Equals(linkedState.Choices.RepositoryRoot, repository),
                 "A linked worktree must manage the main repository, not require a separate worktree binding.");
             var linkedRoute = $"/api/v1/views/{next.ViewId:D}/repository-bindings";
             var linkedBindings = await host.Send("POST", linkedRoute,
                 new ReadRepositoryBindingsBody(linked), next.ContentCapability, null, ct);
             Check(linkedBindings.Status == 200
-                && linkedBindings.Body!["repositoryRoot"]?.GetValue<string>() == repository,
+                && pathComparer.Equals(linkedBindings.Body!["repositoryRoot"]?.GetValue<string>(), repository),
                 $"Observing bindings through a worktree must return the main repository path: {linkedBindings.Status} {linkedBindings.Body}");
             var legacyBindings = await host.Send("GET", linkedRoute + "?root=" + Uri.EscapeDataString(linked),
                 null, next.ContentCapability, null, ct);
@@ -192,8 +193,8 @@ internal static class SessionTests
             response = await host.Send("PUT", $"/api/v1/views/{explicitContext.ViewId:D}/repository-context",
                 new RepositoryContextBody(linked), explicitContext.ContentCapability, null, ct);
             Check(response.Status == 200
-                && restarted.ReadState(restarted.Content(explicitContext.ViewId, explicitContext.ContentCapability, true))
-                    .Choices.RepositoryRoot == repository,
+                && pathComparer.Equals(restarted.ReadState(restarted.Content(explicitContext.ViewId, explicitContext.ContentCapability, true))
+                    .Choices.RepositoryRoot, repository),
                 "Explicit worktree selection must retain only the main repository as the managed context.");
             var separate = Path.Combine(root, "separate repository");
             var separateLinked = Path.Combine(root, "separate linked");
@@ -205,12 +206,12 @@ internal static class SessionTests
             _ = Required(await store.SaveRepositoryAsync(separate, 0, [], fallback, ct));
             var nested = Path.Combine(separateLinked, "nested");
             Directory.CreateDirectory(nested);
-            Check(Required(await store.ReadRepositoryAsync(nested, ct)).RepositoryRoot == separate,
+            Check(pathComparer.Equals(Required(await store.ReadRepositoryAsync(nested, ct)).RepositoryRoot, separate),
                 "A nested worktree directory must resolve to its own main repository, including paths with spaces.");
             var separateOwner = Open(restarted, "separate", nested);
             Check(await Initial(host, separateOwner) == fallback
-                && restarted.ReadState(restarted.Content(separateOwner.ViewId, separateOwner.ContentCapability, true))
-                    .Choices.RepositoryRoot == separate,
+                && pathComparer.Equals(restarted.ReadState(restarted.Content(separateOwner.ViewId, separateOwner.ContentCapability, true))
+                    .Choices.RepositoryRoot, separate),
                 "Repository resolution must use Git's main checkout, not infer a root from the nested worktree path.");
             Check(gateway.Reads.Count == 0 && gateway.SelectCalls == 0,
                 "Remembering a Bench must not acquire connections or write CLI selection.");

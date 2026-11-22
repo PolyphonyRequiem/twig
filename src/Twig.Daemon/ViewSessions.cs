@@ -26,6 +26,8 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal Dictionary<string, NativeSourceRecovery> SourceRecovery { get; } = new(PathComparer);
     private Guid? currentBenchId;
     internal long SelectionRevision { get; private set; }
+    internal void AdvanceSelectionRevision() => SelectionRevision++;
+    internal bool StartupSelectionResolved { get; set; }
     internal Guid? CurrentBenchId
     {
         get => currentBenchId;
@@ -40,6 +42,8 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal Twig.Infrastructure.Services.UserRepositoryBindings? RepositoryBindings { get; set; }
     internal CanvasRuntimeContext? RuntimeContext { get; set; }
     internal bool RuntimeRepositoryApplied { get; set; }
+    internal string? RuntimeRepositoryRoot { get; set; }
+    internal bool RepositoryContextOverridden { get; set; }
     internal SemaphoreSlim RepositoryGate { get; } = new(1, 1);
     internal static StringComparer PathComparer => OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
     internal Bench.Infrastructure.NativePanelContext? NativeContext { get; set; }
@@ -441,15 +445,18 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         {
             RequireOwner(session);
             var path = RepositoryBenchPath(session.CatalogId, repositoryId);
-            if (!File.Exists(path)) return null;
-            if (new FileInfo(path).Length != 36 || !Guid.TryParseExact(File.ReadAllText(path), "D", out var bench)
+            FileStream stream;
+            try { stream = File.OpenRead(path); }
+            catch (FileNotFoundException) { return null; }
+            using var reader = new StreamReader(stream);
+            if (stream.Length != 36 || !Guid.TryParseExact(reader.ReadToEnd(), "D", out var bench)
                 || bench == Guid.Empty)
                 throw new InvalidDataException("The retained repository Bench selection is invalid.");
             return bench;
         }
     }
 
-    internal void RememberRepositoryBench(ViewSession session, Guid? bench, string? repositoryId)
+    internal void RememberRepositoryBench(ViewSession session, Guid? bench, string? repositoryId, long selectionRevision)
     {
         lock (gate)
         {
@@ -458,13 +465,47 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             RequireProfile(session, ReadDocument(session));
             lock (session)
             {
-                if (session.CurrentBenchId != bench || session.RepositoryBindings?.RepositoryId != repositoryId)
+                if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != bench
+                    || session.RepositoryBindings?.RepositoryId != repositoryId)
                     throw new HttpFailure(409, "BenchViewChanged", "The selected Bench or repository changed before it could be remembered.");
                 if (repositoryId is null) return;
                 var path = RepositoryBenchPath(session.CatalogId, repositoryId);
                 if (bench is { } selected) WriteAtomic(path, selected.ToString("D"));
                 else File.Delete(path);
             }
+        }
+    }
+
+    internal long CommitSelection(ViewSession session, long selectionRevision, NativeViewStateInfo before, Guid? bench)
+    {
+        lock (gate)
+        lock (session)
+        {
+            RequireOwner(session);
+            if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != before.CurrentBenchId)
+                throw StateConflict();
+            if (session.RepositoryBindings is not null || session.RuntimeContext is not null)
+            {
+                var saved = SaveState(session, new(before.Revision, before.Choices with
+                {
+                    RepositoryRoot = session.RepositoryRoot, BenchId = bench,
+                    ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null,
+                }));
+                session.AppliedChoices = saved.Choices;
+                session.NativeContext = null;
+                session.DisplayContexts.Clear();
+            }
+            session.CurrentBenchId = bench;
+            session.AdvanceSelectionRevision();
+            session.StartupSelectionResolved = true;
+            session.ReferencesRestored = true;
+            session.PopulationContext = null;
+            if (bench is null)
+            {
+                session.NativeContext = null;
+                session.DisplayContexts.Clear();
+            }
+            return session.SelectionRevision;
         }
     }
 
@@ -496,7 +537,12 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             recovery = document.Sources.Select(reference => session.SourceRecovery.GetValueOrDefault(reference.Root)
                 ?? new(reference.Root, retained.Contains(reference.Root) ? "retained" : "not-opened", null)).ToArray();
         }
-        return new(session.CatalogId, session.ProfileId, document.Revision, document.Choices, recovery,
+        var choices = document.Choices;
+        if (session.RuntimeRepositoryApplied && session.RuntimeContext is not null && !session.RepositoryContextOverridden
+            && !ViewSession.PathComparer.Equals(choices.RepositoryRoot, session.RuntimeRepositoryRoot))
+            choices = choices with { RepositoryRoot = session.RuntimeRepositoryRoot, BenchId = null,
+                ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null };
+        return new(session.CatalogId, session.ProfileId, document.Revision, choices, recovery,
             session.CurrentBenchId, session.Expires, session.Expires - OwnerRenewalLead) { RuntimeContext = session.RuntimeContext };
     }
     internal static string[] Roots(NativeViewChoices choices) => new[] { choices.ViewingRoot, choices.AddRoot }

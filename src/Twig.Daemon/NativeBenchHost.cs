@@ -220,29 +220,26 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id, true);
             var body = await Body<SelectionBody>(context);
+            long selectionRevision;
+            string? repositoryId;
+            lock (session) { selectionRevision = session.SelectionRevision; repositoryId = session.RepositoryBindings?.RepositoryId; }
+            var before = sessions.ReadState(session);
+            if (before.CurrentBenchId != body.ExpectedBenchId)
+                throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
             session.Agent.Invalidate();
             CancelEditor(session);
             session.Setup.Invalidate();
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
                 throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
-            string? repositoryId;
-            lock (session)
+            await session.RepositoryGate.WaitAsync(context.RequestAborted);
+            try
             {
-                if (session.CurrentBenchId != body.ExpectedBenchId)
-                    throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
-                repositoryId = session.RepositoryBindings?.RepositoryId;
-                session.CurrentBenchId = body.BenchId;
-                session.ReferencesRestored = true;
-                session.PopulationContext = null;
-                if (body.BenchId is null)
-                {
-                    session.NativeContext = null;
-                    session.DisplayContexts.Clear();
-                }
+                var committed = sessions.CommitSelection(session, selectionRevision, before, body.BenchId);
+                sessions.RememberRepositoryBench(session, body.BenchId, repositoryId, committed);
             }
-            await ResolveBenchConnections(panel, session, context.RequestAborted);
-            sessions.RememberRepositoryBench(session, body.BenchId, repositoryId);
+            finally { session.RepositoryGate.Release(); }
+            await ResolveBenchConnections(panel, session, context.RequestAborted, cachedAdmissionOnly: repositoryId is not null);
             updates.Publish(0);
             await Write(context, new Ack());
         });

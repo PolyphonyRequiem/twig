@@ -36,13 +36,20 @@ internal static class WorktreeAnchorDetector
     /// <paramref name="failureCode"/> (one of <c>not-a-git-worktree</c> or
     /// <c>bare-repository-not-supported</c>).</summary>
     public static bool TryDetect(string startDir, out WorktreeAnchor anchor, out string failureCode)
+        => TryDetect(startDir, out anchor, out failureCode, distinguishProbeFailure: false);
+
+    internal static bool TryDetect(string startDir, out WorktreeAnchor anchor, out string failureCode, bool distinguishProbeFailure)
     {
         anchor = default;
         failureCode = string.Empty;
 
-        if (!TryRunGit(startDir, "rev-parse --show-toplevel --is-bare-repository --git-common-dir --git-dir", out var raw))
+        if (!TryRunGit(startDir, "rev-parse --show-toplevel --is-bare-repository --git-common-dir --git-dir", out var raw, out var error))
         {
-            failureCode = "not-a-git-worktree";
+            failureCode = error.StartsWith("fatal: this operation must be run in a work tree", StringComparison.Ordinal)
+                || error.StartsWith("fatal: cannot use bare repository '", StringComparison.Ordinal)
+                ? "bare-repository-not-supported"
+                : !distinguishProbeFailure || error.StartsWith("fatal: not a git repository (", StringComparison.Ordinal)
+                    ? "not-a-git-worktree" : "git-probe-unavailable";
             return false;
         }
 
@@ -51,7 +58,7 @@ internal static class WorktreeAnchorDetector
         if (output.Split(fields, '\n') != 4 || !bool.TryParse(output[fields[1]].Trim(), out var bare)
             || output[fields[0]].Trim().IsEmpty || output[fields[2]].Trim().IsEmpty || output[fields[3]].Trim().IsEmpty)
         {
-            failureCode = "not-a-git-worktree";
+            failureCode = distinguishProbeFailure ? "git-probe-unavailable" : "not-a-git-worktree";
             return false;
         }
         if (bare)
@@ -139,8 +146,12 @@ internal static class WorktreeAnchorDetector
     /// empty answer as failure; <c>--show-prefix</c> is the exception, since
     /// empty output is precisely its "you are at the root" answer.</summary>
     private static bool TryRunGit(string workingDirectory, string args, out string stdout, bool requireOutput = true)
+        => TryRunGit(workingDirectory, args, out stdout, out _, requireOutput);
+
+    private static bool TryRunGit(string workingDirectory, string args, out string stdout, out string stderr, bool requireOutput = true)
     {
         stdout = string.Empty;
+        stderr = string.Empty;
         try
         {
             var psi = new ProcessStartInfo("git", args)
@@ -152,6 +163,9 @@ internal static class WorktreeAnchorDetector
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            foreach (var key in new[] { "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES" })
+                psi.Environment.Remove(key);
+            psi.Environment["LC_ALL"] = "C";
             using var process = Process.Start(psi);
             if (process is null)
                 return false;
@@ -159,7 +173,7 @@ internal static class WorktreeAnchorDetector
             // These probes are noninteractive; inheriting a blocked Windows input handle can stall Process.Start.
             process.StandardInput.Close();
             stdout = process.StandardOutput.ReadToEnd();
-            _ = process.StandardError.ReadToEnd();
+            stderr = process.StandardError.ReadToEnd();
             process.WaitForExit(5_000);
             return process.HasExited
                 && process.ExitCode == 0

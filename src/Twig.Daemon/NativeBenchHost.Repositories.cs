@@ -14,7 +14,7 @@ public sealed record AttachBenchConnectionBody(long ExpectedRevision, Connection
 
 public static partial class NativeBenchHost
 {
-    private static async Task ApplyRuntimeRepository(NativePanel panel, ViewSessions sessions, ViewSession session, CancellationToken ct)
+    private static async Task ApplyRuntimeRepository(NativePanel panel, ViewSession session, CancellationToken ct)
     {
         if (session.RuntimeRepositoryApplied || session.RuntimeContext is not { } runtime) return;
         if (runtime.IsRemote == true)
@@ -24,28 +24,19 @@ public static partial class NativeBenchHost
             throw new HttpFailure(409, "SessionDirectoryUnavailable", "The SDK session directory is unavailable on this machine. No alternate repository or profile was used.");
         var observed = await panel.ReadRepositoryAsync(root, ct);
         if (!observed.IsSuccess && observed.Error.Code != ErrorCode.InvalidInput) _ = Require(observed);
-        var bindings = observed.IsSuccess ? observed.Value : null;
-        var before = sessions.ReadState(session);
-        var nextRoot = bindings?.RepositoryRoot;
-        if (!ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, nextRoot) || before.Revision == 0)
-        {
-            var bench = bindings is null ? null : await RepositoryBench(panel, sessions, session, bindings, ct);
-            _ = sessions.SaveState(session, new(before.Revision, before.Choices with
-            {
-                RepositoryRoot = nextRoot, BenchId = bench,
-                ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null,
-            }));
-            session.CurrentBenchId = bench;
-        }
+        session.RuntimeRepositoryRoot = observed.IsSuccess ? observed.Value.RepositoryRoot : null;
         session.RuntimeRepositoryApplied = true;
     }
 
-    private static async Task<Guid?> RepositoryBench(NativePanel panel, ViewSessions sessions, ViewSession session,
-        UserRepositoryBindings bindings, CancellationToken ct)
+    private static Guid? RepositoryBench(ViewSessions sessions, ViewSession session,
+        UserRepositoryBindings? bindings, UserBenchSnapshot catalogue, Guid? retained)
     {
+        bool Exists(Guid? id) => id is { } candidate && catalogue.Benches.Any(bench => bench.Id == candidate);
+        if (Exists(retained)) return retained;
+        if (bindings is null) return null;
         var remembered = sessions.ReadRepositoryBench(session, bindings.RepositoryId);
-        return remembered is { } selected && Require(await panel.ListAsync(ct)).Benches.Any(bench => bench.Id == selected)
-            ? selected : bindings.DefaultBench;
+        if (Exists(remembered)) return remembered;
+        return Exists(bindings.DefaultBench) ? bindings.DefaultBench : null;
     }
 
     private static HashSet<Connection>? AvailableConnections(ViewSession session)
@@ -74,27 +65,38 @@ public static partial class NativeBenchHost
         await session.RepositoryGate.WaitAsync(ct);
         try
         {
-            await ApplyRuntimeRepository(panel, sessions, session, ct);
+            await ApplyRuntimeRepository(panel, session, ct);
             var root = sessions.ReadState(session).Choices.RepositoryRoot;
             var next = root is null ? null : Require(await panel.ReadRepositoryAsync(root, ct));
-            lock (session.Agent)
-            lock (session)
-            {
-                if (ViewSession.PathComparer.Equals(session.RepositoryRoot, root)
-                    && session.RepositoryBindings?.RepositoryId == next?.RepositoryId
-                    && session.RepositoryBindings?.Revision == next?.Revision) return;
-                session.Agent.Invalidate();
-                session.Editor.Invalidate();
-                session.Plan.Invalidate();
-                session.Setup.Invalidate();
-                session.NativeContext = session.PopulationContext = null;
-                session.ReferencesRestored = false;
-                session.DisplayContexts.Clear();
-                session.RepositoryRoot = root;
-                session.RepositoryBindings = next;
-            }
+            ApplyRepositoryBindings(session, next);
         }
         finally { session.RepositoryGate.Release(); }
+    }
+
+    private static void ApplyRepositoryBindings(ViewSession session, UserRepositoryBindings? next)
+    {
+        lock (session.Agent)
+        lock (session)
+        {
+            if (ViewSession.PathComparer.Equals(session.RepositoryRoot, next?.RepositoryRoot)
+                && session.RepositoryBindings?.RepositoryId == next?.RepositoryId
+                && session.RepositoryBindings?.Revision == next?.Revision) return;
+            session.Agent.Invalidate();
+            session.Editor.Invalidate();
+            session.Plan.Invalidate();
+            session.Setup.Invalidate();
+            session.NativeContext = session.PopulationContext = null;
+            session.ReferencesRestored = false;
+            session.DisplayContexts.Clear();
+            session.RepositoryRoot = next?.RepositoryRoot;
+            session.AdvanceSelectionRevision();
+            if (session.RepositoryBindings?.RepositoryId != next?.RepositoryId)
+            {
+                session.CurrentBenchId = null;
+                session.StartupSelectionResolved = false;
+            }
+            session.RepositoryBindings = next;
+        }
     }
 
     private static void MapRepositories(WebApplication app, NativePanel panel, ViewSessions sessions, CatalogChanges updates,
@@ -121,18 +123,21 @@ public static partial class NativeBenchHost
             var session = await authorize(http, id);
             var body = await Body<RepositoryContextBody>(http);
             var bindings = body.Root is null ? null : Require(await panel.ReadRepositoryAsync(body.Root, http.RequestAborted));
-            var before = sessions.ReadState(session);
-            var selected = body.Root is null ? session.CurrentBenchId
-                : await RepositoryBench(panel, sessions, session, bindings!, http.RequestAborted);
-            _ = sessions.SaveState(session, new(before.Revision, before.Choices with
+            await session.RepositoryGate.WaitAsync(http.RequestAborted);
+            try
             {
-                RepositoryRoot = bindings?.RepositoryRoot,
-                BenchId = selected, ViewingRoot = null, AddRoot = null, DisplayRoots = [],
-                GroupSource = null, GroupField = null,
-            }));
-            session.RuntimeRepositoryApplied = true;
-            await SynchronizeRepository(panel, sessions, session, http.RequestAborted);
-            lock (session) session.CurrentBenchId = selected;
+                var before = sessions.ReadState(session);
+                _ = sessions.SaveState(session, new(before.Revision, before.Choices with
+                {
+                    RepositoryRoot = bindings?.RepositoryRoot,
+                    BenchId = bindings?.RepositoryId == session.RepositoryBindings?.RepositoryId ? before.Choices.BenchId : null,
+                    ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null,
+                }));
+                session.RepositoryContextOverridden = true;
+                session.RuntimeRepositoryApplied = true;
+                ApplyRepositoryBindings(session, bindings);
+            }
+            finally { session.RepositoryGate.Release(); }
             updates.Publish(0);
             await Write(http, new Ack());
         });

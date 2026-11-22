@@ -70,3 +70,13 @@ A reference to a resource by its locator. A locator that opens a work item does 
 
 **Work item extension**:
 Twig-owned data attached to an existing work item by its work item key. It is neither a second work item nor data owned by the original item's provider.
+
+## Local Edits
+
+**Local edits**:
+Changes Twig retains as intent for an existing work item, not a copy of the item or a seed. An omitted field is left untouched; explicitly clearing a field is an edit, not an observation that the field is unset.
+_Avoid_: Work item draft.
+
+**Edit baseline**:
+The provider observation retained as the basis for local edits. It can differ from the latest provider observation.
+_Avoid_: Draft baseline.

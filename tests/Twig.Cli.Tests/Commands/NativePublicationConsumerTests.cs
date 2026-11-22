@@ -493,7 +493,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
 
     private async Task<(TwigPaths Paths, CoreModel.Connection Connection, CleanStore Store)> RelationshipWorkspaceAsync()
     {
-        var native = await AttachAsync();
+        var native = await AttachAsync(canonicalRoot: true);
         var config = native.GetRequiredService<TwigConfiguration>();
         var paths = native.GetRequiredService<TwigPaths>();
         _transport.CoreMetadataEnabled = true;

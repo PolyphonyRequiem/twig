@@ -555,7 +555,7 @@ public static partial class Core
             var observed = latestObservation.Fields.TryGetValue(field, out var current);
             if (Equals(intent, current)) continue;
             if (!hadBase || !observed) { conflicts.Add(field); continue; }
-            if (Equals(intent, baseline)) continue;
+            if (intent.Kind != FieldKind.Null && Equals(intent, baseline)) continue;
             if (Equals(current, baseline)) merged = merged.Set(field, intent);
             else conflicts.Add(field);
         }

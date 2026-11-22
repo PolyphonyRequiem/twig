@@ -411,6 +411,19 @@ public sealed class CoreInvariantTests
     }
 
     [Fact]
+    public void ExplicitClearOfAnUnsetFieldConflictsWhenProviderFillsIt()
+    {
+        var baseline = Item(fields: Fields(("gate", FieldValue.Null)));
+        var latest = Item("rev-2", Fields(("gate", FieldValue.String("provider value"))));
+
+        var untouched = Rules.Merge(new LocalEdits(Key, "record", baseline, FieldValues.Empty), latest).Value;
+        untouched.Fields["gate"].ShouldBe(FieldValue.String("provider value"));
+        untouched.Conflicts.ShouldBeEmpty();
+        var cleared = Rules.Merge(new LocalEdits(Key, "record", baseline, Fields(("gate", FieldValue.Null))), latest).Value;
+        cleared.Conflicts.ShouldBe(["gate"]);
+    }
+
+    [Fact]
     public void ResultNeverExposesBothSuccessAndFailure()
     {
         var ok = Result<int>.Ok(0);

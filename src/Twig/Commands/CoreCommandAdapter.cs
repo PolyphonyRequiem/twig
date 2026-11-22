@@ -334,7 +334,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             ? new RenderNode.Text(message, Severity.Success)
             : new RenderNode.Record("draftsSaved", new Dictionary<string, RenderCell>
             {
-                ["message"] = RenderCell.String(message), ["itemsFlushed"] = RenderCell.Integer(count),
+                ["message"] = RenderCell.String(count == 0 ? "Nothing to save." : $"Saved {count} draft(s); all effects verified."),
+                ["itemsFlushed"] = RenderCell.Integer(count),
                 ["digest"] = digest is null ? new("", new RenderValue.Null()) : RenderCell.String(digest),
             })]));
         return 0;
@@ -537,7 +538,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["id"] = RenderCell.Integer(LocalAlias(key)), ["localId"] = RenderCell.String(key.LocalId.ToString("D")),
                 ["type"] = RenderCell.String(requestedType), ["title"] = RenderCell.String(seedTitle.Text),
                 ["isSeed"] = RenderCell.Boolean(true), ["isDirty"] = RenderCell.Boolean(true),
-                ["message"] = RenderCell.String("Created a seed; no provider creation was attempted."),
+                ["message"] = RenderCell.String(output == "human" ? "Created a seed; no provider creation was attempted."
+                    : "Created a local draft; no native creation was attempted."),
             })]));
         return 0;
     }
@@ -931,7 +933,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             new Dictionary<string, RenderCell>
             {
                 ["id"] = RenderCell.Integer(id), ["localId"] = RenderCell.String(draft.Key.LocalId.ToString("D")),
-                ["message"] = RenderCell.String("Discarded the unattempted seed; journals and identity evidence were preserved."),
+                ["message"] = RenderCell.String(output == "human" ? "Discarded the unattempted seed; journals and identity evidence were preserved."
+                    : "Discarded the unattempted local draft; journals and identity evidence were preserved."),
             })]));
         return 0;
     }
@@ -1442,8 +1445,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                     ["storeVersion"] = RenderCell.Integer(snapshot.Value.Version),
                     ["count"] = RenderCell.Integer(drafts.Length),
                     ["fieldCount"] = RenderCell.Integer(snapshot.Value.RetainedItems.Sum(draft => draft.Fields.Count)),
-                    ["drafts"] = new("Local edits and seeds", new RenderValue.Array(drafts)),
-                    ["message"] = RenderCell.String("Captured local edits and seeds in retained order; no journal or local intent was changed."),
+                    ["drafts"] = new(format == "human" ? "Local edits and seeds" : "Drafts", new RenderValue.Array(drafts)),
+                    ["message"] = RenderCell.String(format == "human" ? "Captured local edits and seeds in retained order; no journal or local intent was changed."
+                        : "Captured typed drafts, in retained draft order; no journal or draft was changed."),
                 })]));
             return 0;
         });

@@ -115,8 +115,9 @@ available on every route or provider.
 
 **Changes are not all local drafts.** Commands such as `update`, `state`, `note`,
 and `batch` can publish immediately through Core. To refresh a supported Bench
-without saving drafts, use `twig workspace --bench MyWork --refresh`. For file-based changes, review
-the exact plan before `plan apply --file ... --confirm <digest>`.
+without saving drafts, use `twig workspace --bench MyWork --refresh`. For file-based
+changes, `twig plan apply --file change.json` applies the exact plan in the named file.
+Use `twig plan preview --file change.json` to inspect it first.
 Unknown write outcomes must be inspected, never blindly retried.
 
 ## Server and integrations
@@ -171,6 +172,7 @@ are not adopted by this Agent-only gate.
 | Local server | [Server installation and operations](docs/server.md) |
 | Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
 | Build and contribute | [Build and release](docs/architecture/build-and-release.md) |
+| Domain language | [Twig glossary](GLOSSARY.md) |
 | Implementation | [Architecture](docs/architecture/overview.md) |
 
 Use `twig --help`, then `twig <command> --help` for executable-matched syntax.

@@ -13,8 +13,8 @@
 | [`seed discard`](seed-discard.md) | Discard eligible local unpublished intent |
 
 Use the actual returned negative alias/UUID, not a predicted `-1`.
-Every `seed new` call must choose `--parent <id>` or `--no-parent`; GitHub and Twig-native
-creation require `--no-parent`. Structured publication is refused.
+Every `seed new` call must choose `--parent <id>` or `--no-parent`. GitHub and
+the Twig provider require `--no-parent`. Structured publication is refused.
 Bare `twig seed` is retired; use `seed new`.
 
 Read [drafting and publication](../../features/seeds-and-publishing.md) before

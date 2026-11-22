@@ -39,7 +39,7 @@ twig show 42 --refresh
 The account name is explicit; the ambient token environment or whichever `gh`
 account happens to be active does not replace that selection.
 
-### Twig-native
+### Twig provider
 
 ```sh
 twig init --provider twig --database personal
@@ -106,7 +106,7 @@ Use actual discovered field, type, and state references.
 | --- | --- |
 | ADO | Discovers the connected process. Native atomic batches can combine transitions and their required fields. Targeted trees, navigation, editing, and Bench planning have retained ADO routes. |
 | GitHub | Numeric issue locators resolve within the pinned repository. CLI queries support title/body/state with at most 100 total candidates; larger acquisitions refuse rather than claim completeness. Tree/navigation/editor/chain/sync conveniences are not qualified. Writes are observed-non-atomic; external workflow rules are not discovered. |
-| Twig-native | Uses a durable local authority with an explicit small schema. Local authority is not the workspace cache. Do not infer ADO/GitHub capabilities. |
+| Twig provider | Uses a durable local authority with an explicit small schema. Local authority is not the workspace cache. Do not infer ADO/GitHub capabilities. |
 
 The [GitHub provider reference](../src/Twig.Providers.GitHub/README.md) distinguishes
 adapter capabilities from the narrower CLI surface.

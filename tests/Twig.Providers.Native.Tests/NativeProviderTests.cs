@@ -13,6 +13,17 @@ public sealed class NativeProviderTests : IDisposable
     public void Dispose() => Directory.Delete(root, true);
 
     [Fact]
+    public async Task WorkspaceMirrorCannotBeOpenedAsTwigProviderAuthority()
+    {
+        var path = Path.Combine(root, "mirror.db");
+        (await SqliteStore.CreateAsync(path)).IsSuccess.ShouldBeTrue();
+        var result = await NativeAuthority.OpenAsync(path);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Conflict);
+        result.Error.Message.ShouldContain("Not an authority database for the Twig provider");
+    }
+
+    [Fact]
     public async Task Published_identity_is_authoritative_across_restart_not_a_draft_or_mirror()
     {
         var (authority, mirror, provider) = await Open();

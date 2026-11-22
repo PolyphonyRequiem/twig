@@ -44,7 +44,7 @@ public static partial class NativeConnectionLabels
     {
         "ado" => "Azure DevOps connection",
         "github" => "GitHub connection",
-        "twig" => "Twig-native items",
+        "twig" => "Twig provider",
         _ => "Native connection",
     }, false);
 

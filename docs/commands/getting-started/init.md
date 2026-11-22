@@ -90,7 +90,7 @@ the native actor and immutable owner/repository IDs, attaches that actual target
 and pins the new store through the existing native host. It does not enroll
 credentials, query issues, discover process rules or send a remote mutation.
 
-For Twig-native work, `--database <name>` explicitly creates or selects an
+For the Twig provider, `--database <name>` explicitly creates or selects an
 owner-local named database. Each database has its own durable source UUID, items,
 revisions and authority receipts. Multiple fresh repository workspaces can use
 the same name; different names isolate reads and writes even when item numbers
@@ -138,7 +138,7 @@ evidence. If a custom `--core-store` was created, select a new path; init never
 overwrites that database or its sidecars.
 
 Success emits exactly one result, including `coreInitialized: true`, the actual
-`databasePath`, and a message. Twig-native initialization also reports
+`databasePath`, and a message. Initialization for the Twig provider also reports
 `nativeDatabase`, distinguishing the selected authority from the client store.
 JSON aliases emit one parseable JSON object;
 human/minimal output is a static rendering of the same truthful result. Errors

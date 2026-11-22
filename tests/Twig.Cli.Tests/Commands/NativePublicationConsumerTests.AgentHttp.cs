@@ -579,7 +579,12 @@ public sealed partial class NativePublicationConsumerTests
                 request["provider"] = "twig"; request.Remove("repository"); request["database"] = "agent-fixture";
                 var local = await Send("/agent/connection-request", HttpMethod.Post, request);
                 Check(local.Status == HttpStatusCode.OK && local.Body["provider"]!.GetValue<string>() == "twig",
-                    "Native Twig is a first-class requested provider.");
+                    "The Twig provider is a first-class requested provider.");
+                var wrongAccount = await Send("/connections/approve", HttpMethod.Post, new JsonObject
+                { ["requestId"] = local.Body["requestId"]!.DeepClone(), ["account"] = "fixture-account" }, owner: true);
+                Check(wrongAccount.Status == HttpStatusCode.BadRequest
+                    && wrongAccount.Body.ToJsonString().Contains("A Twig provider connection does not use a GitHub account."),
+                    "Approving a Twig provider connection must reject GitHub account input before setup.");
                 Check((await Send("/agent/permissions", HttpMethod.Put, Grant(false), owner: true)).Status == HttpStatusCode.OK,
                     "The owner can revoke access while a request is pending.");
                 Check((await Send("/connections/approve", HttpMethod.Post, new JsonObject

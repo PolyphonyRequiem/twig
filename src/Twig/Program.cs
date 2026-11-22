@@ -454,7 +454,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="binding">Explicit local ADO binding override for fresh setup. Normally omitted: resolve the user-bound connection matching twig.json. Never replaces existing state.</param>
     /// <param name="coreStore">Optional new absolute database file override, with existing parent directory. Default: .twig/core.db. Existing data is never adopted or reset.</param>
     /// <param name="account">Explicit gh account override for fresh setup. Normally omitted: use the user credential bound to the required connection, never gh's active account.</param>
-    /// <param name="database">Named Twig-native database to create or open, used with --provider twig. Required unless declared in twig.json; 1-64 lowercase letters, digits or internal hyphens. Separate from --core-store.</param>
+    /// <param name="database">Named database to create or open for the Twig provider, used with --provider twig. Required unless declared in twig.json; 1-64 lowercase letters, digits or internal hyphens. Separate from --core-store.</param>
     public async Task<int> Init([Argument] string? orgArg = null, [Argument] string? projectArg = null, string? org = null, string? project = null, string? team = null, string? gitProject = null, bool force = false, string output = OutputFormatterFactory.DefaultFormat, string? sprint = null, string? area = null, bool reinitialize = false, CancellationToken ct = default, string? profile = null, string? provider = null, string? host = null, string? repository = null, string? binding = null, string? coreStore = null, string? account = null, string? database = null)
     {
         if (orgArg is not null && org is not null && orgArg != org
@@ -1703,7 +1703,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="project">ADO project.</param>
     /// <param name="host">GitHub host.</param>
     /// <param name="repository">GitHub owner/repository.</param>
-    /// <param name="database">Twig-native database name.</param>
+    /// <param name="database">Database name for the Twig provider.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("connection add")]
     public async Task<int> ConnectionAdd(string? provider = null, string? org = null, string? project = null,

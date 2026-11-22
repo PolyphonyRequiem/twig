@@ -72,6 +72,10 @@ public sealed class NativeTwigSpineTests
             (await reopened.Workspace.ReadAsync(published, default)).Value.Fields[NativeProvider.StateField].Text.ShouldBe("Closed");
             var adapter = new CoreCommandAdapter(factory, new RendererFactory(),
                 Substitute.For<IConsoleInput>(), Substitute.For<IEditorLauncher>());
+            var parentedSeed = await StderrCapture.RunAsync(() => adapter.SeedNewAsync("Child", NativeProvider.ItemType,
+                false, 1, false, null, null, "json", default));
+            parentedSeed.result.ShouldBe(2);
+            parentedSeed.stderr.ShouldContain("The Twig provider requires --no-parent");
             var queried = await StdoutCapture.RunAsync(() => adapter.QueryAsync(null, "First", null, null,
                 "Closed", null, null, null, null, null, 10, "json", default));
             queried.result.ShouldBe(0);

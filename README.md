@@ -1,8 +1,8 @@
 # Twig
 
 **Work tracking from your terminal.** Twig is a local-first CLI for Azure DevOps,
-GitHub issues, and Twig-native work items. Read cached items, organize work in
-named **Benches**, draft new items locally, and apply changes through a
+GitHub issues, and work items from the Twig provider. Read cached items, organize
+work in named **Benches**, draft new items locally, and apply changes through a
 digest-bound proposal journal.
 
 The CLI ships as a NativeAOT binary for **Windows x64 and Linux x64**. macOS
@@ -74,7 +74,7 @@ it declares provider dimensions, not a contributor's credential or a device-loca
 `twig connection list` lists all registrations through the server, regardless of
 the current directory. Credentials and bindings remain private to the local user.
 
-### Twig-native
+### Twig provider
 
 No ADO or GitHub credentials are needed:
 

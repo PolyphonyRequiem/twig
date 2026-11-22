@@ -410,7 +410,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
     {
         if (noParent && parent is not null) return Error(output, "--parent and --no-parent are mutually exclusive.", 2);
         if (factory.IsTwig && (!noParent || predecessor is not null))
-            return Error(output, "Twig-native items require --no-parent; this source has no relationship schema.", 2);
+            return Error(output, "The Twig provider requires --no-parent; this source has no relationship schema.", 2);
         if (factory.IsGitHub && (!noParent || editor || predecessor is not null))
             return Error(output, "GitHub seed creation requires --no-parent and explicit native type/fields; editor and creation links are not qualified.", 2);
         if (!noParent && parent is null) return Error(output, "Specify --parent <id> or --no-parent.", 2);

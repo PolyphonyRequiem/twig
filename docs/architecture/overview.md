@@ -22,6 +22,25 @@ architecture.
 The exact supported build inventory, including test projects and the external
 RenderTree consumer sample, is [`Twig.slnx`](../../Twig.slnx).
 
+## Work item identity
+
+The [glossary](../../GLOSSARY.md#work-item-identity) distinguishes a **work
+item**, which has a provider-issued identity, from a **seed**, which has only a
+local identity before publication. An item issued by the Twig provider is a
+work item even though that provider runs locally. Core's `ItemKey` supports
+both kinds of identity; the `WorkItem` type does not by itself imply
+provider-issued identity.
+
+A work item key combines the provider, its resource scope, and the native ID.
+GitHub issue `#123` in two repositories represents two work items. Two accounts
+viewing `#123` in the same repository are viewing the same item: the connection
+controls access, and login alone is not part of the key. A provider can define
+an account-scoped namespace if that is where it assigns IDs.
+
+A seed's negative CLI alias is shorthand; its local ID is the durable
+identity. A revision describes the version observed for a particular work item,
+not its identity or whether the provider can reject a stale write.
+
 ## Execution boundary
 
 The CLI admits arguments and the selected workspace before composing a provider.

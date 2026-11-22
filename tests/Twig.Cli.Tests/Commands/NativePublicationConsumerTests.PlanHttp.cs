@@ -57,9 +57,9 @@ public sealed partial class NativePublicationConsumerTests
             };
             client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
             async Task<(HttpStatusCode Status, JsonNode Body)> Send(string path, HttpMethod method,
-                JsonNode? body = null, string? capability = null)
+                JsonNode? body = null, string? capability = null, Guid? viewId = null)
             {
-                using var request = new HttpRequestMessage(method, $"/api/v1/views/{human.ViewId:D}" + path);
+                using var request = new HttpRequestMessage(method, $"/api/v1/views/{(viewId ?? human.ViewId):D}" + path);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
@@ -383,6 +383,22 @@ public sealed partial class NativePublicationConsumerTests
             await Report();
             _transport.CommittedWrites.ShouldBe(4, "One normal Save, two Plan edits and one synthetic creation.");
             (await Wait(await Ok("/plan/apply", HttpMethod.Post, applyBody), expectSuccess: false))["outcome"].ShouldBeNull();
+            var attachedStatus = await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get);
+            var attemptDigest = attachedStatus["lastReviewDigest"]!.GetValue<string>();
+            var reopenedCanvas = sessions.RegisterNativeCanvas(instance);
+            var reopenedHuman = sessions.ConnectOwner(instance, reopenedCanvas.ViewId, Guid.NewGuid());
+            gateway.SourceUnavailable = true;
+            var selection = await Send("/selection", HttpMethod.Put,
+                new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench },
+                reopenedHuman.ContentCapability, reopenedHuman.ViewId);
+            selection.Status.ShouldBe(HttpStatusCode.OK, selection.Body.ToJsonString());
+            var detached = await Send($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get,
+                capability: reopenedHuman.ContentCapability, viewId: reopenedHuman.ViewId);
+            gateway.SourceUnavailable = false;
+            detached.Status.ShouldBe(HttpStatusCode.OK, detached.Body.ToJsonString());
+            detached.Body["lastReviewDigest"]!.GetValue<string>().ShouldBe(attemptDigest);
+            detached.Body["sources"]!.AsArray().ShouldHaveSingleItem()!["sourceId"].ShouldBeNull();
+            detached.Body["stagedVersion"].ShouldBeNull();
             var planScope = (await store.ReadPlanAsync(fixture.Bench, ct)).Value.Scopes.Single();
             var planStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(planScope.DatabasePath, ct, planScope.StoreInstance)).Value;
             var planSnapshot = (await planStore.ReadAsync(fixture.Stamp.Connection, ct)).Value;

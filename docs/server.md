@@ -151,7 +151,9 @@ and its journal receipts.
 For the selected Bench, read `GET /api/v1/views/{viewId}/benches/{benchId}/plan`.
 The response's `stagedVersion` binds the Bench, Plan and staged captures to the
 client's next explicit Apply. It is absent unless the enabled Plan has ready
-scopes. Send `{ "benchId": "...", "stagedVersion": "..." }`
+scopes with their original connections attached and a staged snapshot is available.
+Status and the original attempt digest remain readable without those connections.
+Send `{ "benchId": "...", "stagedVersion": "..." }`
 to `POST /api/v1/views/{viewId}/plan/apply`, then poll the operation ID returned
 with HTTP 202. Do not show a confirmation prompt or automatically resubmit
 after a stale-version conflict or lost response. Reload staged intent after a

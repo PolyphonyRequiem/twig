@@ -108,15 +108,21 @@ public static partial class NativeBenchHost
         {
             var session = await authorize(http, id);
             await Current(session, bench, http.RequestAborted);
-            var (status, version) = Required(await panel.ReadStagedPlanVersionAsync(bench, http.RequestAborted));
-            string? stagedVersion = null;
-            if (status.Enabled && status.Sources.Length != 0 && status.Sources.All(source => source.State == "Ready"))
+            var staged = await panel.ReadStagedPlanVersionAsync(bench, http.RequestAborted);
+            if (!staged.IsSuccess && staged.Error.Code == ErrorCode.Conflict)
             {
-                _ = await Connections(session, status, http.RequestAborted);
-                stagedVersion = version;
+                var current = Required(await panel.ReadPlanAsync(bench, http.RequestAborted));
                 await Current(session, bench, http.RequestAborted);
+                await Write(http, PlanStatus(session, current));
+                return;
             }
-            await Write(http, PlanStatus(session, status) with { StagedVersion = stagedVersion });
+            var (status, version) = Required(staged);
+            await Current(session, bench, http.RequestAborted);
+            var response = PlanStatus(session, status);
+            if (status.Enabled && response.Sources.Length != 0
+                && response.Sources.All(source => source.State == "Ready" && source.SourceId is not null))
+                response = response with { StagedVersion = version };
+            await Write(http, response);
         });
         app.MapPut("/api/v1/views/{id:guid}/plan/mode", async (HttpContext http, Guid id) =>
         {

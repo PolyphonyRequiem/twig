@@ -160,6 +160,7 @@ public sealed partial class NativePublicationConsumerTests
         internal int PlanReviews { get; private set; }
         internal int OpenReviews { get; private set; }
         internal bool RefuseEditor { get; set; }
+        internal bool SourceUnavailable { get; set; }
         internal int ProfileReads { get; private set; }
         internal ImmutableArray<string> ProfileIdentities { get; private set; } = [];
         internal Action<string>? Trace { get; set; }
@@ -171,6 +172,8 @@ public sealed partial class NativePublicationConsumerTests
         public Task<Result<NativeSourceObservation>> ReadAsync(string root, NativeSourceStamp? expected,
             bool observeSchema, CancellationToken ct)
         {
+            if (SourceUnavailable)
+                return Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.StorageUnavailable, "Test source is offline."));
             if (observeSchema) SchemaReads++; else LocalReads++;
             var trace = Trace;
             trace?.Invoke(observeSchema ? "schema read started" : "local read started");

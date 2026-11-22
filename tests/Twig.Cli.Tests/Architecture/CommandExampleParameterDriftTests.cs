@@ -132,17 +132,17 @@ public sealed class CommandExampleParameterDriftTests
 
     /// <summary>
     /// Boolean arity comes from the reflected signature, not from a name list: the real
-    /// <c>policy reconcile</c> declares <c>--plan-only</c> as a switch and <c>--ids</c>
+    /// <c>seed new</c> declares <c>--no-parent</c> as a switch and <c>--parent</c>
     /// as a valued option.
     /// </summary>
     [Fact]
     public void BooleanArity_IsReflectedFromTheRealCommandSignature()
     {
-        var reconcile = DiscoverCommands()["policy reconcile"];
+        var seedNew = DiscoverCommands()["seed new"];
 
-        reconcile.BooleanOptions.ShouldContain("plan-only");
-        reconcile.Options.ShouldContain("ids");
-        reconcile.BooleanOptions.ShouldNotContain("ids");
+        seedNew.BooleanOptions.ShouldContain("no-parent");
+        seedNew.Options.ShouldContain("parent");
+        seedNew.BooleanOptions.ShouldNotContain("parent");
     }
 
     private sealed record CommandSignature(

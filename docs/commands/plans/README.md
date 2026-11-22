@@ -5,7 +5,7 @@
 | [`pending`](pending.md) | Inspect typed drafts without changing them |
 | [`plan validate`](plan-validate.md) | Parse current canonical Core format and digest |
 | [`plan preview`](plan-preview.md) | Check application evidence and retain local journal intent |
-| [`plan apply`](plan-apply.md) | Apply under the exact confirmed digest and fresh native admission |
+| [`plan apply`](plan-apply.md) | Apply the named file under fresh native admission |
 | [`plan status`](plan-status.md) | Inspect original operation statuses/receipts without replay |
 
 All four plan verbs require an explicit file. The current Core format

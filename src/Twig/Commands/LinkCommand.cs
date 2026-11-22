@@ -149,7 +149,7 @@ internal sealed class LinkCommand(
             var prepared = await workspace.PrepareAsync([new("relationship", remove ? OpKind.Unrelate : OpKind.Relate,
                 from.Key, from.Revision, other: to, relation: relation.Reference)], ct);
             if (!prepared.IsSuccess) return Error(format, prepared.Error.Message);
-            var applied = await workspace.ApplyAsync(prepared.Value, prepared.Value.Digest, ct);
+            var applied = await workspace.ApplyAsync(prepared.Value, ct);
             if (!applied.IsSuccess) return Error(format, applied.Error.Message);
             if (applied.Value.Error is { } failure) return Error(format, failure.Message);
             if (!applied.Value.EffectsVerified)

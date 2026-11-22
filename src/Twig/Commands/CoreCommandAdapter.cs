@@ -319,7 +319,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (!prepared.IsSuccess) return Result<(int, string?)>.Fail(prepared.Error);
             plan = prepared.Value;
         }
-        var saved = await workspace.SaveDraftSetAsync(captures, plan, plan?.Digest, ct);
+        var saved = await workspace.SaveDraftSetAsync(captures, plan, ct);
         if (!saved.IsSuccess) return Result<(int, string?)>.Fail(saved.Error);
         if (saved.Value.Error is { } error) return Result<(int, string?)>.Fail(error);
         if (!saved.Value.EffectsVerified)
@@ -695,7 +695,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (!staged.IsSuccess) return Error(output, staged.Error.Message);
             var preview = await workspace.PreviewDraftAsync(key, ct);
             if (!preview.IsSuccess) return Error(output, preview.Error.Message);
-            var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Plan?.Digest, ct);
+            var saved = await workspace.SaveDraftAsync(preview.Value, ct);
             if (!saved.IsSuccess) return Error(output, saved.Error.Message);
             if (saved.Value.Error is { } failure) return Error(output, failure.Message);
             if (!saved.Value.EffectsVerified) return Error(output, "The editor effect remains unresolved; its journal and draft were retained.");
@@ -818,7 +818,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         string? branch, string? repository, string output, CancellationToken ct)
     {
         if (factory.IsGitHub && branch is not null) return Error(output, "GitHub creation-bound resources are not qualified.");
-        if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use an explicit reviewed plan apply.", 2);
+        if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use plan apply with an explicit file.", 2);
         if (id is not null && (id >= 0 || all) || id is null && !all)
             return Error(output, "Specify one negative seed ID or --all.", 2);
         if (repository is not null && branch is null)
@@ -884,7 +884,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview", cells)]));
             return 0;
         }
-        var published = await workspace.SaveDraftSetAsync(captures, plan, plan.Digest, ct, reviewedStoreVersion);
+        var published = await workspace.SaveDraftSetAsync(captures, plan, ct, reviewedStoreVersion);
         if (!published.IsSuccess) return Error(output, published.Error.Message);
         if (published.Value.Error is { } error) return Error(output, error.Message);
         if (!published.Value.EffectsVerified) return Error(output, "Creation is unresolved; its UUID fence, drafts and receipts remain. No replay was performed.");
@@ -1288,7 +1288,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!staged.IsSuccess) return Error(output, staged.Error.Message);
         var preview = await workspace.PreviewDraftAsync(key, ct);
         if (!preview.IsSuccess) return Error(output, preview.Error.Message);
-        var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Plan?.Digest, ct);
+        var saved = await workspace.SaveDraftAsync(preview.Value, ct);
         if (!saved.IsSuccess) return Error(output, saved.Error.Message);
         if (saved.Value.Error is { } failure) return Error(output, failure.Message);
         if (!saved.Value.EffectsVerified) return Error(output, "The requested effect did not verify; retained journal evidence requires attention.");
@@ -1491,14 +1491,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             ["localId"] = InspectionText(key.IsLocal ? key.LocalId.ToString("D") : null),
         }));
 
-    internal async Task<int> ApplyPlanAsync(string? file, string? confirmation, string output, CancellationToken ct)
+    internal async Task<int> ApplyPlanAsync(string? file, string output, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(confirmation))
-            return Error(output, "A Core plan file and its exact --confirm digest are required.", 2);
+        if (string.IsNullOrWhiteSpace(file))
+            return Error(output, "An explicit Core plan file is required.", 2);
         var parsed = await CorePlanFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
         if (!parsed.IsSuccess) return Error(output, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
         var plan = parsed.Value;
-        if (plan.Digest != confirmation) return Error(output, "Confirmation differs from the exact canonical plan digest.");
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -1511,8 +1510,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 && (d as Seed)?.ParentRelation == plan.Operations[0].Relation && (d as Seed)?.Resource == plan.Operations[0].Resource
                 && ((d as Seed)?.Links ?? []).SequenceEqual(plan.Operations[0].Links))
             && (d.Key.IsLocal || (d as LocalEdits)?.EditBaseline?.Revision == plan.Operations[0].ExpectedRevision)) : null;
-        var applied = draft is null ? await workspace.ApplyAsync(plan, confirmation, ct)
-            : await workspace.SaveDraftAsync(new(draft, plan), confirmation, ct);
+        var applied = draft is null ? await workspace.ApplyAsync(plan, ct)
+            : await workspace.SaveDraftAsync(new(draft, plan), ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
         if (!applied.Value.EffectsVerified) return Error(output, "The plan has an unresolved effect; no blind replay was performed.");
@@ -1658,7 +1657,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var plan = await workspace.PrepareAsync([new("state", OpKind.Batch, key, read.Value.Revision,
             new([KeyValuePair.Create(type.StateField, FieldValue.String(target))]), concurrency: workspace.Concurrency)], ct);
         if (!plan.IsSuccess) return Error(output, plan.Error.Message);
-        var applied = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
+        var applied = await workspace.ApplyAsync(plan.Value, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
         if (!applied.Value.EffectsVerified) return Error(output, "The transition has unresolved journal evidence.");
@@ -1724,7 +1723,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         }
         var plan = await workspace.PrepareAsync(operations, ct);
         if (!plan.IsSuccess) return Error(output, plan.Error.Message);
-        var executed = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
+        var executed = await workspace.ApplyAsync(plan.Value, ct);
         if (!executed.IsSuccess) return Error(output, executed.Error.Message);
         if (executed.Value.Error is { } failure) return Error(output, failure.Message);
         if (!executed.Value.EffectsVerified) return Error(output, "The ordered batch has unresolved effects; no remaining operation was replayed.");
@@ -1822,7 +1821,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (fields.Count == 0) return Error(output, "At least one explicit patch field is required.", 2);
         var plan = await workspace.PrepareAsync([new("patch", OpKind.Batch, key, read.Value.Revision, fields, concurrency: workspace.Concurrency)], ct);
         if (!plan.IsSuccess) return Error(output, plan.Error.Message);
-        var applied = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
+        var applied = await workspace.ApplyAsync(plan.Value, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
         if (!applied.Value.EffectsVerified) return Error(output, "The patch did not verify; its journal remains authoritative.");
@@ -1879,7 +1878,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             op.Origin, op.Body, workspace.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links, op.CreateEvidence);
         var plan = await workspace.PrepareAsync([op], ct);
         if (!plan.IsSuccess) { Error(output, plan.Error.Message); return null; }
-        var applied = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
+        var applied = await workspace.ApplyAsync(plan.Value, ct);
         if (!applied.IsSuccess) { Error(output, applied.Error.Message); return null; }
         if (applied.Value.Error is { } error) { Error(output, error.Message); return null; }
         if (!applied.Value.EffectsVerified) { Error(output, "The effect is unresolved; no automatic retry was performed."); return null; }

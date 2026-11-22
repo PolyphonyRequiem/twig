@@ -620,8 +620,8 @@ internal static class CommandExamples
         ],
         ["plan apply"] =
         [
-            "twig plan apply --file plan.json --confirm <digest>    Apply the exact reviewed plan.",
-            "twig plan apply --file plan.json --confirm <digest> --output json    Emit every operation's journal outcome.",
+            "twig plan apply --file plan.json    Apply the plan read from the named file.",
+            "twig plan apply --file plan.json --output json    Report the verified result.",
         ],
         ["plan status"] =
         [

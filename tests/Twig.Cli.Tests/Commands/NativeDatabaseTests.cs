@@ -54,7 +54,7 @@ public sealed class NativeDatabaseTests : IDisposable
         seed.IsSuccess.ShouldBeTrue();
         var preview = await first.Workspace.PreviewDraftAsync(seed.Value.Key, default);
         preview.IsSuccess.ShouldBeTrue();
-        var saved = await first.Workspace.SaveDraftAsync(preview.Value, preview.Value.Plan!.Digest, default);
+        var saved = await first.Workspace.SaveDraftAsync(preview.Value, default);
         saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         saved.Value.EffectsVerified.ShouldBeTrue();
         var key = (await first.Workspace.SnapshotAsync(default)).Value.Mappings.Single().Remote;
@@ -68,7 +68,7 @@ public sealed class NativeDatabaseTests : IDisposable
         (await second.Workspace.ReadAsync(key, default)).IsSuccess.ShouldBeFalse();
         (await second.Workspace.StageEditAsync(key,
             FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("Wrong database")), default)).IsSuccess.ShouldBeFalse();
-        (await second.Workspace.ApplyAsync(preview.Value.Plan, preview.Value.Plan.Digest, default)).IsSuccess.ShouldBeFalse();
+        (await second.Workspace.ApplyAsync(preview.Value.Plan!, default)).IsSuccess.ShouldBeFalse();
         var untouched = (await second.Workspace.SnapshotAsync(default)).Value;
         untouched.Journal.ShouldBeEmpty();
         untouched.RetainedItems.ShouldBeEmpty();
@@ -76,7 +76,7 @@ public sealed class NativeDatabaseTests : IDisposable
         var betaSeed = (await second.Workspace.StageSeedAsync(NativeProvider.ItemType,
             FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("Only beta")), default)).Value;
         var betaPreview = (await second.Workspace.PreviewDraftAsync(betaSeed.Key, default)).Value;
-        (await second.Workspace.SaveDraftAsync(betaPreview, betaPreview.Plan!.Digest, default)).Value.EffectsVerified.ShouldBeTrue();
+        (await second.Workspace.SaveDraftAsync(betaPreview, default)).Value.EffectsVerified.ShouldBeTrue();
         var betaKey = (await second.Workspace.SnapshotAsync(default)).Value.Mappings.Single().Remote;
         betaKey.NativeId.ShouldBe(key.NativeId, "numeric IDs are local to each database");
         betaKey.ShouldNotBe(key);

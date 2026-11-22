@@ -718,7 +718,7 @@ of the **retained** plan/ordinal/attempt. Native fsynced intent/ack sidecars are
 subordinate transport evidence, never a second executor or recovery authority.
 Unknown creation remains fenced across root reopen without a second create.
 
-Offline Core file preview retains exact unconfirmed intent as Planned with no
+Offline Core file preview retains exact unattempted intent as Planned with no
 attempt or receipt, and reports unavailable schema/rule evidence as blocking.
 Core `plan validate` checks only canonical file format
 offline and explicitly reports that application evidence was not checked; it does
@@ -875,7 +875,7 @@ The executable keeps its existing NativeAOT, full-trimming and invariant-globali
 | Owner | Responsibilities |
 |---|---|
 | Core | Identity, typed values, one schema, drafts, canonical plan intent, receipts and journal transitions, mechanical validation, merge, Bench selectors, declared policy, two ports |
-| Application/command orchestration (later) | Explicit targeting, acquire current schema/items, draft-to-plan construction, exact-digest confirmation, ordered execution, durable attempts, cancellation/recovery, policy evidence acquisition |
+| Application/command orchestration (later) | Explicit targeting, acquire current schema/items, draft-to-plan construction, ordered execution, durable attempts, cancellation/recovery, policy evidence acquisition |
 | Provider adapters (phases 3 and 4) | Normalize native identities and field references, discover schema/capabilities, implement query translation and one-effect transport, classify dispatch/outcomes, authoritative readback |
 | Store adapter (phase 2) | SQLite/WAL, one local CAS/transaction boundary, append-preserving evidence, immutable publish mappings, local relationship tombstones, source-generated persistence DTOs |
 | Hosts/rendering | Human versus machine behavior, server/Canvas session and view selection, form layout and presentation hints, markup conversion/sanitization, colors, credentials and telemetry |
@@ -1108,7 +1108,7 @@ requiredness, read-only, value-kind and transition restrictions still apply. `Ba
 may explicitly bind a replacement type; its target schema governs validation and the
 adapter must include that type change in the same remote request.
 
-`Validate` binds confirmation and the pre-import store version. Importing the plan
+`Validate` checks the bound schema and pre-import store version. Importing the plan
 itself advances that version; it does not invalidate its own consent. Before each first
 attempt, `ValidateEffect` checks the retained Planned row, earlier Verified rows, current
 observations and unchanged schema. Acquisition then uses the **current** store CAS.
@@ -1184,7 +1184,7 @@ Adapters must report contradictory/incomplete endpoint observations as unavailab
 Each apply call is one journalable remote effect/request, or a genuine atomic field batch.
 It must not hide a multi-request sequence. If an adapter needs several requests (for
 example GitHub edits with separate API calls), the application must expose their separate
-effects before digest confirmation, or refuse that operation. `Create` binds only the
+effects before constructing the plan, or refuse that operation. `Create` binds only the
 single-request initial shape; follow-up relationships/labels are later explicit effects.
 
 Capabilities, not provider-name switches, distinguish native relation kinds, explicitly
@@ -1211,7 +1211,7 @@ Operations retain their exact declared revision. There is no implicit carry-forw
 rebase, generated revision arithmetic or mutation retry. If an earlier operation moves a
 later operation's revision, the later effect refuses and needs newly reviewed intent.
 Dependent publication follows verified mappings; unbound local endpoints cannot masquerade
-as remote IDs. Rich-text conversion must occur before confirmation, or the adapter must
+as remote IDs. Rich-text conversion must occur before constructing the plan, or the adapter must
 send the exact format as declared. It cannot change body meaning after review.
 
 Before any transport, the orchestrator atomically records `Applying` and its attempt UUID.

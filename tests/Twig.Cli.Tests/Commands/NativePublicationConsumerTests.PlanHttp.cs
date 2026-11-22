@@ -57,9 +57,9 @@ public sealed partial class NativePublicationConsumerTests
             };
             client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
             async Task<(HttpStatusCode Status, JsonNode Body)> Send(string path, HttpMethod method,
-                JsonNode? body = null, string? capability = null)
+                JsonNode? body = null, string? capability = null, Guid? viewId = null)
             {
-                using var request = new HttpRequestMessage(method, $"/api/v1/views/{human.ViewId:D}" + path);
+                using var request = new HttpRequestMessage(method, $"/api/v1/views/{(viewId ?? human.ViewId):D}" + path);
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", capability ?? human.ContentCapability);
                 if (body is not null)
                     request.Content = new StringContent(body.ToJsonString(), Encoding.UTF8, "application/json");
@@ -282,13 +282,8 @@ public sealed partial class NativePublicationConsumerTests
             }
             if (scenario == "navigation")
             {
-                var previous = (await Wait(await Ok("/plan/review", HttpMethod.Post, BenchBody())))["review"]!;
-                previous["canApply"]!.GetValue<bool>().ShouldBeTrue();
-                Guid.Parse(previous["ticket"]!.GetValue<string>()).ShouldNotBe(Guid.Empty);
                 var apply = BenchBody();
-                apply["ticket"] = previous["ticket"]!.DeepClone();
-                apply["digest"] = previous["digest"]!.DeepClone();
-                apply["deliveryOnly"] = false;
+                apply["stagedVersion"] = (await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get))["stagedVersion"]!.DeepClone();
                 NoWrites();
                 var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 var injected = 0;
@@ -300,39 +295,25 @@ public sealed partial class NativePublicationConsumerTests
                     callback = release.Task.WaitAsync(callbackLifetime.Token);
                     return callback;
                 };
-                var operation = await Ok("/plan/review", HttpMethod.Post, BenchBody());
+                var operation = await Ok("/plan/apply", HttpMethod.Post, apply);
                 var id = operation["operationId"]!.GetValue<string>();
                 await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), ct);
-                (await Ok("/plan/operations/" + id, HttpMethod.Get))["status"]!.GetValue<string>().ShouldBe("Reviewing");
+                (await Ok("/plan/operations/" + id, HttpMethod.Get))["status"]!.GetValue<string>().ShouldBe("Applying");
                 var blocked = await Send("/plan/apply", HttpMethod.Post, apply);
                 blocked.Status.ShouldBe(HttpStatusCode.Conflict);
-                blocked.Body["code"]!.GetValue<string>().ShouldBe("ReviewRequired", "A real previous grant is revoked before metadata completes.");
+                blocked.Body["code"]!.GetValue<string>().ShouldBe("PlanBusy");
                 await Ok("/editor/close", HttpMethod.Post, new JsonObject { ["ticket"] = last["ticket"]!.DeepClone() });
                 blocked = await Send("/plan/apply", HttpMethod.Post, apply);
                 blocked.Status.ShouldBe(HttpStatusCode.Conflict);
-                blocked.Body["code"]!.GetValue<string>().ShouldBe("ReviewRequired");
+                blocked.Body["code"]!.GetValue<string>().ShouldBe("PlanBusy");
                 release.TrySetResult();
                 var completed = await Wait(operation, expectSuccess: false);
                 completed["error"]!["code"]!.GetValue<string>().ShouldBe("PlanNavigationChanged");
                 completed["review"].ShouldBeNull();
                 var digest = (await store.ReadPlanStatusAsync(fixture.Bench, ct)).Value.LastReviewDigest;
-                digest.ShouldNotBeNullOrWhiteSpace();
-                var refused = await Send("/plan/apply", HttpMethod.Post, apply);
-                refused.Status.ShouldBe(HttpStatusCode.Conflict);
-                refused.Body["code"]!.GetValue<string>().ShouldBe("ReviewRequired");
-                var observe = BenchBody();
-                observe["digest"] = digest;
-                var retained = await Ok("/plan/observe", HttpMethod.Post, observe);
-                retained["digest"]!.GetValue<string>().ShouldBe(digest);
-                retained["effects"]!.AsArray().Count.ShouldBe(2);
-                retained["canApply"]!.GetValue<bool>().ShouldBeFalse();
-                apply["ticket"] = retained["ticket"]!.DeepClone();
-                apply["digest"] = digest;
-                refused = await Send("/plan/apply", HttpMethod.Post, apply);
-                refused.Status.ShouldBe(HttpStatusCode.Conflict);
-                refused.Body["code"]!.GetValue<string>().ShouldBe("PlanAlreadyStarted");
-                gateway.PlanReviews.ShouldBe(2, "One genuine prior grant and exactly one subsequent delayed review, never a replay.");
-                gateway.OpenReviews.ShouldBe(1);
+                digest.ShouldBeNull("Navigation changed before an attempt was admitted.");
+                gateway.PlanReviews.ShouldBe(1);
+                gateway.OpenReviews.ShouldBe(0);
                 injected.ShouldBe(1);
                 NoWrites();
                 await Report();
@@ -369,6 +350,7 @@ public sealed partial class NativePublicationConsumerTests
             view = await View();
             view["sources"]![0]!["items"]!.AsArray().Select(item => item!["title"]!.GetValue<string>())
                 .Order().ShouldBe(new[] { "Planned 42", "Planned 43" });
+            var priorStagedVersion = (await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get))["stagedVersion"]!.DeepClone();
             var seedBody = BenchBody();
             seedBody["sourceId"] = source["sourceId"]!.DeepClone();
             seedBody["type"] = normal["type"]!.DeepClone();
@@ -385,17 +367,13 @@ public sealed partial class NativePublicationConsumerTests
             members.Single(item => item!["isLocal"]!.GetValue<bool>())!["webUrl"].ShouldBeNull();
             HumanPatchAttempts.ShouldBe(1);
             _transport.PostCount.ShouldBe(0);
-            var reviewed = (await Wait(await Ok("/plan/review", HttpMethod.Post, BenchBody())))["review"]!;
-            reviewed["effects"]!.AsArray().Count.ShouldBe(3);
-            gateway.PlanReviews.ShouldBe(1);
             var applyBody = BenchBody();
-            applyBody["ticket"] = reviewed["ticket"]!.DeepClone();
-            applyBody["digest"] = new string('0', 64);
-            applyBody["deliveryOnly"] = false;
-            (await Send("/plan/apply", HttpMethod.Post, applyBody)).Status.ShouldBe(HttpStatusCode.Conflict);
+            applyBody["stagedVersion"] = priorStagedVersion;
+            (await Wait(await Ok("/plan/apply", HttpMethod.Post, applyBody), expectSuccess: false))["error"]!["code"]!
+                .GetValue<string>().ShouldBe("Conflict");
             HumanPatchAttempts.ShouldBe(1);
             _transport.PostCount.ShouldBe(0);
-            applyBody["digest"] = reviewed["digest"]!.DeepClone();
+            applyBody["stagedVersion"] = (await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get))["stagedVersion"]!.DeepClone();
             var completedApply = await Wait(await Ok("/plan/apply", HttpMethod.Post, applyBody));
             completedApply["outcome"]!["status"]!.GetValue<string>().ShouldBe("Complete");
             completedApply["outcome"]!["verifiedOperations"]!.GetValue<int>().ShouldBe(3);
@@ -404,7 +382,23 @@ public sealed partial class NativePublicationConsumerTests
             _transport.PostCount.ShouldBe(1);
             await Report();
             _transport.CommittedWrites.ShouldBe(4, "One normal Save, two Plan edits and one synthetic creation.");
-            (await Send("/plan/apply", HttpMethod.Post, applyBody)).Status.ShouldBe(HttpStatusCode.Conflict);
+            (await Wait(await Ok("/plan/apply", HttpMethod.Post, applyBody), expectSuccess: false))["outcome"].ShouldBeNull();
+            var attachedStatus = await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get);
+            var attemptDigest = attachedStatus["lastReviewDigest"]!.GetValue<string>();
+            var reopenedCanvas = sessions.RegisterNativeCanvas(instance);
+            var reopenedHuman = sessions.ConnectOwner(instance, reopenedCanvas.ViewId, Guid.NewGuid());
+            gateway.SourceUnavailable = true;
+            var selection = await Send("/selection", HttpMethod.Put,
+                new JsonObject { ["expectedBenchId"] = null, ["benchId"] = fixture.Bench },
+                reopenedHuman.ContentCapability, reopenedHuman.ViewId);
+            selection.Status.ShouldBe(HttpStatusCode.OK, selection.Body.ToJsonString());
+            var detached = await Send($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get,
+                capability: reopenedHuman.ContentCapability, viewId: reopenedHuman.ViewId);
+            gateway.SourceUnavailable = false;
+            detached.Status.ShouldBe(HttpStatusCode.OK, detached.Body.ToJsonString());
+            detached.Body["lastReviewDigest"]!.GetValue<string>().ShouldBe(attemptDigest);
+            detached.Body["sources"]!.AsArray().ShouldHaveSingleItem()!["sourceId"].ShouldBeNull();
+            detached.Body["stagedVersion"].ShouldBeNull();
             var planScope = (await store.ReadPlanAsync(fixture.Bench, ct)).Value.Scopes.Single();
             var planStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(planScope.DatabasePath, ct, planScope.StoreInstance)).Value;
             var planSnapshot = (await planStore.ReadAsync(fixture.Stamp.Connection, ct)).Value;

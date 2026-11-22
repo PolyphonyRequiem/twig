@@ -55,7 +55,7 @@ public sealed class CleanCoreGitHubAccessTests
         staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
         var preview = await runtime.Workspace.PreviewDraftAsync(key, default);
         preview.IsSuccess.ShouldBeTrue(preview.IsSuccess ? "" : preview.Error.Message);
-        var saved = await runtime.Workspace.SaveDraftAsync(preview.Value, preview.Value.Plan!.Digest, default);
+        var saved = await runtime.Workspace.SaveDraftAsync(preview.Value, default);
         saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         saved.Value.EffectsVerified.ShouldBeTrue(saved.Value.Error?.Message);
         network.Writes.ShouldBe(1);
@@ -66,7 +66,7 @@ public sealed class CleanCoreGitHubAccessTests
         var row = complete.Journal.Single();
         var intentFile = Path.Combine(native.Paths.TwigDir, "core-github-intents", row.Attempt.ToString("D") + ".json");
         File.Exists(intentFile + ".ack").ShouldBeTrue();
-        (await runtime.Workspace.ApplyAsync(preview.Value.Plan, preview.Value.Plan.Digest, default)).Value.EffectsVerified.ShouldBeTrue();
+        (await runtime.Workspace.ApplyAsync(preview.Value.Plan!, default)).Value.EffectsVerified.ShouldBeTrue();
         network.Writes.ShouldBe(1, "the native host must not dispatch an already verified plan twice");
         network.Actor = "U_other";
         var wrongActor = await runtime.Workspace.ReadAsync(key, default);

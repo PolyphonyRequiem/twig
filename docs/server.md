@@ -141,10 +141,36 @@ refresh or provider discovery. No saved query is executed upstream. Source
 cache versions, schema fingerprints, observation times, offline limitations and
 partial failures remain visible. Explicit refresh/recheck, lazy details, seed
 publication evidence, discovery and typed mutation endpoints remain unchanged.
-`planOperationId` and `view.plan.lastReviewDigest` are references for observing
-original work, never instructions to replay Save/Apply. Across attachment loss,
-use the existing saved native review/journal/receipt path; no operation replay
-or new durable notification log is introduced.
+`planOperationId` and `view.plan.lastReviewDigest` identify original work
+for observation, never for replay. `lastReviewDigest` identifies an admitted
+attempt, not a preview. Across attachment loss, inspect the original attempt
+and its journal receipts.
+
+### Canvas Plan Apply contract
+
+For the selected Bench, read `GET /api/v1/views/{viewId}/benches/{benchId}/plan`.
+The response's `stagedVersion` binds the Bench, Plan and staged captures to the
+client's next explicit Apply. It is absent unless the enabled Plan has ready
+scopes with their original connections attached and a staged snapshot is available.
+Status and the original attempt digest remain readable without those connections.
+Send `{ "benchId": "...", "stagedVersion": "..." }`
+to `POST /api/v1/views/{viewId}/plan/apply`, then poll the operation ID returned
+with HTTP 202. Do not show a confirmation prompt or automatically resubmit
+after a stale-version conflict or lost response. Reload staged intent after a
+conflict; check the original outcome after an interruption.
+
+`POST .../plan/review` remains optional presentation and neither retains an
+attempt nor grants Apply. Review/observe output no longer has `ticket` or
+`canApply`. For an admitted attempt, `POST .../plan/observe` reads it and
+`POST .../plan/continue` continues verified delivery only; both take
+`{ "benchId": "...", "digest": "..." }`. The old `ticket`, `digest` and
+`deliveryOnly` Apply fields are not accepted. Authentication, view ownership,
+CSRF and source admission still apply.
+
+This is incompatible with the old Canvas package. Release requires updating
+and validating the separately shipped `twig-bench-canvas` against
+`twig-bench-service-v2`, including stale staging, navigation, lost responses,
+and delivery-only continuation.
 
 Connect the authenticated SSE stream **before** the first workspace read. The
 server registers its bounded subscriber before flushing `event: ready`. On

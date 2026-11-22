@@ -84,14 +84,14 @@ public sealed class WorkspaceInvariantTests
         var snapshot = new StoreSnapshot(0, [Item("a"), Item("b")]);
         var op = new Op("link", OpKind.Relate, Key("a"), new Revision(Key("a"), "r"), other: Key("b"), relation: "related");
         var plan = new Plan(Connection, Schema.Fingerprint, 0, [op]);
-        Rules.Validate(plan, plan.Digest, Schema, snapshot, capabilities)
+        Rules.Validate(plan, Schema, snapshot, capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unsupported);
         op = new("link", OpKind.Relate, Key("a"), other: Key("b"), relation: "related", origin: RelationshipOrigin.Local);
         plan = new(Connection, Schema.Fingerprint, 0, [op]);
-        Rules.Validate(plan, plan.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, Schema, snapshot, capabilities).ShouldBeEmpty();
         op = new("link", OpKind.Relate, Key("a"), new Revision(Key("a"), "r"), other: Key("b"), relation: "parent-child");
         plan = new(Connection, Schema.Fingerprint, 0, [op]);
-        Rules.Validate(plan, plan.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, Schema, snapshot, capabilities).ShouldBeEmpty();
     }
 
     [Fact]

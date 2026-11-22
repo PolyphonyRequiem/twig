@@ -182,7 +182,7 @@ public sealed partial class NativeItemEditor
                     var link = new CreationLink(endpoint.Key, relation.Reference, outgoing, remove);
                     var candidate = new Plan(editor.Origin.Connection, schema.Fingerprint, snapshot.Value.Version,
                         [new("choice", OpKind.Batch, item.Observation.Key, item.Observation.Revision, links: [link])]);
-                    if (Model.Validate(candidate, candidate.Digest, schema, snapshot.Value, capabilities).IsEmpty) choices.Add(link);
+                    if (Model.Validate(candidate, schema, snapshot.Value, capabilities).IsEmpty) choices.Add(link);
                 }
         var intent = item.Capture is { } capture ? UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Links : [];
         return Result<NativeRelationshipForm>.Ok(new(form.Value with

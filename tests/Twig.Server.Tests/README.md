@@ -347,19 +347,12 @@ existing fixture API, then delays exactly one real project-metadata callback
 by 36000ms. Review POST returns routing in under two seconds; the original
 operation is observed Reviewing without a review and eventually Reviewed
 beyond 36 seconds, with one gateway Review, no replay and no provider mutation.
-The navigation case first acquires a genuine reviewed grant, then starts a
-second Review and holds its actual metadata boundary while closing the real
-HTTP editor. The first grant's exact ticket/digest refuses while blocked,
-after close and after release (two intended Reviews, no replay); the same
-operation ends with `PlanNavigationChanged` and no review, while native
-`LastReviewDigest` survives. Observing that exact durable review produces a
-real observation-only ticket (`canApply: false`); even that exact ticket/digest
-cannot dispatch a non-delivery Apply (`409 PlanAlreadyStarted`). This maps the
-original private `Plan.Ticket`/`ApplyAllowed` safety assertion to meaningful
-existing public authority boundaries. Literal private empty-ticket equality
-is not inspected: Review itself already clears that ticket before metadata,
-so its early equality alone does not distinguish editor close. No private-state
-gap is hidden as a literal port. Preparation failure throws a real metadata
+The navigation case holds an explicit Apply at its metadata boundary while
+closing the HTTP editor. Concurrent Apply is busy; the original operation ends
+with `PlanNavigationChanged`, no admitted attempt, and no provider writes.
+The full case stages more intent after reading Plan status, proves the old
+staged version cannot dispatch, and applies the new version without preview.
+Preparation failure throws a real metadata
 `IOException`: 503 explicitly says mode was enabled and durable/public mode
 remains enabled without rollback or writes. Enable-only performs both guarded
 selections without staging or provider writes.
@@ -369,11 +362,11 @@ read-only collection and non-atomic/undiscoverable-automation notices. Stage
 captures three scalar fields locally, blocks normal Save and reviews exactly
 one effect without writes. Plan-only verifies an independent body-only normal
 Save (original title/state unchanged), then the same exact Plan/scope identity
-and staged title return with exactly one updateIssue total. Apply refuses the
-wrong digest without dispatch, completes the exact one-operation/one-scope
-review with one updateIssue, settles captures, and delivers exact title,
+and staged title return with exactly one updateIssue total. Optional review
+retains no attempt. Explicit Apply completes the staged one-operation/one-scope
+Plan with one updateIssue, settles captures, and delivers exact title,
 Markdown and CLOSED state without drafts to the original native cache and
-synthetic remote. Repeated Apply remains 409 with one write. Creates/comments
+synthetic remote. A duplicate staged version cannot dispatch again. Creates/comments
 remain zero. No TLS/Negotiate/Windows-owner or live provider claim is made.
 
 ## Normal-seed HTTP and two Core authoring-rule residuals

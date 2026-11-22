@@ -52,7 +52,7 @@ internal sealed class LocalRelationshipCommand(
             var prepared = await workspace.PrepareLocalRelationshipAsync(source.Value, target.Value, adding, ct, state.Version);
             if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
             var op = prepared.Value.Operations.Single();
-            var applied = await workspace.ApplyAsync(prepared.Value, prepared.Value.Digest, ct);
+            var applied = await workspace.ApplyAsync(prepared.Value, ct);
             if (!applied.IsSuccess) return Error(output, applied.Error.Message);
             if (!applied.Value.EffectsVerified || applied.Value.Error is not null)
                 return Error(output, applied.Value.Error?.Message ?? "The local CAS outcome was not Verified; inspect the retained journal before any retry.");

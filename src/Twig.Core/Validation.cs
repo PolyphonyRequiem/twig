@@ -4,12 +4,10 @@ namespace Twig.Core;
 
 public static partial class Core
 {
-    public static ImmutableArray<Error> Validate(Plan plan, string confirmation, ProcessSchema schema,
+    public static ImmutableArray<Error> Validate(Plan plan, ProcessSchema schema,
         StoreSnapshot store, ProviderCapabilities capabilities)
     {
         var errors = ImmutableArray.CreateBuilder<Error>();
-        if (!string.Equals(confirmation, plan.Digest, StringComparison.Ordinal))
-            errors.Add(new(ErrorCode.DigestMismatch, "Confirmation must equal the exact canonical plan digest."));
         if (plan.Connection != schema.Connection || plan.SchemaFingerprint != schema.Fingerprint)
             errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new plan."));
         if (plan.ExpectedStoreVersion != store.Version)

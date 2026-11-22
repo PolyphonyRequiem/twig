@@ -25,7 +25,7 @@ public sealed class NativePlanOutcome
             = (status, verified, delivered, remaining, verifiedOperations, remainingOperations, error);
 }
 
-/// <summary>Whole-Plan authorization references. Core remains the sole dispatcher and remote outcome authority.</summary>
+/// <summary>Exact prepared effects and the original whole-Plan attempt used for delivery and recovery.</summary>
 public sealed class NativePlanReview
 {
     private readonly string root;
@@ -33,6 +33,8 @@ public sealed class NativePlanReview
     private readonly UserBenchStore user;
     private NativePlanReviewReference reference;
     public string Digest => reference.Digest;
+    internal string? StagedVersion { get; private init; }
+    internal NativePlanReviewDocument Document => reference.Document;
     public Guid BenchId => reference.Document.BenchId;
     public ImmutableArray<Op> Operations => reference.Document.Scopes.SelectMany(scope =>
         scope.Plan is null ? ImmutableArray<Op>.Empty : Parse(scope.Plan).Operations).ToImmutableArray();
@@ -67,6 +69,8 @@ public sealed class NativePlanReview
             var bench = library.Value.Benches.SingleOrDefault(value => value.Id == benchId);
             if (bench is null || !plan.Value.PlanMode)
                 return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "Select the named Bench and enter Plan mode before review.");
+            var stagedVersion = await user.ReadStagedPlanVersionAsync(benchId, ct).ConfigureAwait(false);
+            if (!stagedVersion.IsSuccess) return Result<NativePlanReview>.Fail(stagedVersion.Error);
             var scopes = plan.Value.Scopes.Where(scope => scope.State != NativePlanScopeState.Superseded).OrderBy(scope => scope.Id).ToArray();
             if (scopes.Any(scope => scope.State != NativePlanScopeState.Ready || !admittedSources.Any(source =>
                 source.Id == scope.Id && source.StoreInstance == scope.StoreInstance && source.OriginRoot == scope.OriginRoot
@@ -152,9 +156,9 @@ public sealed class NativePlanReview
                     return Result<NativePlanReview>.Fail(ErrorCode.NotFound, "This Plan has no staged intent to review.");
                 var document = new NativePlanReviewDocument(1, Guid.CreateVersion7(), library.Value.InstanceId, library.Value.Revision,
                     benchId, bench.Revision, plan.Value.Id, plan.Value.Revision, results.ToImmutable());
-                var retained = await user.RetainPlanReviewAsync(document, ct).ConfigureAwait(false);
-                return retained.IsSuccess ? Result<NativePlanReview>.Ok(new(root, user, retained.Value, configure))
-                    : Result<NativePlanReview>.Fail(retained.Error);
+                return Result<NativePlanReview>.Ok(new(root, user,
+                    new(UserBenchStore.PlanReviewDigest(document), document, false, 0, 0), configure)
+                    { StagedVersion = stagedVersion.Value.Version });
             }
             finally { foreach (var lease in leases.AsEnumerable().Reverse()) lease.Dispose(); }
         }
@@ -174,10 +178,10 @@ public sealed class NativePlanReview
             : Result<NativePlanReview>.Fail(retained.Error);
     }
 
-    public Task<Result<NativePlanOutcome>> ApplyAsync(string exactDigest, CancellationToken ct = default)
-        => Execute(exactDigest, false, ct);
-    public Task<Result<NativePlanOutcome>> ContinueDeliveryAsync(string exactDigest, CancellationToken ct = default)
-        => Execute(exactDigest, true, ct);
+    public Task<Result<NativePlanOutcome>> ApplyAsync(CancellationToken ct = default)
+        => Execute(false, ct);
+    public Task<Result<NativePlanOutcome>> ContinueDeliveryAsync(CancellationToken ct = default)
+        => Execute(true, ct);
 
     public async Task<Result<NativePlanOutcome>> ObserveAsync(CancellationToken ct = default)
     {
@@ -187,15 +191,15 @@ public sealed class NativePlanReview
         return Result<NativePlanOutcome>.Ok(await Outcome(null, ct).ConfigureAwait(false));
     }
 
-    private async Task<Result<NativePlanOutcome>> Execute(string exactDigest, bool deliveryOnly, CancellationToken ct)
+    private async Task<Result<NativePlanOutcome>> Execute(bool deliveryOnly, CancellationToken ct)
     {
-        if (exactDigest != Digest) return Result<NativePlanOutcome>.Fail(ErrorCode.DigestMismatch, "Apply only the exact native whole-Plan digest reviewed.");
         try
         {
             using var benchLease = user.AcquireAuthoringLease(BenchId);
             var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);
-            if (!retained.IsSuccess) return Result<NativePlanOutcome>.Fail(retained.Error);
-            reference = retained.Value;
+            if (retained.IsSuccess) reference = retained.Value;
+            else if (retained.Error.Code != ErrorCode.NotFound || deliveryOnly || StagedVersion is null)
+                return Result<NativePlanOutcome>.Fail(retained.Error);
             if (reference.Delivered == reference.Document.Scopes.Length)
                 return Result<NativePlanOutcome>.Ok(await Outcome(null, ct).ConfigureAwait(false));
             if (reference.Started && !deliveryOnly)
@@ -213,6 +217,13 @@ public sealed class NativePlanReview
                 if (!library.IsSuccess) return Result<NativePlanOutcome>.Fail(library.Error);
                 if (!deliveryOnly)
                 {
+                    if (!retained.IsSuccess)
+                    {
+                        var staged = await user.ReadStagedPlanVersionAsync(BenchId, ct).ConfigureAwait(false);
+                        if (!staged.IsSuccess) return Result<NativePlanOutcome>.Fail(staged.Error);
+                        if (staged.Value.Version != StagedVersion)
+                            return Result<NativePlanOutcome>.Fail(ErrorCode.Conflict, "Staged Plan intent changed. Reload it before applying.");
+                    }
                     var current = await ValidateWhole(library.Value, ct).ConfigureAwait(false);
                     if (!current.IsSuccess) return Result<NativePlanOutcome>.Fail(current.Error);
                     foreach (var scope in reference.Document.Scopes)
@@ -220,9 +231,9 @@ public sealed class NativePlanReview
                         var valid = await ValidateScope(scope, ct).ConfigureAwait(false);
                         if (!valid.IsSuccess) return Result<NativePlanOutcome>.Fail(valid.Error);
                     }
-                    var admitted = await user.AdvancePlanReviewAsync(reference, true, 0, 0, ct).ConfigureAwait(false);
+                    var admitted = await user.RetainPlanReviewAsync(reference.Document, ct).ConfigureAwait(false);
                     if (!admitted.IsSuccess) return Result<NativePlanOutcome>.Fail(admitted.Error);
-                    reference = reference with { Started = true };
+                    reference = admitted.Value;
                 }
                 for (var index = reference.Delivered; index < reference.Document.Scopes.Length; index++)
                 {
@@ -250,7 +261,7 @@ public sealed class NativePlanReview
                         var admitted = await user.AdvancePlanReviewAsync(reference, true, reference.Delivered, index + 1, ct).ConfigureAwait(false);
                         if (!admitted.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(admitted.Error, ct).ConfigureAwait(false));
                         reference = reference with { Admitted = index + 1 };
-                        var saved = await handle.Workspace.SaveDraftSetAsync(previews, plan, plan?.Digest, ct).ConfigureAwait(false);
+                        var saved = await handle.Workspace.SaveDraftSetAsync(previews, plan, ct).ConfigureAwait(false);
                         if (!saved.IsSuccess || !saved.Value.EffectsVerified || saved.Value.DraftRetained || saved.Value.Error is not null)
                             return Result<NativePlanOutcome>.Ok(await Outcome(saved.IsSuccess ? saved.Value.Error
                                 ?? new(ErrorCode.Indeterminate, "Core effects or draft settlement remain unconfirmed.") : saved.Error, ct).ConfigureAwait(false));
@@ -346,7 +357,7 @@ public sealed class NativePlanReview
             if (pending.Count != 0)
             {
                 // These immutable per-item previews contain no Core effects; this path only settles freshly converged local intent.
-                var settled = await scopeHandle.Workspace.SaveDraftSetAsync(pending, null, null, ct).ConfigureAwait(false);
+                var settled = await scopeHandle.Workspace.SaveDraftSetAsync(pending, null, ct).ConfigureAwait(false);
                 if (!settled.IsSuccess) return Result<bool>.Fail(settled.Error);
                 if (settled.Value.DraftRetained || settled.Value.Error is not null)
                     return Result<bool>.Fail(settled.Value.Error ?? new(ErrorCode.Conflict, "Local no-effect settlement remains pending."));

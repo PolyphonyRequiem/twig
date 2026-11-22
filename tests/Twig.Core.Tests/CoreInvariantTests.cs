@@ -101,15 +101,15 @@ public sealed class CoreInvariantTests
         Plan Link(ResourceLink link) => new(Connection, schema.Fingerprint, 0,
             [new("link", OpKind.LinkResource, Key, source.Revision, resource: link)]);
         var plan = Link(resource);
-        Rules.Validate(plan, plan.Digest, schema, new(0, [source]), Capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, schema, new(0, [source]), Capabilities).ShouldBeEmpty();
         plan.Operations[0].Other.ShouldBeNull();
         plan.Digest.ShouldNotBe(Link(new("resource", "https://example.test/a%2Fb", null, null)).Digest);
         plan.Digest.ShouldNotBe(Link(new("resource", "https://example.test/a/b", "", null)).Digest);
         var incomplete = new WorkItem(Key, source.Type, source.Fields, source.Revision, true);
-        Rules.Validate(plan, plan.Digest, schema, new(0, [incomplete]), Capabilities)
+        Rules.Validate(plan, schema, new(0, [incomplete]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unavailable);
         var existing = new WorkItem(Key, source.Type, source.Fields, source.Revision, true, [resource], true);
-        Rules.Validate(plan, plan.Digest, schema, new(0, [existing]), Capabilities)
+        Rules.Validate(plan, schema, new(0, [existing]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
         Should.Throw<ArgumentException>(() => new ResourceLink("resource", "https://user:secret@example.test/a"));
     }
@@ -174,7 +174,7 @@ public sealed class CoreInvariantTests
         if (includeGate) fields = fields.Set("gate", FieldValue.String("verified"));
         var plan = Batch(fields, schema);
         var capabilities = new ProviderCapabilities(Enum.GetValues<OpKind>(), ["hierarchy"], ["related"], true, atomic);
-        var errors = Rules.Validate(plan, plan.Digest, schema, new(0, [Item()]), capabilities);
+        var errors = Rules.Validate(plan, schema, new(0, [Item()]), capabilities);
         errors.IsEmpty.ShouldBe(includeGate && atomic);
         if (!includeGate) errors.ShouldContain(e => e.Message.Contains("same batch", StringComparison.Ordinal));
         if (includeGate && !atomic) errors.ShouldContain(e => e.Code == ErrorCode.Unsupported);
@@ -187,15 +187,15 @@ public sealed class CoreInvariantTests
         var capabilities = new ProviderCapabilities(Enum.GetValues<OpKind>(), ["hierarchy"], ["related"], false, false);
         var independent = Batch(Fields(("gate", FieldValue.String("edited")), ("count", FieldValue.Integer(2))), schema,
             concurrency: ConcurrencyMode.ObservedNonAtomic);
-        Rules.Validate(independent, independent.Digest, schema, new(0, [Item()]), capabilities).ShouldBeEmpty();
+        Rules.Validate(independent, schema, new(0, [Item()]), capabilities).ShouldBeEmpty();
         var close = Batch(Fields(("phase", FieldValue.String("finished")), ("gate", FieldValue.String("evidence"))),
             schema, concurrency: ConcurrencyMode.ObservedNonAtomic);
-        Rules.Validate(close, close.Digest, schema, new(0, [Item()]), capabilities)
+        Rules.Validate(close, schema, new(0, [Item()]), capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unsupported);
         var typed = new Plan(Connection, schema.Fingerprint, 0,
             [new("type", OpKind.Batch, Key, new Revision(Key, "rev-1"), independent.Operations[0].Fields,
                 type: "record", concurrency: ConcurrencyMode.ObservedNonAtomic)]);
-        Rules.Validate(typed, typed.Digest, schema, new(0, [Item()]), capabilities)
+        Rules.Validate(typed, schema, new(0, [Item()]), capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unsupported);
     }
 
@@ -220,10 +220,10 @@ public sealed class CoreInvariantTests
         var supplied = Schema([requirement, new("gate", RuleAction.Supplied, when)]);
         var source = Item(fields: Fields(("phase", FieldValue.String("open")), ("gate", FieldValue.Null)));
         var plan = Batch(Fields(("phase", FieldValue.String("finished"))), supplied);
-        Rules.Validate(plan, plan.Digest, supplied, new(0, [source]), Capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, supplied, new(0, [source]), Capabilities).ShouldBeEmpty();
         var disabled = Schema([requirement, new("gate", RuleAction.Supplied, when, disabled: true)]);
         plan = Batch(plan.Operations[0].Fields, disabled);
-        Rules.Validate(plan, plan.Digest, disabled, new(0, [source]), Capabilities)
+        Rules.Validate(plan, disabled, new(0, [source]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.InvalidInput);
     }
 
@@ -233,7 +233,7 @@ public sealed class CoreInvariantTests
         var schema = AuditDefaultSchema();
         var (plan, store) = AuditDefaultCreate(schema);
 
-        Rules.Validate(plan, plan.Digest, schema, store, Capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, schema, store, Capabilities).ShouldBeEmpty();
     }
 
     [Fact]
@@ -243,7 +243,7 @@ public sealed class CoreInvariantTests
             [new(ConditionKind.Equal, "System.CreatedBy", FieldValue.Identity("actor"))])]);
         var (plan, store) = AuditDefaultCreate(schema);
 
-        Rules.Validate(plan, plan.Digest, schema, store, Capabilities)
+        Rules.Validate(plan, schema, store, Capabilities)
             .ShouldContain(error => error.Code == ErrorCode.Unavailable
                 && error.Message.Contains("chained rule evaluation", StringComparison.Ordinal));
     }
@@ -278,16 +278,16 @@ public sealed class CoreInvariantTests
         var unknown = Schema([new("gate", RuleAction.Required,
             [new(ConditionKind.Unknown, "phase"), new(ConditionKind.Equal, "phase", FieldValue.String("never"))])]);
         var plan = Batch(Fields(("count", FieldValue.Integer(1))), unknown);
-        Rules.Validate(plan, plan.Digest, unknown, new(0, [Item()]), Capabilities)
+        Rules.Validate(plan, unknown, new(0, [Item()]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unavailable);
         var missing = Schema([new("gate", RuleAction.Required, [new(ConditionKind.Changed, "gate")])]);
         plan = Batch(Fields(("gate", FieldValue.String("value"))), missing);
-        Rules.Validate(plan, plan.Digest, missing,
+        Rules.Validate(plan, missing,
             new(0, [Item(fields: Fields(("phase", FieldValue.String("open"))))]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unavailable);
         var incomplete = Schema(gaps: ["requiredness unavailable"]);
         plan = Batch(Fields(("count", FieldValue.Integer(1))), incomplete);
-        Rules.Validate(plan, plan.Digest, incomplete, new(0, [Item()]), Capabilities)
+        Rules.Validate(plan, incomplete, new(0, [Item()]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unavailable);
     }
 
@@ -304,13 +304,13 @@ public sealed class CoreInvariantTests
         foreach (var schema in schemas)
         {
             var plan = Batch(Fields(("count", FieldValue.Integer(1))), schema);
-            Rules.Validate(plan, plan.Digest, schema, new(0, [Item()]), Capabilities)
+            Rules.Validate(plan, schema, new(0, [Item()]), Capabilities)
                 .ShouldContain(e => e.Code == ErrorCode.Unavailable);
         }
         var unknown = schemas[0];
         var deletion = new Plan(Connection, unknown.Fingerprint, 0,
             [new("delete", OpKind.Delete, Key, new Revision(Key, "rev-1"))]);
-        Rules.Validate(deletion, deletion.Digest, unknown, new(0, [Item()]), Capabilities)
+        Rules.Validate(deletion, unknown, new(0, [Item()]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unavailable);
     }
 
@@ -322,13 +322,13 @@ public sealed class CoreInvariantTests
             new("count", RuleAction.Allowed, [], [FieldValue.Integer(2)])]);
         var source = Item(fields: Fields(("phase", FieldValue.String("open")), ("count", FieldValue.Integer(1)), ("gate", FieldValue.Null)));
         var plan = Batch(Fields(("count", FieldValue.Integer(2))), schema);
-        Rules.Validate(plan, plan.Digest, schema, new(0, [source]), Capabilities)
+        Rules.Validate(plan, schema, new(0, [source]), Capabilities)
             .ShouldContain(e => e.Message.Contains("Required field", StringComparison.Ordinal));
         plan = Batch(Fields(("count", FieldValue.Integer(3)), ("gate", FieldValue.String("evidence"))), schema);
-        Rules.Validate(plan, plan.Digest, schema, new(0, [source]), Capabilities)
+        Rules.Validate(plan, schema, new(0, [source]), Capabilities)
             .ShouldContain(e => e.Message.Contains("allowed values", StringComparison.Ordinal));
         plan = Batch(Fields(("count", FieldValue.Integer(2)), ("gate", FieldValue.String("evidence"))), schema);
-        Rules.Validate(plan, plan.Digest, schema, new(0, [source]), Capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, schema, new(0, [source]), Capabilities).ShouldBeEmpty();
     }
 
     [Fact]
@@ -336,9 +336,7 @@ public sealed class CoreInvariantTests
     {
         var schema = Schema();
         var plan = Batch(Fields(("count", FieldValue.Integer(1))), schema);
-        Rules.Validate(plan, "not-the-digest", Schema(rules: []), new(1, [Item("moved")]), Capabilities)
-            .Select(e => e.Code).ShouldContain(ErrorCode.DigestMismatch);
-        var errors = Rules.Validate(plan, plan.Digest, Schema(rules: []), new(1, [Item("moved")]), Capabilities);
+        var errors = Rules.Validate(plan, Schema(rules: []), new(1, [Item("moved")]), Capabilities);
         errors.ShouldContain(e => e.Code == ErrorCode.SchemaChanged);
         errors.Count(e => e.Code == ErrorCode.Conflict).ShouldBe(2);
     }
@@ -351,7 +349,7 @@ public sealed class CoreInvariantTests
         var plan = Batch(Fields(("count", FieldValue.Integer(1))), schema);
         var planned = JournalEntry.Planned(plan.Digest, 0);
         var imported = new StoreSnapshot(1, [item], plans: [plan], journal: [planned]);
-        Rules.Validate(plan, plan.Digest, schema, imported, Capabilities)
+        Rules.Validate(plan, schema, imported, Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
         Rules.ValidateEffect(plan, 0, schema, imported, Capabilities).ShouldBeEmpty();
         var attempted = new StoreSnapshot(2, [item], plans: [plan],
@@ -367,13 +365,13 @@ public sealed class CoreInvariantTests
         var capabilities = new ProviderCapabilities([OpKind.Batch], [], [], false, false);
         var store = new StoreSnapshot(0, [Item()]);
         var plan = Batch(Fields(("count", FieldValue.Integer(1))), schema);
-        Rules.Validate(plan, plan.Digest, schema, store, capabilities)
+        Rules.Validate(plan, schema, store, capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unsupported);
         plan = Batch(plan.Operations[0].Fields, schema, concurrency: ConcurrencyMode.ObservedNonAtomic);
-        Rules.Validate(plan, plan.Digest, schema, store, capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, schema, store, capabilities).ShouldBeEmpty();
         plan = Batch(Fields(("phase", FieldValue.String("finished")), ("gate", FieldValue.String("evidence"))),
             schema, concurrency: ConcurrencyMode.ObservedNonAtomic);
-        Rules.Validate(plan, plan.Digest, schema, store, capabilities)
+        Rules.Validate(plan, schema, store, capabilities)
             .ShouldContain(e => e.Message.Contains("atomically", StringComparison.Ordinal));
     }
 
@@ -458,13 +456,13 @@ public sealed class CoreInvariantTests
         var state = Capture(verified);
         state.RetainedItems.ShouldBeEmpty();
         state.Items.ShouldNotContain(item => item.Key == seed);
-        Rules.Validate(remove, remove.Digest, schema, state, Capabilities).ShouldBeEmpty();
+        Rules.Validate(remove, schema, state, Capabilities).ShouldBeEmpty();
         foreach (var refused in new[] {
             Capture(applied), Capture(verified, observed: false),
             Capture(verified, binding: new(seed, ItemKey.Remote(Provider, "foreign-scope", "1"), create.Digest, 0)),
             Capture(verified, binding: new(seed, Key, "foreign-digest", 0)),
         })
-            Rules.Validate(remove, remove.Digest, schema, refused, Capabilities)
+            Rules.Validate(remove, schema, refused, Capabilities)
                 .ShouldContain(error => error.Message.Contains("endpoint evidence", StringComparison.Ordinal));
     }
 
@@ -478,14 +476,14 @@ public sealed class CoreInvariantTests
         var create = new Op("seed", OpKind.Create, key, fields: fields, type: "record",
             concurrency: ConcurrencyMode.ObservedNonAtomic);
         var plan = new Plan(Connection, schema.Fingerprint, 0, [create]);
-        Rules.Validate(plan, plan.Digest, schema, new(0, retainedItems: [draft]), Capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, schema, new(0, retainedItems: [draft]), Capabilities).ShouldBeEmpty();
         var edited = new Seed(key, "record", fields.Set("gate", FieldValue.String("changed")));
-        Rules.Validate(plan, plan.Digest, schema, new(0, retainedItems: [edited]), Capabilities)
+        Rules.Validate(plan, schema, new(0, retainedItems: [edited]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
         var attempting = JournalEntry.Planned(plan.Digest, 0).Begin(Guid.NewGuid()).Value;
         var replacement = new Plan(Connection, schema.Fingerprint, 1, [create]);
         replacement.Digest.ShouldNotBe(plan.Digest);
-        Rules.Validate(replacement, replacement.Digest, schema,
+        Rules.Validate(replacement, schema,
             new(1, retainedItems: [draft], plans: [plan], journal: [attempting]), Capabilities)
             .ShouldContain(e => e.Message.Contains("already been attempted", StringComparison.Ordinal));
     }

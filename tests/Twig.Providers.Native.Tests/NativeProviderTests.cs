@@ -28,7 +28,7 @@ public sealed class NativeProviderTests : IDisposable
     {
         var (authority, mirror, provider) = await Open();
         var (plan, seed) = await Seed(provider, mirror);
-        (await provider.ImportAsync(plan, plan.Digest, default)).IsSuccess.ShouldBeTrue();
+        (await provider.ImportAsync(plan, default)).IsSuccess.ShouldBeTrue();
         var applied = (await provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
         applied.PublishedKey!.IsLocal.ShouldBeFalse();
@@ -52,11 +52,10 @@ public sealed class NativeProviderTests : IDisposable
     {
         var (authority, mirror, provider) = await Open();
         var (plan, _) = await Seed(provider, mirror);
-        (await provider.ImportAsync(plan, "not-the-digest", default)).Error.Code.ShouldBe(ErrorCode.DigestMismatch);
         var wrong = authority.Connection with { };
         wrong = new(wrong.Provider, wrong.ResourceScope, "another-destination", wrong.IdentityRef);
         (await provider.ReadAsync(wrong, [], default)).IsSuccess.ShouldBeFalse();
-        (await provider.ImportAsync(plan, plan.Digest, default)).IsSuccess.ShouldBeTrue();
+        (await provider.ImportAsync(plan, default)).IsSuccess.ShouldBeTrue();
         var applied = (await provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         (await provider.VerifyAsync(plan, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
         var original = (await provider.ReadAsync(authority.Connection, [applied.PublishedKey!], default)).Value.Items.Single();
@@ -64,13 +63,13 @@ public sealed class NativeProviderTests : IDisposable
         var changes = FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("Changed"));
         var edit = new Plan(authority.Connection, plan.SchemaFingerprint, before.Version,
             [new("edit", OpKind.Batch, original.Key, original.Revision, changes)]);
-        (await provider.ImportAsync(edit, edit.Digest, default)).IsSuccess.ShouldBeTrue();
+        (await provider.ImportAsync(edit, default)).IsSuccess.ShouldBeTrue();
         var ack = (await provider.ApplyAsync(edit, 0, Guid.NewGuid(), default)).Value;
         (await provider.VerifyAsync(edit, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         before = (await mirror.ReadAsync(authority.Connection, default)).Value;
         var stale = new Plan(authority.Connection, plan.SchemaFingerprint, before.Version,
             [new("stale", OpKind.Batch, original.Key, original.Revision, changes)]);
-        (await provider.ImportAsync(stale, stale.Digest, default)).IsSuccess.ShouldBeFalse();
+        (await provider.ImportAsync(stale, default)).IsSuccess.ShouldBeFalse();
         (await provider.ReadAsync(authority.Connection, [original.Key], default)).Value.Items.Single()
             .Fields[NativeProvider.Title].Text.ShouldBe("Changed");
     }
@@ -80,7 +79,7 @@ public sealed class NativeProviderTests : IDisposable
     {
         var (_, mirror, provider) = await Open();
         var (plan, _) = await Seed(provider, mirror);
-        (await provider.ImportAsync(plan, plan.Digest, default)).IsSuccess.ShouldBeTrue();
+        (await provider.ImportAsync(plan, default)).IsSuccess.ShouldBeTrue();
         var before = (await mirror.ReadAsync(plan.Connection, default)).Value;
         var attempt = Guid.NewGuid();
         var began = before.Journal.Single().Begin(attempt).Value;
@@ -94,7 +93,7 @@ public sealed class NativeProviderTests : IDisposable
             [new("replacement-digest", OpKind.Create, plan.Operations[0].Item, fields: plan.Operations[0].Fields,
                 type: NativeProvider.ItemType, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
         replacement.Digest.ShouldNotBe(plan.Digest);
-        (await provider.ImportAsync(replacement, replacement.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        (await provider.ImportAsync(replacement)).Error.Code.ShouldBe(ErrorCode.Conflict);
         (await mirror.ReadAsync(plan.Connection, default)).Value.Journal.Single().Digest.ShouldBe(plan.Digest);
         var page = await provider.QueryAsync(plan.Connection, new(QueryKind.All), null, default);
         page.Value.Items.ShouldBeEmpty();
@@ -105,7 +104,7 @@ public sealed class NativeProviderTests : IDisposable
     {
         var (authority, mirror, provider) = await Open();
         var (plan, _) = await Seed(provider, mirror);
-        (await provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        (await provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
         var wrongOwner = new Connection(authority.Connection.Provider, authority.Connection.ResourceScope,
             authority.Connection.Destination, "another-principal");
         (await provider.DiscoverSchemaAsync(wrongOwner, default)).IsSuccess.ShouldBeFalse();
@@ -131,7 +130,7 @@ public sealed class NativeProviderTests : IDisposable
     {
         var (authority, mirror, provider) = await Open();
         var (plan, seed) = await Seed(provider, mirror);
-        (await provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        (await provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
         var attempt = Guid.NewGuid();
         var interrupted = new NativeProvider(authority, new RejectAppliedStore(mirror));
         (await interrupted.ApplyAsync(plan, 0, attempt, default)).IsSuccess.ShouldBeFalse();

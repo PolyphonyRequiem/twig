@@ -297,7 +297,7 @@ internal sealed partial class NativeEditor
             return Result<NativeLocalRelationshipOutcome>.Fail(ErrorCode.Indeterminate, "The original local attempt is protected; observe or continue verification/delivery only, never Apply again.");
         var valid = await ValidateLocalApplyAsync(capture, ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeLocalRelationshipOutcome>.Fail(valid.Error);
-        var applied = await Workspace.ApplyAsync(UserBenchStore.ParseIntent(capture.IntentJson), digest, ct).ConfigureAwait(false);
+        var applied = await Workspace.ApplyAsync(UserBenchStore.ParseIntent(capture.IntentJson), ct).ConfigureAwait(false);
         var result = await LocalOutcomeAsync(capture, applied.IsSuccess ? applied.Value.Error : applied.Error, ct).ConfigureAwait(false);
         if (!result.IsSuccess || result.Value.Journal?.Status != OpStatus.Verified || result.Value.Error is not null) return result;
         return await SettleLocalCaptureAsync(capture, ct).ConfigureAwait(false);

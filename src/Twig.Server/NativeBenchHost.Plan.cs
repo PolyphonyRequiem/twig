@@ -11,18 +11,14 @@ namespace Twig.Server;
 internal sealed class NativePlanView
 {
     internal SemaphoreSlim Gate { get; } = new(1, 1);
-    internal NativePlanReview? Review { get; set; }
-    internal Guid Ticket { get; set; }
-    internal Guid Bench { get; set; }
-    internal bool ApplyAllowed { get; set; }
+    internal (Guid BenchId, string Digest)? Presented { get; set; }
     internal long Epoch { get; set; }
-    internal NativePanelContext[] Contexts { get; set; } = [];
     internal NativePlanOperation? Operation { get; set; }
     internal void Invalidate(bool retire = false)
     {
         lock (this)
         {
-            Epoch++; Review = null; Ticket = Guid.Empty; ApplyAllowed = false;
+            Epoch++; Presented = null;
             if (retire) Operation?.Lifetime.Cancel();
         }
     }
@@ -68,6 +64,9 @@ public static partial class NativeBenchHost
                 ErrorCode.PolicyViolation => 403, ErrorCode.Unsupported => 422, _ => 503 },
             result.Error.Code.ToString(), PlanMessage(result.Error));
 
+        static string AttemptDigest(string? digest) => digest is { Length: 64 } && digest.All(char.IsAsciiHexDigit)
+            ? digest : throw new HttpFailure(400, "InvalidInput", "Supply the digest of the original Plan attempt.");
+
         async Task Current(ViewSession session, Guid bench, CancellationToken ct)
         {
             if (session.CurrentBenchId != bench)
@@ -84,11 +83,11 @@ public static partial class NativeBenchHost
                 _ = Required(await panel.EditorOperationAsync(context, _ => Task.FromResult(true), ct));
             return chosen;
         }
-        PlanReviewDto ReviewDto(ViewSession session, NativePlanReview review)
+        PlanReviewDto ReviewDto(NativePanelContext[] contexts, NativePlanReview review)
         {
             var effects = review.Plans.SelectMany(plan =>
             {
-                var source = session.Plan.Contexts.Single(context => context.Stamp.Connection == plan.Connection);
+                var source = contexts.Single(context => context.Stamp.Connection == plan.Connection);
                 return plan.Operations.Select(op => new PlanEffectDto(source.Source.Id, source.Source.Label,
                     ViewMapping.Key(new(source.Source.Id, op.Item)),
                     op.Item.IsLocal ? op.Item.LocalId.ToString("D") : op.Item.NativeId!, op.Item.IsLocal,
@@ -96,20 +95,34 @@ public static partial class NativeBenchHost
                     op.Links.Select(link => (link.Remove ? "Remove " : "Add ") + link.Relation
                         + (link.Other.IsLocal ? " to a local item" : " to item " + link.Other.NativeId)).ToArray()));
             }).ToArray();
-            return new(session.Plan.Ticket, review.BenchId, review.Digest, effects, review.CoreDigests.ToArray(),
-                "Apply is sequential across items and connections, not atomic. Only this exact native review is authorized; verified, remaining, uncertain and delivery-pending outcomes stay distinct."
+            return new(review.BenchId, review.Digest, effects, review.CoreDigests.ToArray(),
+                "Apply is sequential across items and connections, not atomic. Verified, remaining, uncertain and delivery-pending outcomes stay distinct."
                     + (review.Plans.Any(plan => plan.Connection.Provider.Value == "github")
                         ? " GitHub uses observed-non-atomic checks and readback, not server CAS or an edit lock. Repository automation rules are not discoverable." : "")
                     + (review.Plans.Any(plan => plan.Connection.Provider.Value == "ado"
                         && plan.Operations.Any(op => op.Kind == OpKind.Create)) ? " " + AdoProvider.CreateConcurrencyNotice : ""),
-                null, session.Plan.ApplyAllowed);
+                null);
         }
 
         app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/plan", async (HttpContext http, Guid id, Guid bench) =>
         {
             var session = await authorize(http, id);
             await Current(session, bench, http.RequestAborted);
-            await Write(http, PlanStatus(session, Required(await panel.ReadPlanAsync(bench, http.RequestAborted))));
+            var staged = await panel.ReadStagedPlanVersionAsync(bench, http.RequestAborted);
+            if (!staged.IsSuccess && staged.Error.Code == ErrorCode.Conflict)
+            {
+                var current = Required(await panel.ReadPlanAsync(bench, http.RequestAborted));
+                await Current(session, bench, http.RequestAborted);
+                await Write(http, PlanStatus(session, current));
+                return;
+            }
+            var (status, version) = Required(staged);
+            await Current(session, bench, http.RequestAborted);
+            var response = PlanStatus(session, status);
+            if (status.Enabled && response.Sources.Length != 0
+                && response.Sources.All(source => source.State == "Ready" && source.SourceId is not null))
+                response = response with { StagedVersion = version };
+            await Write(http, response);
         });
         app.MapPut("/api/v1/views/{id:guid}/plan/mode", async (HttpContext http, Guid id) =>
         {
@@ -223,11 +236,9 @@ public static partial class NativeBenchHost
                     {
                         if (session.Plan.Epoch != epoch || session.Revoked || session.ProfileGeneration != generation
                             || !ReferenceEquals(session.NativeContext, anchor))
-                            throw new HttpFailure(409, "PlanNavigationChanged", "The view changed during Review. Native intent was kept; reopen the named Plan rather than using a stale Apply ticket.");
-                        session.Plan.Review = review; session.Plan.Bench = body.BenchId;
-                        session.Plan.Contexts = contexts; session.Plan.Ticket = Guid.NewGuid();
-                        session.Plan.ApplyAllowed = true;
-                        return new(session.Plan.Operation!.Id, "Reviewed", ReviewDto(session, review), null, null);
+                            throw new HttpFailure(409, "PlanNavigationChanged", "The view changed during preview. Reopen the named Plan.");
+                        session.Plan.Presented = (review.BenchId, review.Digest);
+                        return new(session.Plan.Operation!.Id, "Reviewed", ReviewDto(contexts, review), null, null);
                     }
                 });
                 await Write(http, new PlanOperationDto(session.Plan.Operation!.Id, "Reviewing", null, null, null), 202);
@@ -239,44 +250,75 @@ public static partial class NativeBenchHost
             var session = await authorize(http, id);
             var body = await Body<PlanObserveBody>(http);
             await Current(session, body.BenchId, http.RequestAborted);
-            var review = Required(await panel.OpenPlanReviewAsync(Context(session), body.Digest, http.RequestAborted));
-            if (review.BenchId != body.BenchId) throw new HttpFailure(409, "Conflict", "The saved review belongs to another Bench.");
+            var review = Required(await panel.OpenPlanReviewAsync(Context(session), AttemptDigest(body.Digest), http.RequestAborted));
+            if (review.BenchId != body.BenchId) throw new HttpFailure(409, "Conflict", "The original attempt belongs to another Bench.");
             var status = Required(await panel.ReadPlanAsync(body.BenchId, http.RequestAborted));
-            session.Plan.Contexts = await Connections(session, status, http.RequestAborted);
-            session.Plan.Review = review; session.Plan.Bench = body.BenchId; session.Plan.Ticket = Guid.NewGuid();
-            session.Plan.ApplyAllowed = false;
+            var contexts = await Connections(session, status with { Sources = review.Sources }, http.RequestAborted);
             var outcome = PlanOutcome(Required(await review.ObserveAsync(http.RequestAborted)));
-            await Write(http, ReviewDto(session, review) with { Outcome = outcome });
+            await Write(http, ReviewDto(contexts, review) with { Outcome = outcome });
         });
         app.MapPost("/api/v1/views/{id:guid}/plan/apply", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);
             var body = await Body<PlanApplyBody>(http);
+            if (body.StagedVersion is not { Length: 64 } || body.StagedVersion.Any(c => !char.IsAsciiHexDigit(c)))
+                throw new HttpFailure(400, "InvalidInput", "Apply requires the staged version from the current Plan status.");
+            await RunPlan(session, body.BenchId, body.StagedVersion, null, http);
+        });
+        app.MapPost("/api/v1/views/{id:guid}/plan/continue", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<PlanObserveBody>(http);
+            await RunPlan(session, body.BenchId, null, AttemptDigest(body.Digest), http);
+        });
+        async Task RunPlan(ViewSession session, Guid benchId, string? stagedVersion, string? attemptDigest, HttpContext http)
+        {
             await session.Plan.Gate.WaitAsync(http.RequestAborted);
             try
             {
-                var review = session.Plan.Review;
-                if (review is null || body.Ticket != session.Plan.Ticket || body.BenchId != review.BenchId || body.Digest != review.Digest)
-                    throw new HttpFailure(409, "ReviewRequired", "Review the exact whole Plan again. No different digest was applied.");
-                if (!body.DeliveryOnly && !session.Plan.ApplyAllowed)
-                    throw new HttpFailure(409, "PlanAlreadyStarted", "Observe the original native review or review proven remaining intent. Apply will not be invoked twice.");
                 var anchor = Context(session);
                 var epoch = session.Plan.Epoch;
-                session.Plan.ApplyAllowed = false;
-                Start(session, body.BenchId, body.DeliveryOnly ? "Delivering" : "Applying", async ct =>
+                var generation = session.ProfileGeneration;
+                await Current(session, benchId, http.RequestAborted);
+                var phase = attemptDigest is null ? "Applying" : "Delivering";
+                Start(session, benchId, phase, async ct =>
                 {
-                    await Current(session, body.BenchId, ct);
-                    if (session.Plan.Epoch != epoch || !ReferenceEquals(session.NativeContext, anchor) || session.Revoked)
-                        throw new HttpFailure(409, "PlanNavigationChanged", "The view changed before Apply validation. Observe or review current intent; nothing was dispatched.");
-                    var contexts = await Connections(session, Required(await panel.ReadPlanAsync(body.BenchId, ct)), ct);
-                    var result = Required(await panel.ApplyPlanAsync(review, contexts, body.Digest, body.DeliveryOnly, ct));
+                    async Task CheckView()
+                    {
+                        await Current(session, benchId, ct);
+                        if (session.Plan.Epoch != epoch || session.ProfileGeneration != generation
+                            || !ReferenceEquals(session.NativeContext, anchor) || session.Revoked)
+                            throw new HttpFailure(409, "PlanNavigationChanged", "The view changed before dispatch. Nothing was dispatched.");
+                    }
+                    await CheckView();
+                    NativePlanReview review;
+                    NativePanelContext[] contexts;
+                    if (attemptDigest is null)
+                    {
+                        var (status, version) = Required(await panel.ReadStagedPlanVersionAsync(benchId, ct));
+                        if (stagedVersion != version)
+                            throw new HttpFailure(409, "Conflict", "Staged Plan intent changed. Reload it before applying.");
+                        contexts = await Connections(session, status, ct);
+                        review = Required(await panel.ReviewPlanAsync(anchor, benchId, status.Sources, contexts, ct));
+                    }
+                    else
+                    {
+                        review = Required(await panel.OpenPlanReviewAsync(anchor, attemptDigest, ct));
+                        if (review.BenchId != benchId)
+                            throw new HttpFailure(409, "Conflict", "The original attempt belongs to another Bench.");
+                        var status = Required(await panel.ReadPlanAsync(benchId, ct));
+                        contexts = await Connections(session, status with { Sources = review.Sources }, ct);
+                    }
+                    await CheckView();
+                    var result = Required(attemptDigest is null
+                        ? await panel.ApplyPlanAsync(review, contexts, stagedVersion!, ct)
+                        : await panel.ContinuePlanDeliveryAsync(review, contexts, ct));
                     return new(session.Plan.Operation!.Id, result.Status, null, PlanOutcome(result), null);
                 });
-                await Write(http, new PlanOperationDto(session.Plan.Operation!.Id,
-                    body.DeliveryOnly ? "Delivering" : "Applying", null, null, null), 202);
+                await Write(http, new PlanOperationDto(session.Plan.Operation!.Id, phase, null, null, null), 202);
             }
             finally { session.Plan.Gate.Release(); }
-        });
+        }
         app.MapGet("/api/v1/views/{id:guid}/plan/operations/{operation:guid}", async (HttpContext http, Guid id, Guid operation) =>
         {
             var session = await authorize(http, id);
@@ -284,8 +326,7 @@ public static partial class NativeBenchHost
             if (active is null || active.Id != operation || active.Work is null)
                 throw new HttpFailure(404, "PlanOperationUnavailable", "Reopen the named Bench and observe its saved native review. Never resend a lost Apply.");
             await Write(http, active.Work.IsCompleted ? await active.Work
-                : new PlanOperationDto(active.Id, active.Status, null,
-                    session.Plan.Review is { } review ? PlanOutcome(Required(await review.ObserveAsync(http.RequestAborted))) : null, null));
+                : new PlanOperationDto(active.Id, active.Status, null, null, null));
         });
 
         void Start(ViewSession session, Guid benchId, string status, Func<CancellationToken, Task<PlanOperationDto>> work)

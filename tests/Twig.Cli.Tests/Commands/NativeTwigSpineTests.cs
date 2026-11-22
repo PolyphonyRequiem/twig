@@ -47,7 +47,7 @@ public sealed class NativeTwigSpineTests
             seed.Value.Key.IsLocal.ShouldBeTrue();
             var preview = await handle.Workspace.PreviewDraftAsync(seed.Value.Key, default);
             preview.IsSuccess.ShouldBeTrue(preview.IsSuccess ? "" : preview.Error.Message);
-            var saved = await handle.Workspace.SaveDraftAsync(preview.Value, preview.Value.Plan!.Digest, default);
+            var saved = await handle.Workspace.SaveDraftAsync(preview.Value, default);
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
             saved.Value.Error.ShouldBeNull();
             saved.Value.EffectsVerified.ShouldBeTrue();
@@ -66,7 +66,7 @@ public sealed class NativeTwigSpineTests
                 FieldValues.Empty.Set(NativeProvider.StateField, FieldValue.String("Closed")), default);
             edited.IsSuccess.ShouldBeTrue();
             var editPreview = (await reopened.Workspace.PreviewDraftAsync(published, default)).Value;
-            var edit = await reopened.Workspace.SaveDraftAsync(editPreview, editPreview.Plan!.Digest, default);
+            var edit = await reopened.Workspace.SaveDraftAsync(editPreview, default);
             edit.IsSuccess.ShouldBeTrue(edit.IsSuccess ? "" : edit.Error.Message);
             edit.Value.EffectsVerified.ShouldBeTrue();
             (await reopened.Workspace.ReadAsync(published, default)).Value.Fields[NativeProvider.StateField].Text.ShouldBe("Closed");

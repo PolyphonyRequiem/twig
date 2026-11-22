@@ -121,7 +121,7 @@ public sealed class SkillLifecycleTests : IDisposable
         service.Configure("omp", Target, "terminal", "my-presenter");
         File.Delete(Path.Combine(Target, "my-presenter/SKILL.md"));
         var status = service.Status("omp", Target);
-        status.Warnings.ShouldContain(w => w.Contains("missing") && w.Contains("approval"));
+        status.Warnings.ShouldContain(w => w.Contains("missing") && w.Contains("provider and execution requirements"));
         service.Configure("omp", Target, "terminal", clear: true);
         service.Status("omp", Target).Warnings.ShouldNotContain(w => w.Contains("missing"));
     }

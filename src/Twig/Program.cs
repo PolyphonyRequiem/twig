@@ -1955,15 +1955,14 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         return MissingCore(output);
     }
 
-    /// <summary>Apply a plan when --confirm &lt;digest&gt; matches the current file digest exactly.</summary>
+    /// <summary>Apply the exact plan read from the named file.</summary>
     /// <param name="file">Path to the canonical Plan JSON file inside the current workspace root.</param>
-    /// <param name="confirm">Lowercase-hex SHA-256 digest of the canonical plan bytes. Must match exactly.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>
     [Command("plan apply")]
-    public async Task<int> PlanApply(string? file = null, string? confirm = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+    public async Task<int> PlanApply(string? file = null, string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
     {
         if (services.GetService<CoreCommandAdapter>() is { } core)
-            return await core.ApplyPlanAsync(file, confirm, output, ct);
+            return await core.ApplyPlanAsync(file, output, ct);
         return MissingCore(output);
     }
 

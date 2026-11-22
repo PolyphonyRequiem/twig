@@ -27,11 +27,40 @@ public sealed partial class UserBenchStore
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plan_review_references';";
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
                 return Result<NativePlanReviewLookup>.Ok(new(null));
-            command.CommandText = "SELECT digest FROM plan_review_references WHERE plan_id=$plan ORDER BY rowid DESC LIMIT 1;";
+            command.CommandText = "SELECT digest FROM plan_review_references WHERE plan_id=$plan AND started=1 ORDER BY rowid DESC LIMIT 1;";
             command.Parameters.AddWithValue("$plan", planId.ToString("D"));
             return Result<NativePlanReviewLookup>.Ok(new(await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string));
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativePlanReviewLookup>(ex); }
+    }
+
+    internal async Task<Result<(NativePlanStatus Status, string Version)>> ReadStagedPlanVersionAsync(Guid benchId, CancellationToken ct)
+    {
+        try
+        {
+            using var lease = AcquireAuthoringLease(benchId);
+            var status = await ReadPlanStatusAsync(benchId, ct).ConfigureAwait(false);
+            if (!status.IsSuccess) return Result<(NativePlanStatus, string)>.Fail(status.Error);
+            var captures = await ReadEditorCapturesAsync(ct).ConfigureAwait(false);
+            return captures.IsSuccess ? Result<(NativePlanStatus, string)>.Ok((status.Value, StagedPlanVersion(status.Value, captures.Value)))
+                : Result<(NativePlanStatus, string)>.Fail(captures.Error);
+        }
+        catch (ConnectionBindingResolutionException)
+        { return Result<(NativePlanStatus, string)>.Fail(ErrorCode.Conflict, "An active native operation protects the Plan."); }
+    }
+
+    private static string StagedPlanVersion(NativePlanStatus status, ImmutableArray<NativeEditorCapture> captures)
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        hash.AppendData(Encoding.UTF8.GetBytes(FormattableString.Invariant(
+            $"{status.UserInstance:D}/{status.BenchId:D}/{status.BenchRevision}/{status.PlanId:D}/{status.Revision}/{status.LastReviewDigest}\n")));
+        foreach (var capture in captures.Where(value => value.PlanId == status.PlanId && value.PlanMode
+            && !value.Settled && !value.Cancelled).OrderBy(value => value.Id))
+        {
+            hash.AppendData(JsonSerializer.SerializeToUtf8Bytes(capture, NativeEditorJson.Default.NativeEditorCapture));
+            hash.AppendData("\n"u8);
+        }
+        return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 
     internal static string PlanReviewDigest(NativePlanReviewDocument document)
@@ -50,7 +79,7 @@ public sealed partial class UserBenchStore
             if (library.Value.InstanceId != document.UserInstance || library.Value.Revision != document.UserRevision
                 || !library.Value.Benches.Any(bench => bench.Id == document.BenchId && bench.Revision == document.BenchRevision)
                 || !plan.Value.PlanMode || plan.Value.Id != document.PlanId || plan.Value.Revision != document.PlanRevision)
-                return Result<NativePlanReviewReference>.Fail(ErrorCode.Conflict, "The whole Plan changed during review; no publication was authorized.");
+                return Result<NativePlanReviewReference>.Fail(ErrorCode.Conflict, "The whole Plan changed before Apply; nothing was dispatched.");
             var json = JsonSerializer.Serialize(document, NativePlanReviewJson.Default.NativePlanReviewDocument);
             if (Encoding.UTF8.GetByteCount(json) > 8 * 1024 * 1024)
                 return Result<NativePlanReviewReference>.Fail(ErrorCode.InvalidInput, "The whole Plan exceeds the native review bound.");
@@ -86,14 +115,13 @@ public sealed partial class UserBenchStore
                     }
                 }
             command.CommandText = """
-                INSERT INTO plan_review_references VALUES($digest,$plan,$document,0,0,0)
-                ON CONFLICT(digest) DO NOTHING;
+                INSERT INTO plan_review_references VALUES($digest,$plan,$document,1,0,0);
                 """;
             command.Parameters.AddWithValue("$digest", digest);
             command.Parameters.AddWithValue("$document", json);
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             tx.Commit();
-            return Result<NativePlanReviewReference>.Ok(new(digest, document, false, 0, 0));
+            return Result<NativePlanReviewReference>.Ok(new(digest, document, true, 0, 0));
         }
         catch (ConnectionBindingResolutionException)
         { return Result<NativePlanReviewReference>.Fail(ErrorCode.Conflict, "An active native operation protects this Plan."); }
@@ -110,12 +138,12 @@ public sealed partial class UserBenchStore
             await using var command = db.CreateCommand();
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plan_review_references';";
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
-                return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "Review the whole Plan first.");
-            command.CommandText = "SELECT document,started,delivered,admitted FROM plan_review_references WHERE digest=$digest;";
+                return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "No whole-Plan attempt exists.");
+            command.CommandText = "SELECT document,started,delivered,admitted FROM plan_review_references WHERE digest=$digest AND started=1;";
             command.Parameters.AddWithValue("$digest", digest);
             using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
-                return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "The exact whole-Plan review was not retained.");
+                return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "The exact whole-Plan attempt was not retained.");
             var document = JsonSerializer.Deserialize(reader.GetString(0), NativePlanReviewJson.Default.NativePlanReviewDocument)
                 ?? throw new JsonException("Missing native review.");
             if (document.Version != 1 || document.Id == Guid.Empty || PlanReviewDigest(document) != digest

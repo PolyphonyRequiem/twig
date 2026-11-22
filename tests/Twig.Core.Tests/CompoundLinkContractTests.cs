@@ -101,7 +101,7 @@ public sealed class CompoundLinkContractTests
                 links: defect == "duplicate" ? [delta, delta] : [delta])]);
         var capabilities = new ProviderCapabilities([OpKind.Batch, OpKind.Relate, OpKind.Unrelate], ["related"], [], true, true)
             { AtomicRelationshipBatches = defect != "capability" };
-        Model.Validate(plan, plan.Digest, Schema, new(0, [source, target]), capabilities).ShouldNotBeEmpty();
+        Model.Validate(plan, Schema, new(0, [source, target]), capabilities).ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class CompoundLinkContractTests
         var plan = new Plan(Connection, Schema.Fingerprint, 0,
             [new("create", OpKind.Create, seed, fields: Fields, type: "type",
                 concurrency: ConcurrencyMode.ObservedNonAtomic, links: [delta])]);
-        Model.Validate(plan, plan.Digest, Schema,
+        Model.Validate(plan, Schema,
             new(0, [new(Other, "type", Fields, new(Other, "1"), true)], retainedItems: [draft]),
             new([OpKind.Create], ["related"], [], true, true)).ShouldContain(error => error.Code == ErrorCode.InvalidInput);
         Should.Throw<ArgumentException>(() => new Seed(Item, "type", Fields, links: [delta]));
@@ -260,7 +260,7 @@ public sealed class CompoundLinkContractTests
         var plan = new Plan(Connection, Schema.Fingerprint, snapshot.Version, [op]);
         var capabilities = new ProviderCapabilities([OpKind.Batch, OpKind.Relate, OpKind.Unrelate], ["related"], [], true, true)
             { AtomicRelationshipBatches = true };
-        Model.Validate(plan, plan.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
+        Model.Validate(plan, Schema, snapshot, capabilities).ShouldBeEmpty();
     }
 
     [Fact]

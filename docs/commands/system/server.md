@@ -95,7 +95,7 @@ and selection ID; discard stale bootstrap state if any changes. After startup,
 require a non-null durable ID and compare it with the same-owner authenticated
 `/api/v1/owner-status` response's `serverId`. If a durable ID was already known,
 it must not change unnoticed. Keep trusted/pinned TLS, Windows owner verification,
-`protocol: "twig-bench-service-v1"` and `canvasDefaultDeny: true` checks.
+`protocol: "twig-bench-service-v2"` and `canvasDefaultDeny: true` checks.
 The `X-Twig-Server-Instance` response header is a separate **per-process** GUID,
 not the durable `serverId`; the launcher uses it to address graceful stop to one
 process. CLI bootstrap is not domain authority or proof of a write's outcome.

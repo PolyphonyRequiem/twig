@@ -87,7 +87,7 @@ For file-based work use the [plan lifecycle](features/plans.md):
 ```sh
 twig plan validate --file change.json -o json
 twig plan preview --file change.json -o json
-twig plan apply --file change.json --confirm <exact-preview-digest> -o json
+twig plan apply --file change.json -o json
 twig plan status --file change.json -o json
 ```
 

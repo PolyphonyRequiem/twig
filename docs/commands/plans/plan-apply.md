@@ -1,7 +1,7 @@
 ---
 command: plan apply
 group: plans
-summary: Apply a current Core plan under its exact confirmed digest and verify outcomes.
+summary: Apply the exact Core plan read from a named file and verify outcomes.
 stability: stable
 mutates: ado
 ---
@@ -9,12 +9,12 @@ mutates: ado
 # `twig plan apply`
 
 ```sh
-twig plan apply --file change.json --confirm <exact-preview-digest> -o json
+twig plan apply --file change.json -o json
 ```
 
 ## Behavior
 
-Requires an explicit canonical Core file and exact digest confirmation. Rechecks
+Requires an explicit canonical Core file. Preview is optional. Apply rechecks
 connection, principal, schema, policy, observations and journal protections.
 Matching retained draft intent uses the existing draft-save path; other intent
 uses the same Core executor. No older plan schema or authorizer string supplies
@@ -32,7 +32,7 @@ eligible exact drafts. It does not blindly flush unrelated work.
 
 ## Failure modes
 
-Wrong digest, stale evidence, unavailable rules, denied access, conflict, failed,
+Invalid file content, stale evidence, unavailable rules, denied access, conflict, failed,
 partial or uncertain effects fail. Inspect the original
 [`plan status`](plan-status.md) before considering any further operation;
 never recreate an unknown seed or replay a verified prefix.

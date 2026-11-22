@@ -24,10 +24,8 @@ original UUIDs, schema, policy, digest and attempts.
 creation. Repeating the preview against unchanged workspace state and provider
 observations reuses that digest. The non-dry-run command reuses the retained
 plan when it still matches; otherwise it prepares fresh intent. It
-**publishes** through the existing internally digest-bound save path; it is not
-an external `--confirm` review prompt.
-Review intent before issuing it. For an explicitly confirmed file, use
-`plan apply --file ... --confirm <digest>`.
+**publishes** through the same Core save path. To apply a named plan file
+instead, use `plan apply --file ...`.
 
 ADO creation is non-atomic with respect to the reviewed area and iteration IDs.
 Twig refuses a remap it detects before dispatch, but the create request sends

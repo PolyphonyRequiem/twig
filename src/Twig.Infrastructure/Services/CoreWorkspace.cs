@@ -482,7 +482,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!snapshot.IsSuccess) return Result<Plan>.Fail(snapshot.Error);
         plan = new(connection, schema.Value.Fingerprint, snapshot.Value.Version, intent,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
-        var errors = Model.Validate(plan, plan.Digest, schema.Value, snapshot.Value, provider.Capabilities);
+        var errors = Model.Validate(plan, schema.Value, snapshot.Value, provider.Capabilities);
         return errors.IsEmpty ? Result<Plan>.Ok(plan) : Result<Plan>.Fail(errors[0] with
         {
             Evidence = errors.Select(e => e.Message).ToImmutableArray(),
@@ -506,7 +506,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             items: stored.Value.Items.Where(item => !keys.Contains(item.Key)).Concat(acquired.Value.Items),
             relationships: stored.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Local
                 || !keys.Contains(edge.From) && !keys.Contains(edge.To)).Concat(acquired.Value.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Provider)));
-        var errors = Model.Validate(plan, plan.Digest, schema.Value, refreshed, provider.Capabilities);
+        var errors = Model.Validate(plan, schema.Value, refreshed, provider.Capabilities);
         if (!errors.IsEmpty) return Result<ImmutableArray<Error>>.Ok(errors);
         foreach (var op in plan.Operations.Where(op => op.Kind == OpKind.Create))
         {
@@ -852,7 +852,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "Retained intent changed during policy acquisition.");
         plan = new(connection, schema.Fingerprint, current.Value.Version, operations,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
-        var errors = Model.Validate(plan, plan.Digest, schema, current.Value, provider.Capabilities);
+        var errors = Model.Validate(plan, schema, current.Value, provider.Capabilities);
         return errors.IsEmpty ? Result<CoreDraftPreview>.Ok(new(draft, plan))
             : Result<CoreDraftPreview>.Fail(errors[0] with { Evidence = errors.Select(e => e.Message).ToImmutableArray() });
     }
@@ -866,13 +866,13 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         return Result<Op>.Ok(op with { CreateEvidence = evidence.Value });
     }
 
-    internal async Task<Result<CoreExecution>> SaveDraftAsync(CoreDraftPreview preview, string? confirmation, CancellationToken ct)
+    internal async Task<Result<CoreExecution>> SaveDraftAsync(CoreDraftPreview preview, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         CoreExecution execution;
         if (preview.Plan is { } plan)
         {
-            var applied = await ApplyAsync(plan, confirmation ?? "", ct).ConfigureAwait(false);
+            var applied = await ApplyAsync(plan, ct).ConfigureAwait(false);
             if (!applied.IsSuccess || !applied.Value.EffectsVerified) return applied;
             execution = applied.Value;
         }
@@ -923,7 +923,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     internal async Task<Result<CoreExecution>> SaveDraftSetAsync(IEnumerable<CoreDraftPreview> previews,
-        Plan? plan, string? confirmation, CancellationToken ct, long? expectedStoreVersion = null)
+        Plan? plan, CancellationToken ct, long? expectedStoreVersion = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var captures = previews.ToImmutableArray();
@@ -954,7 +954,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         }
         var applied = plan is null
             ? Result<CoreExecution>.Ok(new([], AlreadyVerified: true))
-            : await ApplyAsync(plan, confirmation ?? "", ct).ConfigureAwait(false);
+            : await ApplyAsync(plan, ct).ConfigureAwait(false);
         if (!applied.IsSuccess || !applied.Value.EffectsVerified) return applied;
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Retained(current.Error);
@@ -1011,10 +1011,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 relationships: relationships), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
-    internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, string confirmation, CancellationToken ct)
+    internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct)
     {
-        if (confirmation != plan.Digest)
-            return Result<CoreExecution>.Fail(ErrorCode.DigestMismatch, "Confirmation must equal the exact retained plan digest.");
         if (plan.Connection != connection)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The plan belongs to another immutable connection.");
         if (executionRegistryPath is not null)
@@ -1031,7 +1029,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         {
             var policy = await CheckCurrentPolicyAsync(plan, ct).ConfigureAwait(false);
             if (!policy.IsSuccess) return Result<CoreExecution>.Fail(policy.Error);
-            var imported = await provider.ImportAsync(plan, confirmation, ct).ConfigureAwait(false);
+            var imported = await provider.ImportAsync(plan, ct).ConfigureAwait(false);
             if (!imported.IsSuccess) return Result<CoreExecution>.Fail(imported.Error);
         }
         var receipts = ImmutableArray.CreateBuilder<Receipt>();

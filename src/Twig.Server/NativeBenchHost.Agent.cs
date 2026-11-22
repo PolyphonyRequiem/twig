@@ -887,11 +887,13 @@ public static partial class NativeBenchHost
             var request = session.Agent.Review;
             if (request is null || request.RequestId != body.RequestId || request.State != "Requested")
                 throw new HttpFailure(409, "AgentSnapshotChanged", "This review request was replaced or already acknowledged.");
-            if (body.State is not ("Displayed" or "Failed") || body.Message?.Length > 1024
-                || body.State == "Displayed" && (session.Plan.Review?.Digest != body.Digest
-                    || session.Plan.Review?.BenchId != grant.Bench || body.Digest is null))
-                throw new HttpFailure(400, "InvalidInput", "A displayed review must match this view's exact captured native digest.");
-            session.Agent.Review = request with { State = body.State, Digest = body.Digest, Message = body.Message };
+            lock (session.Plan)
+            {
+                if (body.State is not ("Displayed" or "Failed") || body.Message?.Length > 1024
+                    || body.State == "Displayed" && (body.Digest is null || session.Plan.Presented != (grant.Bench, body.Digest)))
+                    throw new HttpFailure(400, "InvalidInput", "A displayed review must match this view's exact captured native digest.");
+                session.Agent.Review = request with { State = body.State, Digest = body.Digest, Message = body.Message };
+            }
             await Write(http, new Ack());
         });
     }

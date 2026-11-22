@@ -28,7 +28,7 @@ $files = @(Get-ChildItem -LiteralPath $Output -Recurse -File -Force | Sort-Objec
     [ordered]@{ path = $_.FullName.Substring($Output.Length + 1); sha256 = Get-BenchHash $_.FullName }
 })
 $manifest = [ordered]@{ application = 'twig-server'; schema = 1; version = $version; rid = 'win-x64';
-    protocol = 'twig-bench-service-v1'; files = $files }
+    protocol = 'twig-bench-service-v2'; files = $files }
 [IO.File]::WriteAllText((Join-Path $Output 'runtime.json'), ($manifest | ConvertTo-Json -Depth 5), (New-Object Text.UTF8Encoding($false)))
 $null = Get-BenchRuntime $Output $version (Get-BenchHash (Join-Path $Output 'runtime.json'))
 $tools = @('server-launch.ps1', 'server-install.ps1', 'server-run-owned.py') |

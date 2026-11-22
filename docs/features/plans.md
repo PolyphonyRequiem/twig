@@ -17,7 +17,7 @@ detailed format and execution reference.
 ```sh
 twig plan validate --file change.json -o json
 twig plan preview --file change.json -o json
-twig plan apply --file change.json --confirm <exact-preview-digest> -o json
+twig plan apply --file change.json -o json
 twig plan status --file change.json -o json
 ```
 
@@ -29,11 +29,11 @@ boundary. `plan` is the only CLI group for these routes. Run
 | --- | --- |
 | Validate | Canonical format and digest only; no claim that current process, policy, or execution evidence has been checked |
 | Preview | Current connection/schema/store/policy evidence, retained operation intent, and application blockers; it can write the local plan journal but never publishes |
-| Apply | Exact digest confirmation followed by fresh admission, durable attempts, provider dispatch and verification |
+| Apply | Apply the plan read from the named file after fresh admission; record durable attempts, dispatch and verification |
 | Status | Original digest's operation statuses, attempts and receipts without applying, settling, or replaying |
 
-Editing canonical content changes the digest and requires a new review. A
-successful preview is not a lease on provider revisions or policy. Apply rechecks
+Preview is optional. Editing canonical content changes the digest used to
+correlate receipts. Apply reads the file once and rechecks
 those preconditions. Do not flush or discard unrelated work to make an operation
 applicable.
 
@@ -49,8 +49,8 @@ An ADO close transition and all coupled required gate fields must be in the same
 atomic operation. Discover the connected type's requirements; do not stage the
 gate fields before or after a separate state write.
 
-ADO creation explicitly uses `ObservedNonAtomic`. Exact digest confirmation
-binds the area and iteration IDs Twig reviewed, but does not lock the provider's
+ADO creation explicitly uses `ObservedNonAtomic`. The plan binds the observed
+area and iteration IDs, but does not lock the provider's
 path-to-ID mapping. Twig refuses differences it detects before dispatch. If ADO
 creates the item with different IDs, immutable revision readback leaves the
 effect `Partial` and the creation UUID fenced against retry.
@@ -82,8 +82,8 @@ typed intent as well as `canApply` and blockers. The retired
 `--interactive`, `--include-rendering`, draft envelopes and old OMP presentation
 recipes are not current CLI routes.
 
-The server's native Bench Plan session keeps the selection, scope and review
-state outside Core. It assembles the same Core Plan operations per connection.
-Save/Apply uses the exact retained capture and digest; agent reads, local
-staging, and SDK view acknowledgements do not grant publication authority.
+The native Bench Plan session assembles Core Plan operations per connection.
+Apply uses the staged content version from the ordinary Plan status, not a
+preview ticket. It retains exact operations for dispatch and recovery. Agent
+reads, staging and view acknowledgements never dispatch writes.
 See [server security](../server.md#security-and-data-ownership).

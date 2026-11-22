@@ -346,7 +346,7 @@ internal sealed class SkillLifecycle(SkillPackage package)
                 {
                     names.Add(companion);
                     if (!discovered.Any(s => s.Name == companion))
-                        warnings.Add($"Companion '{companion}' selected for {provider}/{scenario} is missing in bounded roots. Report a presentation fallback to base guidance; correctness and approval prerequisites remain mandatory. Other host roots were not checked.");
+                        warnings.Add($"Companion '{companion}' selected for {provider}/{scenario} is missing in bounded roots. Report a presentation fallback to base guidance; provider and execution requirements still apply. Other host roots were not checked.");
                 }
             }
         }

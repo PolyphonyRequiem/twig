@@ -5,6 +5,8 @@ namespace Bench.Infrastructure;
 
 public interface INativeConnectionSetupGateway
 {
+    Task<Result<NativeGitHubAccount[]>> ListGitHubAccountsAsync(CancellationToken ct)
+        => Task.FromResult(Result<NativeGitHubAccount[]>.Fail(ErrorCode.Unsupported, "GitHub CLI account discovery is unavailable."));
     Task<Result<NativeAadEnrollment[]>> ListAadIdentitiesAsync(CancellationToken ct)
         => Task.FromResult(Result<NativeAadEnrollment[]>.Fail(ErrorCode.Unsupported, "Saved AAD identities are unavailable."));
     Task<Result<NativeAdoDiscoveryPage>> DiscoverAdoAsync(NativeAdoDiscoveryRequest request, CancellationToken ct)
@@ -19,6 +21,8 @@ public interface INativeConnectionSetupGateway
 
 public sealed class NativeConnectionSetupGateway(NativeConnectionSetup setup) : INativeConnectionSetupGateway
 {
+    public Task<Result<NativeGitHubAccount[]>> ListGitHubAccountsAsync(CancellationToken ct)
+        => setup.ListGitHubAccountsAsync(ct);
     public Task<Result<NativeAadEnrollment[]>> ListAadIdentitiesAsync(CancellationToken ct)
         => setup.ListAadIdentitiesAsync(ct);
     public Task<Result<NativeAdoDiscoveryPage>> DiscoverAdoAsync(NativeAdoDiscoveryRequest request, CancellationToken ct)

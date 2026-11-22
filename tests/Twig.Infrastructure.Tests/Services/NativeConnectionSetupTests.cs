@@ -151,6 +151,42 @@ public sealed class NativeConnectionSetupTests
     }
 
     [Fact]
+    public async Task GitHubAccountListReturnsOnlyUsableNamedAccountsFromGitHubDotCom()
+    {
+        var runner = new GitHub.GhCliTokenSourceTests.FakeRunner(new(BoundedProcessOutcome.Exited, 0, """
+            {"hosts":{"github.com":[
+              {"state":"success","active":false,"login":"second-user","tokenSource":"synthetic"},
+              {"state":"success","active":true,"login":"first-user"},
+              {"state":"success","active":false,"login":"First-User"},
+              {"state":"error","active":false,"login":"expired"},
+              {"state":"success","active":false,"login":""}],
+              "example.com":[{"state":"success","active":true,"login":"other-host"}]}}
+            """));
+        var setup = new NativeConnectionSetup(_ => throw new InvalidOperationException(), processes: runner);
+        var result = await setup.ListGitHubAccountsAsync(default);
+        result.Value.ShouldBe([new("first-user", true), new("second-user", false)]);
+        runner.Calls.Single().Arguments.ShouldBe(["auth", "status", "--hostname", "github.com", "--json", "hosts"]);
+        runner.ExcludedEnvironment.ShouldBe(["GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"]);
+    }
+
+    [Theory]
+    [InlineData("""{"hosts":{}}""", 0, true)]
+    [InlineData("private-output", 0, false)]
+    [InlineData("private-output", 1, false)]
+    public async Task GitHubAccountListDistinguishesNoAccountsFromCliFailure(string output, int exitCode, bool empty)
+    {
+        var runner = new GitHub.GhCliTokenSourceTests.FakeRunner(new(BoundedProcessOutcome.Exited, exitCode, output));
+        var setup = new NativeConnectionSetup(_ => throw new InvalidOperationException(), processes: runner);
+        var result = await setup.ListGitHubAccountsAsync(default);
+        if (empty) result.Value.ShouldBeEmpty();
+        else
+        {
+            result.IsSuccess.ShouldBeFalse();
+            result.Error.Message.ShouldNotContain("private-output");
+        }
+    }
+
+    [Fact]
     public async Task MalformedAbsoluteRootReturnsTypedFailureBeforeNativeEffects()
     {
         var root = Path.Combine(Path.GetTempPath(), "twig-malformed-setup-" + Guid.NewGuid().ToString("N"));

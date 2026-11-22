@@ -106,11 +106,11 @@ public sealed partial class NativePublicationConsumerTests
         item.Draft.ShouldBeNull("recovery must distinguish an interrupted stage from a durable intended draft");
         var fields = FieldValues.Empty.Set("System.Title", FieldValue.String("durable intended value"));
         var intended = new LocalEdits(key, item.Observation.Type, item.Observation, fields);
-        var proposal = new Proposal(native.Connection, editor.Metadata.Schema.Fingerprint, item.StoreVersion,
+        var plan = new Plan(native.Connection, editor.Metadata.Schema.Fingerprint, item.StoreVersion,
             [new("intent", OpKind.Batch, key, item.Observation.Revision, fields)]);
         var capture = new NativeEditorCapture(Guid.NewGuid(), 1, (await user.ReadAsync()).Value.InstanceId, bench.Id,
             bench.Revision, editor.Plan.Id, editor.Plan.Revision, false, Guid.Empty, origin.Source, native.Paths.RepoRoot,
-            native.Store.InstanceId, item.StoreVersion, Encoding.UTF8.GetString(Twig.Core.Core.ProposalBytes(proposal)),
+            native.Store.InstanceId, item.StoreVersion, Encoding.UTF8.GetString(Twig.Core.Core.PlanBytes(plan)),
             origin.Workspace.DraftFingerprint(intended), false)
         {
             ExecutionPath = origin.Document.DatabasePath,
@@ -274,7 +274,7 @@ public sealed partial class NativePublicationConsumerTests
             baseline.Fields.Set("System.Title", FieldValue.String("substituted base")), baseline.Revision,
             baseline.RelationshipsComplete, baseline.Resources, baseline.ResourcesComplete), draft.Fields);
         (await native.Store.CommitAsync(native.Connection, stored.Version, new(stored.Version + 1, stored.Items,
-            stored.Relationships, [replacement], stored.Proposals, stored.Journal, stored.Mappings, stored.Benches), default)).IsSuccess.ShouldBeTrue();
+            stored.Relationships, [replacement], stored.Plans, stored.Journal, stored.Mappings, stored.Benches), default)).IsSuccess.ShouldBeTrue();
         var reopened = (await editor.SelectAsync(key, default)).Value;
         var refused = await editor.SaveAsync(reopened, default);
         refused.IsSuccess.ShouldBeFalse();

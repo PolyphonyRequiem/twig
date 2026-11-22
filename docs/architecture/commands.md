@@ -14,7 +14,7 @@ initialized Core marker refuse; they do not activate the old cache graph.
 
 ## Current execution
 
-`CoreCommandAdapter` maps retained item, draft, query, and proposal commands
+`CoreCommandAdapter` maps retained item, draft, query, and plan commands
 onto the admitted Core workspace. Dedicated native command services own
 initialization, authentication, connection inspection, user-wide Bench metadata,
 planning rules, and process projection. Provider restrictions are additional

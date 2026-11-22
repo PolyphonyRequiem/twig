@@ -1,23 +1,32 @@
 ---
 command: plan status
 group: plans
-summary: Deprecated alias for exact Core proposal journal inspection.
+summary: Inspect exact Core plan journal rows and receipts without replay.
 stability: stable
 mutates: none
 ---
 
 # `twig plan status`
 
+```sh
+twig plan status --file change.json -o json
+```
+
 ## Behavior
 
-Deprecated alias for [`proposal status`](proposal-status.md).
-Requires the original canonical file and connection; returns exact attempts and
-receipts, not guessed legacy status.
+Resolves the file's canonical digest in its immutable workspace connection.
+Returns `found`, `allVerified`, and ordered operation identities, statuses,
+attempt UUIDs and receipts, including published identity/revision/error evidence.
+Missing journals report `found: false` and exit nonzero; incomplete ordinals refuse.
 
 ## Effects
 
-Inspection only, no work HTTP, settlement or replay.
+Inspection only: no work HTTP, apply, settlement, draft mutation or replay.
+Native `connection writes` sidecars are correlated evidence, not this journal's
+execution authority.
 
 ## Failure modes
 
-Missing/inconsistent journal or changed scope refuses.
+Missing/invalid file, different connection, unavailable store, missing journal
+or inconsistent rows fail. Human, JSON aliases and minimal are supported,
+not `ids`. Applied/acknowledged does not mean Verified.

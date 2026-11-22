@@ -49,4 +49,4 @@ settle Core execution.
 
 For exact semantics and qualification boundaries, see the
 [clean-core contract](clean-core-contract.md) and
-[proposal guide](../features/proposals.md).
+[plan guide](../features/plans.md).

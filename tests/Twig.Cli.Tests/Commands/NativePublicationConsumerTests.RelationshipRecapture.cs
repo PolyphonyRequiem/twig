@@ -80,7 +80,7 @@ public sealed partial class NativePublicationConsumerTests
         saved.Error.Code.ShouldBe(ErrorCode.Conflict);
         capturePreserved.ShouldBeTrue(detail);
         afterDraft.ShouldBe(beforeDraft);
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         if (afterCapture is not null) afterCapture.Endpoints.ShouldHaveSingleItem().Revision.ShouldBe(displayedRevision.Token);
         if (localDraft)

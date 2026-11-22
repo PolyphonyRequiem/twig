@@ -55,7 +55,7 @@ public sealed class CleanCoreGitHubAccessTests
         staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
         var preview = await runtime.Workspace.PreviewDraftAsync(key, default);
         preview.IsSuccess.ShouldBeTrue(preview.IsSuccess ? "" : preview.Error.Message);
-        var saved = await runtime.Workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal!.Digest, default);
+        var saved = await runtime.Workspace.SaveDraftAsync(preview.Value, preview.Value.Plan!.Digest, default);
         saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         saved.Value.EffectsVerified.ShouldBeTrue(saved.Value.Error?.Message);
         network.Writes.ShouldBe(1);
@@ -66,8 +66,8 @@ public sealed class CleanCoreGitHubAccessTests
         var row = complete.Journal.Single();
         var intentFile = Path.Combine(native.Paths.TwigDir, "core-github-intents", row.Attempt.ToString("D") + ".json");
         File.Exists(intentFile + ".ack").ShouldBeTrue();
-        (await runtime.Workspace.ApplyAsync(preview.Value.Proposal, preview.Value.Proposal.Digest, default)).Value.EffectsVerified.ShouldBeTrue();
-        network.Writes.ShouldBe(1, "the native host must not dispatch an already verified proposal twice");
+        (await runtime.Workspace.ApplyAsync(preview.Value.Plan, preview.Value.Plan.Digest, default)).Value.EffectsVerified.ShouldBeTrue();
+        network.Writes.ShouldBe(1, "the native host must not dispatch an already verified plan twice");
         network.Actor = "U_other";
         var wrongActor = await runtime.Workspace.ReadAsync(key, default);
         wrongActor.IsSuccess.ShouldBeFalse();
@@ -101,24 +101,24 @@ public sealed class CleanCoreGitHubAccessTests
         var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "I_issue");
         var op = new Op("edit", OpKind.Batch, key, new(key, "observed-native"),
             new([KeyValuePair.Create(GitHubProvider.Title, FieldValue.String("new title"))]), concurrency: ConcurrencyMode.ObservedNonAtomic);
-        var proposal = new Proposal(connection, "schema", 0, [op]);
+        var plan = new Plan(connection, "schema", 0, [op]);
         var attempt = Guid.NewGuid();
         var payload = """{"query":"mutation($input: UpdateIssueInput!) { updateIssue(input: $input) { clientMutationId issue { id repository { id owner { id } } } } }","variables":{"input":{"clientMutationId":"ATTEMPT","id":"I_issue","title":"new title"}}}"""
             .Replace("ATTEMPT", attempt.ToString("D"), StringComparison.Ordinal);
-        var intent = new GitHubWriteIntent(proposal, 0, attempt, scope!.GraphQlEndpoint, "POST", "application/json", payload);
+        var intent = new GitHubWriteIntent(plan, 0, attempt, scope!.GraphQlEndpoint, "POST", "application/json", payload);
         (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("a token is not Applying authority");
-        var planned = JournalEntry.Planned(proposal.Digest, 0);
-        var imported = await store.CommitAsync(connection, 0, new(1, proposals: [proposal], journal: [planned]), default);
+        var planned = JournalEntry.Planned(plan.Digest, 0);
+        var imported = await store.CommitAsync(connection, 0, new(1, plans: [plan], journal: [planned]), default);
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
         var row = planned.Begin(attempt).Value;
-        var begun = await store.CommitAsync(connection, 1, new(2, proposals: [proposal], journal: [row]), default);
+        var begun = await store.CommitAsync(connection, 1, new(2, plans: [plan], journal: [row]), default);
         begun.IsSuccess.ShouldBeTrue(begun.IsSuccess ? "" : begun.Error.Message);
         (await session.AdmitAsync(intent with { Attempt = Guid.NewGuid() }, default)).IsSuccess.ShouldBeFalse();
         (await session.AdmitAsync(intent with { Payload = payload.Replace("new title", "unreviewed title", StringComparison.Ordinal) }, default)).IsSuccess.ShouldBeFalse();
         (await session.AdmitAsync(intent with { Payload = " " + payload }, default)).IsSuccess.ShouldBeFalse("equivalent but noncanonical bytes are not retained intent");
         var policyPath = Path.Combine(native.Root, "twig.policy.json");
         await File.WriteAllTextAsync(policyPath, """{"version":1,"rules":[]}""");
-        (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("actual policy bytes changed after the retained proposal");
+        (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("actual policy bytes changed after the retained plan");
         File.Delete(policyPath);
         await ActivateFixture(native, store, connection);
         var admitted = await session.AdmitAsync(intent, default);
@@ -128,7 +128,7 @@ public sealed class CleanCoreGitHubAccessTests
         var record = JsonSerializer.Deserialize(await File.ReadAllTextAsync(path), CoreGitHubNativeJsonContext.Default.CoreGitHubNativeIntent)!;
         record.StoreInstance.ShouldBe(store.InstanceId);
         record.Actor.ShouldBe("U_actor");
-        record.Digest.ShouldBe(proposal.Digest);
+        record.Digest.ShouldBe(plan.Digest);
         record.Attempt.ShouldBe(attempt);
         record.Payload.ShouldBe(payload);
         (await session.AdmitAsync(intent, default)).IsSuccess.ShouldBeFalse("the original durable native intent cannot be replaced or admitted twice");

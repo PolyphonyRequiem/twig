@@ -80,6 +80,6 @@ public sealed partial class AdoProvider
     private async Task CheckCreateEvidence(Bound bound, ProcessSchema schema, Op op, CancellationToken ct)
     {
         if (op.Kind == OpKind.Create && !(await ResolveCreateFields(bound, schema, op, ct)).Equals(op.CreateEvidence))
-            throw Wire.Refuse(ErrorCode.Conflict, "Native create field evidence is missing or changed; preview a new proposal.");
+            throw Wire.Refuse(ErrorCode.Conflict, "Native create field evidence is missing or changed; preview a new plan.");
     }
 }

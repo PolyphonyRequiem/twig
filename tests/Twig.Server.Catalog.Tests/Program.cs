@@ -204,7 +204,7 @@ var tests = new (string Name, Func<Task> Run)[]
         Equal(item.Key, stored.Sources.Single().Selectors.Single().Item);
         Equal(1, original.Snapshot.Benches.Single().Selectors.Length);
         Equal(0, original.Snapshot.Journal.Length);
-        Equal(0, original.Snapshot.Proposals.Length);
+        Equal(0, original.Snapshot.Plans.Length);
         Equal(receipt.CatalogRevision, (await invalidations.ReadAsync()).Revision);
         Required(await app.CreateAsync(frozen, default));
         Equal(false, invalidations.TryRead(out _));

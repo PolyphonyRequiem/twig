@@ -1,3 +1,7 @@
+using System.Text;
+using Twig.Core;
+using PlanModel = Twig.Core.Core;
+
 /// <summary>
 /// Per-command usage examples appended to <c>--help</c> output after ConsoleAppFramework's
 /// built-in help text. Handles compound commands (e.g. <c>nav up</c>, <c>seed new</c>) and
@@ -68,8 +72,8 @@ internal static class CommandExamples
         ],
         ["bench discussion prepare-post"] =
         [
-            "twig bench discussion prepare-post --stdin          Prepare native proposal bytes from qualified context, format and text JSON through EOF; never posts",
-            "twig bench discussion prepare-post --stdin -o json  Return the exact native body and canonical digest for separate proposal review and authorization",
+            "twig bench discussion prepare-post --stdin          Prepare native plan bytes from qualified context, format and text JSON through EOF; never posts",
+            "twig bench discussion prepare-post --stdin -o json  Return the exact native body and canonical digest for separate plan review and authorization",
         ],
         ["bench attachments"] =
         [
@@ -526,8 +530,8 @@ internal static class CommandExamples
         ],
         ["connection capabilities"] =
         [
-            "twig connection capabilities                 Show relationship and fixed proposal mutation capabilities",
-            "twig connection capabilities --output json   Emit declarations and availability; GitHub writes require observed-non-atomic proposals",
+            "twig connection capabilities                 Show relationship and fixed plan mutation capabilities",
+            "twig connection capabilities --output json   Emit declarations and availability; GitHub writes require observed-non-atomic plans",
             "twig connection capabilities --github-schema -o json   Discover GitHub schema support without repository value catalogs",
         ],
         ["provider discover github"] =
@@ -593,53 +597,36 @@ internal static class CommandExamples
             "twig ohmyposh init         Output the oh-my-posh segment JSON for twig context",
             "twig ohmyposh init --output json  Same, explicitly requesting JSON output",
         ],
-        ["proposal validate"] =
+        ["plan validate"] =
         [
-            "twig proposal validate --file proposal.json    Validate canonical file format offline, without application authority.",
-            "twig proposal validate --file proposal.json --output json    Report the exact digest and validation scope; preview checks current evidence.",
+            "twig plan validate --file plan.json    Validate canonical file format offline, without application authority.",
+            "twig plan validate --file plan.json --output json    Report the exact digest and validation scope; preview checks current evidence.",
         ],
         ["policy assess"] =
         [
-            "twig policy assess --ids 42,43    Assess cached current compliance, not proposal enforcement.",
+            "twig policy assess --ids 42,43    Assess cached current compliance, not plan enforcement.",
             "twig policy assess --ids 42,43 -o json    Emit typed findings, evidence digest and explicit alternatives.",
         ],
         ["policy reconcile"] =
         [
             "twig policy reconcile --ids 42,43 --evidence <digest> --finding f1 --strategy reparent --parent 43    Project an explicitly selected repair.",
-            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --proposal-only > repair.json    Author a native proposal; preview and apply with its digest.",
+            "twig policy reconcile --ids 42 --evidence <digest> --finding f1 --strategy detach-parent -o json --plan-only > repair.json    Author a native plan; preview and apply with its digest.",
         ],
-        ["proposal preview"] =
+        ["plan preview"] =
         [
-            "twig proposal preview --file proposal.json     Check current application evidence and retain reviewed intent without publishing.",
-            "twig proposal preview --file proposal.json --expect-digest <digest>    Refuse changed canonical intent before retention.",
-            "twig proposal preview --file proposal.json --output json    Emit machine preview for scripts.",
+            "twig plan preview --file plan.json     Check current application evidence and retain reviewed intent without publishing.",
+            "twig plan preview --file plan.json --expect-digest <digest>    Refuse changed canonical intent before retention.",
+            "twig plan preview --file plan.json --output json    Emit machine preview for scripts.",
         ],
-        ["proposal latest"] =
+        ["plan apply"] =
         [
-            "twig proposal latest                         Show the latest previewed unresolved proposal in this workspace.",
-            "twig proposal latest --output json           Emit found/file/digest/state for panel hosts.",
+            "twig plan apply --file plan.json --confirm <digest>    Apply the exact reviewed plan.",
+            "twig plan apply --file plan.json --confirm <digest> --output json    Emit every operation's journal outcome.",
         ],
-        ["proposal apply"] =
+        ["plan status"] =
         [
-            "twig proposal apply --file proposal.json --confirm <digest>    Apply the exact reviewed proposal.",
-            "twig proposal apply --file proposal.json --confirm <digest> --output json    Emit every operation's journal outcome.",
-        ],
-        ["proposal status"] =
-        [
-            "twig proposal status --file proposal.json      Show journal state for the proposal's digest.",
-            "twig proposal status --file proposal.json --output json    Emit exact attempt states, receipts and uncertainty evidence without replay.",
-        ],
-        ["proposal seed"] =
-        [
-            "twig proposal seed --id -42                    Describe staged seed -42 (identity + fingerprint) for proposal authoring.",
-            "twig proposal seed --id -42 --output json      Emit descriptor as JSON to paste into a proposal file.",
-        ],
-        ["proposal reconcile"] =
-        [
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire    Append a Retired receipt; the authored mutation is NOT applied.",
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome readback    Establish outcome by fresh ADO readback.",
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome supersede --replacement-digest <digest2> --replacement-operation <op-id2>    Map the exact effect to a Verified replacement.",
-            "twig proposal reconcile --file proposal.json --confirm <digest> --operation <op-id> --outcome retire --output json    Emit the full receipt (origins, evidence) as JSON.",
+            "twig plan status --file plan.json      Show journal state for the plan's digest.",
+            "twig plan status --file plan.json --output json    Emit exact attempt states, receipts and uncertainty evidence without replay.",
         ],
         ["pending"] =
         [
@@ -703,5 +690,31 @@ internal static class CommandExamples
         Console.WriteLine("Examples:");
         foreach (var example in examples)
             Console.WriteLine($"  {example}");
+
+        if (key == "plan validate")
+        {
+            var sample = new Plan(new(new("github"), "example/work-items", "example-destination", "example-identity"),
+                "example-schema-fingerprint", 0,
+                [new("create-seed", OpKind.Create, ItemKey.Local(Guid.Parse("11111111-1111-7111-8111-111111111111")),
+                    fields: new([KeyValuePair.Create("github.title", FieldValue.String("An example work item"))]),
+                    type: "github.issue", concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+            Console.WriteLine();
+            Console.WriteLine("Complete seed creation Plan (format example only; not ready to apply):");
+            Console.WriteLine(Encoding.UTF8.GetString(PlanModel.PlanBytes(sample)));
+            Console.WriteLine("Use the UUID and typed values of an actual seed (`twig pending -o json`) and the exact");
+            Console.WriteLine("connection, store version, schema and policy evidence for your target.");
+            var version = VersionHelper.GetVersion();
+            var reference = $"v{version}";
+            if (version.Contains('-') || version == "0.0.0")
+            {
+                var metadata = VersionHelper.GetInformationalVersion().Split('+', 2);
+                var revision = metadata.Length == 2 ? metadata[1].Split('.').Last() : "";
+                reference = revision.Length == 40 && revision.All(Uri.IsHexDigit) ? revision : null;
+            }
+            if (reference is not null)
+                Console.WriteLine($"Format reference: https://github.com/{CompanionStartup.ResolveRepoSlug()}/blob/{reference}/docs/features/plans.md");
+            else
+                Console.WriteLine("Format reference unavailable: this build has no source revision.");
+        }
     }
 }

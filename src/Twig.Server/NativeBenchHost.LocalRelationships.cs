@@ -80,7 +80,7 @@ public static partial class NativeBenchHost
                     state.LocalOnly = true; state.Ticket = Guid.NewGuid();
                     var reviews = Required(await state.Native.ReadLocalRelationshipReviewsAsync(ct));
                     ItemKey Display(ItemKey key) => capture.Observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
-                    foreach (var review in reviews.Where(review => review.Proposal.Operations.Any(op =>
+                    foreach (var review in reviews.Where(review => review.Plan.Operations.Any(op =>
                         Display(op.Item) == item.Key || op.Other is { } other && Display(other) == item.Key)))
                     {
                         state.LocalReviews[review.CaptureId] = review;
@@ -123,7 +123,7 @@ public static partial class NativeBenchHost
                 state.LocalReviews[review.CaptureId] = review;
                 state.Ticket = Guid.NewGuid();
                 var original = Required(await editor.ReadLocalRelationshipReviewsAsync(ct))
-                    .Single(value => value.CaptureId == review.CaptureId && value.Proposal.Digest == review.Proposal.Digest);
+                    .Single(value => value.CaptureId == review.CaptureId && value.Plan.Digest == review.Plan.Digest);
                 state.LocalReviews[original.CaptureId] = original;
                 if (LocalUnattempted(original.Outcome)) state.LocalApplyAllowed.Add(original.CaptureId);
                 await Current(http, id, session, source, epoch, profile, ct);
@@ -147,7 +147,7 @@ public static partial class NativeBenchHost
                     var state = session.Editor; var source = state.Context!;
                     var epoch = state.Epoch; var profile = session.ProfileGeneration;
                     if (!state.LocalOnly || !state.LocalReviews.TryGetValue(body.CaptureId, out var original)
-                        || original.Proposal.Digest != body.Digest || original.Outcome is null
+                        || original.Plan.Digest != body.Digest || original.Outcome is null
                         || (original.Outcome.Journal?.Attempt ?? Guid.Empty) != body.Attempt)
                         throw new HttpFailure(409, "Conflict", "Rediscover the exact original LOCAL reference; no replacement or replay.");
                     await Current(http, id, session, source, epoch, profile, ct);
@@ -180,14 +180,14 @@ public static partial class NativeBenchHost
     private static LocalRelationshipReviewDto LocalReview(NativeLocalRelationshipReview review, NativeEditorView state, StoreSnapshot snapshot,
         Error? operationError = null)
     {
-        var proposal = review.Proposal;
-        if (proposal.Operations.Length != 1 || proposal.Operations[0] is not { Origin: RelationshipOrigin.Local,
+        var plan = review.Plan;
+        if (plan.Operations.Length != 1 || plan.Operations[0] is not { Origin: RelationshipOrigin.Local,
             Kind: OpKind.Relate or OpKind.Unrelate, Other: not null, Relation: not null, Fields.Count: 0,
             Links.IsEmpty: true, Body: null, Resource: null, Type: null } op)
             throw new HttpFailure(422, "Unsupported", "The native review is not one canonical field-free LOCAL Association.");
         var outcome = review.Outcome ?? throw new HttpFailure(503, "Unavailable", "The original native LOCAL outcome is unavailable.");
         var row = outcome.Journal;
-        if (row is not null && (row.Digest != proposal.Digest || row.Operation != 0
+        if (row is not null && (row.Digest != plan.Digest || row.Operation != 0
             || row.Receipts.Any(receipt => receipt.PublishedKey is not null || receipt.Revision is not null)))
             throw new HttpFailure(409, "Conflict", "The original LOCAL journal does not match its canonical effect.");
         var source = state.Context!;
@@ -203,9 +203,9 @@ public static partial class NativeBenchHost
             row?.Status.ToString() ?? "Preparing", outcome.Settled, row?.Receipts.Select(receipt => new LocalRelationshipReceiptDto(
                 receipt.Digest, receipt.Operation, receipt.Attempt, receipt.Status.ToString(), receipt.Evidence.ToArray(),
                 Failure(receipt.Error))).ToArray() ?? [], Failure(operationError ?? outcome.Error));
-        return new(state.Ticket, review.CaptureId, proposal.Digest, Encoding.UTF8.GetString(Twig.Core.Core.ProposalBytes(proposal)),
+        return new(state.Ticket, review.CaptureId, plan.Digest, Encoding.UTF8.GetString(Twig.Core.Core.PlanBytes(plan)),
             new(op.Kind.ToString(), Endpoint(op.Item), Endpoint(op.Other), op.Relation, op.ExpectedLocalVersion,
-                proposal.ExpectedStoreVersion, proposal.SchemaFingerprint),
+                plan.ExpectedStoreVersion, plan.SchemaFingerprint),
             new(false, state.Native!.PlanId, state.Native.PlanRevision, state.Native.ScopeId, state.Native.StoreInstance),
             source.Stamp.AuthorityStamp, state.Epoch,
             state.LocalApplyAllowed.Contains(review.CaptureId) && LocalUnattempted(outcome),

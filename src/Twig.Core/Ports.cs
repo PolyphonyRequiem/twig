@@ -51,18 +51,18 @@ public interface IProvider
         => Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning reads with recorded mapping metadata."));
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
-    Task<Result<long>> ImportAsync(Proposal proposal, string confirmation, CancellationToken ct = default);
+    Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default);
 
-    // Exactly one already-journaled operation, never an opaque multi-request proposal execution.
-    Task<Result<Receipt>> ApplyAsync(Proposal proposal, int operation, Guid attempt, CancellationToken ct);
-    Task<Result<Receipt>> VerifyAsync(Proposal proposal, Receipt acknowledgement, CancellationToken ct);
-    Task<Result<Receipt>> RecoverAsync(Proposal proposal, int operation, CancellationToken ct = default);
+    // Exactly one already-journaled operation, never an opaque multi-request plan execution.
+    Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct);
+    Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct);
+    Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default);
 }
 
 public sealed record StoreSnapshot
 {
     public StoreSnapshot(long version, IEnumerable<WorkItem>? items = null, IEnumerable<Relationship>? relationships = null,
-        IEnumerable<RetainedItem>? retainedItems = null, IEnumerable<Proposal>? proposals = null, IEnumerable<JournalEntry>? journal = null,
+        IEnumerable<RetainedItem>? retainedItems = null, IEnumerable<Plan>? plans = null, IEnumerable<JournalEntry>? journal = null,
         IEnumerable<PublishMapping>? mappings = null, IEnumerable<Bench>? benches = null)
     {
         if (version < 0) throw new ArgumentOutOfRangeException(nameof(version));
@@ -70,7 +70,7 @@ public sealed record StoreSnapshot
         Items = Contract.Unique(items ?? [], i => Core.KeyText(i.Key));
         Relationships = Contract.Copy(relationships ?? []);
         RetainedItems = Contract.Unique(retainedItems ?? [], d => Core.KeyText(d.Key));
-        Proposals = Contract.Unique(proposals ?? [], p => p.Digest);
+        Plans = Contract.Unique(plans ?? [], p => p.Digest);
         Journal = Contract.Copy(journal ?? []);
         Mappings = Contract.Copy(mappings ?? []);
         Benches = Contract.Unique(benches ?? [], b => b.Id.ToString("D"));
@@ -80,7 +80,7 @@ public sealed record StoreSnapshot
     public ImmutableArray<WorkItem> Items { get; }
     public ImmutableArray<Relationship> Relationships { get; }
     public ImmutableArray<RetainedItem> RetainedItems { get; }
-    public ImmutableArray<Proposal> Proposals { get; }
+    public ImmutableArray<Plan> Plans { get; }
     public ImmutableArray<JournalEntry> Journal { get; }
     public ImmutableArray<PublishMapping> Mappings { get; }
     public ImmutableArray<Bench> Benches { get; }

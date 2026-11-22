@@ -252,7 +252,7 @@ public sealed partial class UserBenchStore
                 {
                     var local = ItemKey.Local(Guid.ParseExact(reader.GetString(0), "D"));
                     var mapping = snapshot.Value.Mappings.SingleOrDefault(value => value.Local == local);
-                    if (mapping is null || !snapshot.Value.Journal.Any(row => row.Digest == mapping.ProposalDigest
+                    if (mapping is null || !snapshot.Value.Journal.Any(row => row.Digest == mapping.PlanDigest
                         && row.Operation == mapping.Operation && row.Status == OpStatus.Verified))
                         return Result<NativeBenchPlan>.Fail(ErrorCode.Conflict,
                             "Unsettled seed ownership remains in this scope. Explicit reviewed transfer is required.");

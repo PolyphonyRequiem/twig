@@ -146,8 +146,8 @@ public sealed partial class NativePublicationConsumerTests
             _transport.TitleOf(42).ShouldBe("Scoped native edit");
             var snapshot = (await origin.Workspace.SnapshotAsync(default)).Value;
             snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
-            snapshot.Proposals.Single().SchemaFingerprint.ShouldBe(schema.Fingerprint);
-            snapshot.Proposals.Single().PolicyRevision.ShouldNotBeNullOrWhiteSpace();
+            snapshot.Plans.Single().SchemaFingerprint.ShouldBe(schema.Fingerprint);
+            snapshot.Plans.Single().PolicyRevision.ShouldNotBeNullOrWhiteSpace();
         }
     }
 }

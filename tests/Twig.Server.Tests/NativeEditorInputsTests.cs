@@ -228,7 +228,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
             FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("fixture title"))
                 .Set(NativeProvider.StateField, FieldValue.String("Open")), default)).Value;
         var preview = (await handle.Workspace.PreviewDraftAsync(seed.Key, default)).Value;
-        (await handle.Workspace.SaveDraftAsync(preview, preview.Proposal!.Digest, default)).Value.EffectsVerified.ShouldBeTrue();
+        (await handle.Workspace.SaveDraftAsync(preview, preview.Plan!.Digest, default)).Value.EffectsVerified.ShouldBeTrue();
         item = (await handle.Workspace.SnapshotAsync(default)).Value.Mappings.Single().Remote;
         definitions = UserBenchStore.ForRegistry(bindings.RegistryPath);
         bench = (await definitions.SaveAsync(new(Guid.NewGuid(), "Fixture",

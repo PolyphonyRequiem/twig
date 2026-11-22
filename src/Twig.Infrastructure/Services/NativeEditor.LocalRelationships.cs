@@ -30,8 +30,8 @@ internal sealed partial class NativeEditor
             && NativePathComparer.Instance.Equals(capture.Root, factory.WorkspaceRoot)
             && NativePathComparer.Instance.Equals(capture.ExecutionPath, handle.Document.DatabasePath)))
         {
-            var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
-            var review = await ReadOriginalLocalRelationshipReviewAsync(capture.Id, proposal.Digest, ct).ConfigureAwait(false);
+            var plan = UserBenchStore.ParseIntent(capture.IntentJson);
+            var review = await ReadOriginalLocalRelationshipReviewAsync(capture.Id, plan.Digest, ct).ConfigureAwait(false);
             if (!review.IsSuccess) return Result<ImmutableArray<NativeLocalRelationshipReview>>.Fail(review.Error);
             reviews.Add(review.Value);
         }
@@ -137,7 +137,7 @@ internal sealed partial class NativeEditor
         var pair = CoreWorkspace.LocalRelationship(state.Value, schema.Value, Workspace.Capabilities, key, other);
         if (!pair.IsSuccess) return Result<NativeLocalRelationshipSelection>.Fail(pair.Error);
         if (state.Value.Journal.Any(row => row.Status is OpStatus.Applying or OpStatus.Applied or OpStatus.Partial or OpStatus.Indeterminate
-            && state.Value.Proposals.Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation] is { } prior
+            && state.Value.Plans.Single(plan => plan.Digest == row.Digest).Operations[row.Operation] is { } prior
             && prior.Links.Select(link => link.Other).Prepend(prior.Item).Concat(prior.Other is null ? [] : new[] { prior.Other })
                 .Any(endpoint => CoreWorkspace.LocalLogical(state.Value, endpoint) == key || CoreWorkspace.LocalLogical(state.Value, endpoint) == other)))
             return Result<NativeLocalRelationshipSelection>.Fail(ErrorCode.Indeterminate, "An original unresolved effect protects this local pair; no replacement review.");
@@ -188,9 +188,9 @@ internal sealed partial class NativeEditor
         using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
         var valid = await ValidateLocalSelectionAsync(selection, ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(valid.Error);
-        var proposal = await Workspace.PrepareLocalRelationshipAsync(selection.Local.Source, selection.Local.Target, adding, ct,
+        var relationshipPlan = await Workspace.PrepareLocalRelationshipAsync(selection.Local.Source, selection.Local.Target, adding, ct,
             selection.StoreVersion, metadata.Schema.Fingerprint).ConfigureAwait(false);
-        if (!proposal.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(proposal.Error);
+        if (!relationshipPlan.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(relationshipPlan.Error);
         valid = await ValidateLocalSelectionAsync(selection, ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(valid.Error);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
@@ -203,7 +203,7 @@ internal sealed partial class NativeEditor
             return Result<NativeLocalRelationshipReview>.Fail(ErrorCode.Conflict, "Original native intent already owns this pair; no replacement review.");
         var capture = new NativeEditorCapture(Guid.NewGuid(), 1, library.InstanceId, bench.Id, bench.Revision,
             plan.Id, plan.Revision, false, Guid.Empty, origin, factory.WorkspaceRoot, handle.Document.DatabaseInstance,
-            selection.StoreVersion, Encoding.UTF8.GetString(Model.ProposalBytes(proposal.Value)), "none", false)
+            selection.StoreVersion, Encoding.UTF8.GetString(Model.PlanBytes(relationshipPlan.Value)), "none", false)
         {
             Endpoints = selection.Endpoints, ExecutionPath = handle.Document.DatabasePath,
             LocalRelationship = new(CoreWorkspace.LocalEdgeFingerprint(origin.Connection, selection.Local.Edge)),
@@ -211,9 +211,9 @@ internal sealed partial class NativeEditor
         var reserved = await user.SaveEditorCaptureAsync(capture, 0, ct).ConfigureAwait(false);
         if (!reserved.IsSuccess) return Result<NativeLocalRelationshipReview>.Fail(reserved.Error);
         var ready = await ReadyLocalCaptureAsync(capture, ct).ConfigureAwait(false);
-        return ready.IsSuccess ? Result<NativeLocalRelationshipReview>.Ok(new(capture.Id, proposal.Value))
+        return ready.IsSuccess ? Result<NativeLocalRelationshipReview>.Ok(new(capture.Id, relationshipPlan.Value))
             : Result<NativeLocalRelationshipReview>.Fail(ready.Error with
-                { Evidence = ready.Error.Evidence.Add($"capture:{capture.Id:D}").Add($"digest:{proposal.Value.Digest}") });
+                { Evidence = ready.Error.Evidence.Add($"capture:{capture.Id:D}").Add($"digest:{relationshipPlan.Value.Digest}") });
     }
 
     private async Task<Result<NativeEditorCapture>> ReadyLocalCaptureAsync(NativeEditorCapture capture, CancellationToken ct)
@@ -258,17 +258,17 @@ internal sealed partial class NativeEditor
 
     private async Task<Result<bool>> ValidateLocalApplyAsync(NativeEditorCapture capture, CancellationToken ct)
     {
-        var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
+        var plan = UserBenchStore.ParseIntent(capture.IntentJson);
         var schema = await Workspace.SchemaAsync(ct).ConfigureAwait(false);
         if (!schema.IsSuccess) return Result<bool>.Fail(schema.Error);
-        if (schema.Value.Fingerprint != proposal.SchemaFingerprint || schema.Value.Fingerprint != metadata.Schema.Fingerprint)
+        if (schema.Value.Fingerprint != plan.SchemaFingerprint || schema.Value.Fingerprint != metadata.Schema.Fingerprint)
             return Result<bool>.Fail(ErrorCode.SchemaChanged, "The original local schema changed; no fallback.");
         var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
         var pair = CoreWorkspace.LocalRelationship(state.Value, schema.Value, Workspace.Capabilities,
-            proposal.Operations[0].Item, proposal.Operations[0].Other!);
+            plan.Operations[0].Item, plan.Operations[0].Other!);
         if (!pair.IsSuccess) return Result<bool>.Fail(pair.Error);
-        if (pair.Value.Kind.Reference != proposal.Operations[0].Relation)
+        if (pair.Value.Kind.Reference != plan.Operations[0].Relation)
             return Result<bool>.Fail(ErrorCode.Unsupported, "The original local-only Association is no longer declared.");
         var evidence = NativeLocalRelationshipEvidence.Check(capture, state.Value);
         if (!evidence.IsSuccess) return evidence;
@@ -350,14 +350,14 @@ internal sealed partial class NativeEditor
     {
         var state = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
         if (!state.IsSuccess) return Result<NativeLocalRelationshipOutcome>.Fail(state.Error);
-        var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
-        var row = state.Value.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == 0);
+        var plan = UserBenchStore.ParseIntent(capture.IntentJson);
+        var row = state.Value.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
         var proof = capture.Settled ? NativeLocalRelationshipEvidence.CheckSettledOutcome(capture, state.Value)
             : NativeLocalRelationshipEvidence.Check(capture, state.Value);
         error ??= !capture.Ready ? new(ErrorCode.Conflict, "The original capture reservation needs exact retention continuation; Apply is unavailable.")
             : row?.Status == OpStatus.Applying ? new(ErrorCode.Indeterminate, "The original attempt has no attributable durable outcome; no replay.")
             : null;
-        return Result<NativeLocalRelationshipOutcome>.Ok(new(capture.Id, proposal.Digest, row, capture.Settled,
+        return Result<NativeLocalRelationshipOutcome>.Ok(new(capture.Id, plan.Digest, row, capture.Settled,
             error ?? (proof.IsSuccess ? row?.Receipts.LastOrDefault()?.Error : proof.Error)));
     }
 }

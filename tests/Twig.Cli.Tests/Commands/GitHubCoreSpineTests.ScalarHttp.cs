@@ -170,7 +170,7 @@ public sealed partial class GitHubCoreSpineTests
                 var snapshot = await native.SnapshotAsync().WaitAsync(ct);
                 snapshot.RetainedItems.ShouldBeEmpty();
                 snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
-                var operation = snapshot.Proposals.Single().Operations.Single();
+                var operation = snapshot.Plans.Single().Operations.Single();
                 operation.Concurrency.ShouldBe(ConcurrencyMode.ObservedNonAtomic);
                 operation.Fields.Count.ShouldBe(3);
                 var actual = snapshot.Items.Single().Fields;
@@ -260,7 +260,7 @@ public sealed partial class GitHubCoreSpineTests
                     original.Items.Single().Fields["github.state"].Text.ShouldBe("OPEN");
                     original.RetainedItems.ShouldBeEmpty();
                     original.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
-                    original.Proposals.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "github.body" });
+                    original.Plans.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "github.body" });
                     native.Writes.ShouldBe(1);
                     await Mode(true);
                     open["planMode"] = true;

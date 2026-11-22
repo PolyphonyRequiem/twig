@@ -68,7 +68,7 @@ internal static class NativeAggregationTests
                 [new(SelectorKind.Pin, mappedSeed, connection: a), new(SelectorKind.Pin, keyB, connection: b)]), bench.Revision));
             gateway.Replace(aRoot, Observation(a, new(2, [itemA],
                 retainedItems: [new Seed(mappedSeed, itemA.Type, mappedChanges)],
-                mappings: [new(mappedSeed, keyA, "synthetic-published-proposal", 0)]), "https://example.test/project/"));
+                mappings: [new(mappedSeed, keyA, "synthetic-published-plan", 0)]), "https://example.test/project/"));
             var mapped = Required(await panel.ReadViewAsync(bench.Id, anchor, [chosen], default));
             var mappedRow = mapped.View.Sources.Single(source => source.SourceId == anchor.Source.Id).Items.Single();
             Check(mappedRow.Identity.Key == keyA && mappedRow.BenchMember && mappedRow.HasDraft

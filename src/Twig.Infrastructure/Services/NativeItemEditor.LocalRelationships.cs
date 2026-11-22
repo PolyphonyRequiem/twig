@@ -5,10 +5,10 @@ namespace Twig.Infrastructure.Services;
 
 public sealed class NativeLocalRelationshipReview
 {
-    internal NativeLocalRelationshipReview(Guid captureId, Proposal proposal, NativeLocalRelationshipOutcome? outcome = null)
-        => (CaptureId, Proposal, Outcome) = (captureId, proposal, outcome);
+    internal NativeLocalRelationshipReview(Guid captureId, Plan plan, NativeLocalRelationshipOutcome? outcome = null)
+        => (CaptureId, Plan, Outcome) = (captureId, plan, outcome);
     public Guid CaptureId { get; }
-    public Proposal Proposal { get; }
+    public Plan Plan { get; }
     public NativeLocalRelationshipOutcome? Outcome { get; }
 }
 

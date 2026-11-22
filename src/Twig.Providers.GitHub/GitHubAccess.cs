@@ -34,28 +34,28 @@ public sealed record GitHubRuleProjection(Connection Connection, string ActorId,
     GitHubValidationScope Scope, string PolicyIdentity, string PolicyRevision,
     ImmutableDictionary<string, ImmutableArray<FieldRule>> Types);
 
-public sealed record GitHubWriteIntent(Proposal Proposal, int Operation, Guid Attempt, Uri Target,
+public sealed record GitHubWriteIntent(Plan Plan, int Operation, Guid Attempt, Uri Target,
     string Method, string MediaType, string Payload)
 {
-    public static Result<(string Mutation, string Payload)> Project(Proposal proposal, int ordinal, Guid attempt)
+    public static Result<(string Mutation, string Payload)> Project(Plan plan, int ordinal, Guid attempt)
     {
         try
         {
-            if (proposal.Connection.Provider.Value != "github" || ordinal < 0 || ordinal >= proposal.Operations.Length)
-                return Result<(string, string)>.Fail(ErrorCode.InvalidInput, "An exact GitHub proposal operation is required.");
-            var destination = Wire.Parse(System.Text.Encoding.UTF8.GetBytes(proposal.Connection.Destination));
+            if (plan.Connection.Provider.Value != "github" || ordinal < 0 || ordinal >= plan.Operations.Length)
+                return Result<(string, string)>.Fail(ErrorCode.InvalidInput, "An exact GitHub plan operation is required.");
+            var destination = Wire.Parse(System.Text.Encoding.UTF8.GetBytes(plan.Connection.Destination));
             if (destination.ValueKind != System.Text.Json.JsonValueKind.Array || destination.GetArrayLength() != 2
-                || GitHubProvider.Destination(destination[0].GetString()!, destination[1].GetString()!) != proposal.Connection.Destination)
+                || GitHubProvider.Destination(destination[0].GetString()!, destination[1].GetString()!) != plan.Connection.Destination)
                 return Result<(string, string)>.Fail(ErrorCode.InvalidInput, "Canonical immutable GitHub destination required.");
             var repository = Wire.Id(destination[1].GetString()!);
-            var op = proposal.Operations[ordinal];
+            var op = plan.Operations[ordinal];
             if (op.Origin != RelationshipOrigin.Provider || op.Concurrency != ConcurrencyMode.ObservedNonAtomic
                 || op.Kind == OpKind.Batch && (op.Fields.Count == 0 || op.Type is not null || op.Body is not null)
                 || op.Kind == OpKind.Create && (!op.Item.IsLocal || op.Type is null || op.Other is not null || op.Resource is not null || !op.Links.IsEmpty)
                 || op.Kind == OpKind.Comment && op.Body?.Kind != FieldKind.Markdown
                 || op.Kind is OpKind.Relate or OpKind.Unrelate && op.Other is null)
                 return Result<(string, string)>.Fail(ErrorCode.Unsupported, "Unsupported one-request native GitHub effect.");
-            string Id(ItemKey key) => key.BelongsTo(proposal.Connection) ? Wire.Id(key.NativeId!)
+            string Id(ItemKey key) => key.BelongsTo(plan.Connection) ? Wire.Id(key.NativeId!)
                 : throw Wire.Refuse(ErrorCode.InvalidInput, "Exact GitHub resource scope and native node ID required.");
             var mutation = op.Kind switch
             {

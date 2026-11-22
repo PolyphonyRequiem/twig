@@ -1,3 +1,3 @@
-# Twig proposal presenter
+# Presenting a Twig Plan
 
-If using `twig_proposal_render`, use its returned native preview rather than running a second preview. Rendering does not apply changes. Apply uses the exact digest from that preview.
+Use `twig plan preview --file <file>` for a human-readable preview, or `-o json` for structured output. Present the intended changes and any blockers. Presenting a Plan does not apply it.

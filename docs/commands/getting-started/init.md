@@ -94,7 +94,7 @@ For the Twig provider, `--database <name>` explicitly creates or selects an
 owner-local named database. Each database has its own durable source UUID, items,
 revisions and authority receipts. Multiple fresh repository workspaces can use
 the same name; different names isolate reads and writes even when item numbers
-coincide. Workspace mirrors, drafts and proposal journals remain separate.
+coincide. Workspace mirrors, drafts and plan journals remain separate.
 
 Names contain 1-64 lowercase letters, digits or internal hyphens, not paths.
 The name is declared as `nativeDatabase` in `twig.json`; a matching existing

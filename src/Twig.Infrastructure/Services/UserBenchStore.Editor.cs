@@ -19,7 +19,7 @@ internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInst
     public string ExecutionPath { get; init; } = "";
     public string BeforeFingerprint { get; init; } = "none";
     public bool Cancelled { get; init; }
-    public string? SeedProposal { get; init; }
+    public string? SeedPlan { get; init; }
     public NativeLocalRelationshipCapture? LocalRelationship { get; init; }
     internal bool SameAs(NativeEditorCapture other)
         => this with { Endpoints = other.Endpoints } == other && Endpoints.SequenceEqual(other.Endpoints);
@@ -43,20 +43,20 @@ public sealed partial class UserBenchStore
             using var tx = db.BeginTransaction(deferred: false);
             var library = await Read(db, tx, ct).ConfigureAwait(false);
             var bench = await Find(db, tx, capture.BenchId, ct).ConfigureAwait(false);
-            var plan = await ReadPlan(db, tx, capture.BenchId, ct).ConfigureAwait(false);
+            var benchPlan = await ReadPlan(db, tx, capture.BenchId, ct).ConfigureAwait(false);
             if (library.InstanceId != capture.UserInstance || bench is null || bench.Value.Deleted
-                || bench.Value.Bench.Revision != capture.BenchRevision || plan.Id != capture.PlanId
-                || plan.Revision != capture.PlanRevision || plan.PlanMode != capture.PlanMode
-                || capture.PlanMode && !plan.Scopes.Any(scope => scope.Id == capture.ScopeId && scope.State == NativePlanScopeState.Ready
+                || bench.Value.Bench.Revision != capture.BenchRevision || benchPlan.Id != capture.PlanId
+                || benchPlan.Revision != capture.PlanRevision || benchPlan.PlanMode != capture.PlanMode
+                || capture.PlanMode && !benchPlan.Scopes.Any(scope => scope.Id == capture.ScopeId && scope.State == NativePlanScopeState.Ready
                     && scope.StoreInstance == capture.StoreInstance && scope.Source == capture.Origin && scope.OriginRoot == capture.Root)
                 || !capture.PlanMode && (capture.ScopeId != Guid.Empty || capture.StoreInstance != capture.Origin.StoreInstance))
                 return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "The captured Bench mode, scope, native source or revision changed; intent was preserved.");
             ValidatePlanOrigin(capture.Root, capture.Origin);
-            var proposal = ParseIntent(capture.IntentJson);
-            var local = NativeLocalRelationshipEvidence.IsLocal(proposal);
+            var plan = ParseIntent(capture.IntentJson);
+            var local = NativeLocalRelationshipEvidence.IsLocal(plan);
             if (capture.Id == Guid.Empty || expectedRevision is < 0 or long.MaxValue || capture.Revision != expectedRevision + 1 || capture.StoreVersion < 0
-                || proposal.Connection != capture.Origin.Connection || proposal.Operations.Length != 1
-                || !local && proposal.Operations[0].Kind is not (OpKind.Create or OpKind.Batch)
+                || plan.Connection != capture.Origin.Connection || plan.Operations.Length != 1
+                || !local && plan.Operations[0].Kind is not (OpKind.Create or OpKind.Batch)
                 || local != (capture.LocalRelationship is not null)
                 || capture.Endpoints.IsDefault || capture.Endpoints.Length > 128
                 || (local ? capture.DraftFingerprint != "none" : capture.DraftFingerprint.Length != 64)
@@ -70,17 +70,17 @@ public sealed partial class UserBenchStore
                 var valid = NativeLocalRelationshipEvidence.Check(capture, stored.Value);
                 if (!valid.IsSuccess) return Result<NativeEditorCapture>.Fail(valid.Error);
             }
-            if (capture.SeedProposal is { } publication)
+            if (capture.SeedPlan is { } publication)
             {
                 var original = ParseIntent(publication);
                 if (capture.PlanMode || capture.Origin.Connection.Provider.Value != "ado"
                     || !capture.Ready || original.Connection != capture.Origin.Connection
-                    || original.SchemaFingerprint != proposal.SchemaFingerprint || original.Operations.Length != 1
+                    || original.SchemaFingerprint != plan.SchemaFingerprint || original.Operations.Length != 1
                     || original.Operations[0] is not { Kind: OpKind.Create, Item.IsLocal: true } effect
-                    || effect.Item != proposal.Operations[0].Item || effect.Type != proposal.Operations[0].Type
-                    || !effect.Fields.Equals(proposal.Operations[0].Fields) || effect.Other is not null
+                    || effect.Item != plan.Operations[0].Item || effect.Type != plan.Operations[0].Type
+                    || !effect.Fields.Equals(plan.Operations[0].Fields) || effect.Other is not null
                     || effect.Relation is not null || effect.Resource is not null || !effect.Links.IsEmpty)
-                    return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "An exact scalar normal ADO creation proposal is required.");
+                    return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "An exact scalar normal ADO creation plan is required.");
             }
             await EnsureCaptureStorage(db, tx, create: true, ct).ConfigureAwait(false);
             using var command = db.CreateCommand();
@@ -101,14 +101,14 @@ public sealed partial class UserBenchStore
                 if (previous.Settled || previous.UserInstance != capture.UserInstance || previous.PlanMode != capture.PlanMode
                     || previous.StoreInstance != capture.StoreInstance || previous.ScopeId != capture.ScopeId || previous.Origin != capture.Origin
                     || previous.Root != capture.Root || previous.PlanMode && previous.PlanId != capture.PlanId
-                    || !previous.PlanMode && proposal.Operations[0].Item.IsLocal && previous.BenchId != capture.BenchId
-                    || previous.SeedProposal is not null && (previous.SeedProposal != capture.SeedProposal
+                    || !previous.PlanMode && plan.Operations[0].Item.IsLocal && previous.BenchId != capture.BenchId
+                    || previous.SeedPlan is not null && (previous.SeedPlan != capture.SeedPlan
                         || previous.IntentJson != capture.IntentJson || previous.DraftFingerprint != capture.DraftFingerprint
                         || previous.BenchId != capture.BenchId || previous.PlanId != capture.PlanId || capture.Cancelled)
                     || previous.LocalRelationship is not null && (previous.LocalRelationship != capture.LocalRelationship
                         || previous.IntentJson != capture.IntentJson || !previous.Endpoints.SequenceEqual(capture.Endpoints)
                         || previous.BenchId != capture.BenchId || previous.PlanId != capture.PlanId || capture.Cancelled)
-                    || ParseIntent(previous.IntentJson).Operations[0].Item != proposal.Operations[0].Item)
+                    || ParseIntent(previous.IntentJson).Operations[0].Item != plan.Operations[0].Item)
                     return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "A durable capture cannot be retargeted or resurrect settled intent.");
             }
             command.CommandText = """
@@ -119,7 +119,7 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$bench", capture.BenchId.ToString("D"));
             command.Parameters.AddWithValue("$plan", capture.PlanMode ? capture.PlanId.ToString("D") : "");
             command.Parameters.AddWithValue("$store", capture.StoreInstance.ToString("D"));
-            command.Parameters.AddWithValue("$item", CleanCoreAdoAccess.ItemText(proposal.Operations[0].Item));
+            command.Parameters.AddWithValue("$item", CleanCoreAdoAccess.ItemText(plan.Operations[0].Item));
             command.Parameters.AddWithValue("$revision", capture.Revision);
             command.Parameters.AddWithValue("$document", document);
             var reference = await ReserveCapture(capture, document, previousText, generation, ct).ConfigureAwait(false);
@@ -175,10 +175,10 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<ImmutableArray<NativeEditorCapture>>(ex); }
     }
 
-    internal static Proposal ParseIntent(string json)
+    internal static Plan ParseIntent(string json)
     {
         using var document = JsonDocument.Parse(json);
-        return CoreProposalFiles.Parse(document.RootElement);
+        return CorePlanFiles.Parse(document.RootElement);
     }
 
     private static async Task<bool> EnsureCaptureStorage(SqliteConnection db, SqliteTransaction tx, bool create, CancellationToken ct)

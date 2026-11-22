@@ -16,7 +16,7 @@ public static class SourceProjection
             return Result<SourceView>.Fail(ErrorCode.Conflict, "Owned seed and cached draft observations changed; reload the same native source.");
         var store = observation.Snapshot;
         var projected = observation with { Snapshot = new(store.Version, store.Items, store.Relationships,
-            store.RetainedItems.Where(draft => !receipts.Contains(draft.Key)), store.Proposals, store.Journal, store.Mappings, store.Benches) };
+            store.RetainedItems.Where(draft => !receipts.Contains(draft.Key)), store.Plans, store.Journal, store.Mappings, store.Benches) };
         var temporary = new SourceSelection(selection.SourceId, selection.Binding, selection.Selectors.AddRange(editable.Select(draft =>
             new Selector(SelectorKind.Pin, draft.Key, connection: selection.Binding.Connection))));
         return Create(definition, temporary, projected, ct);
@@ -38,10 +38,10 @@ public static class SourceProjection
                 store.Relationships.Where(edge => !withheld.Contains(edge.From) && !withheld.Contains(edge.To)),
                 store.RetainedItems.Where(draft => !withheld.Contains(draft.Key) && (draft is not Seed seed || (seed.Parent is null || !withheld.Contains(seed.Parent))
                     && seed.Links.All(link => !withheld.Contains(link.Other)))),
-                store.Proposals, store.Journal, store.Mappings.Where(mapping => !withheld.Contains(mapping.Remote)), store.Benches);
+                store.Plans, store.Journal, store.Mappings.Where(mapping => !withheld.Contains(mapping.Remote)), store.Benches);
             store = new(store.Version, store.Items.Select(item => incomplete.Contains(item.Key) && item.RelationshipsComplete
                 ? new WorkItem(item.Key, item.Type, item.Fields, item.Revision, false, item.Resources, item.ResourcesComplete)
-                : item), store.Relationships, store.RetainedItems, store.Proposals, store.Journal, store.Mappings, store.Benches);
+                : item), store.Relationships, store.RetainedItems, store.Plans, store.Journal, store.Mappings, store.Benches);
             schema = schema with { Memberships = schema.Memberships.Select(membership =>
                 membership with { Items = membership.Items.Where(key => !withheld.Contains(key)).ToImmutableArray() }).ToImmutableArray() };
         }
@@ -81,7 +81,7 @@ public static class SourceProjection
             : new Selector(s.Kind, Resolve(s.Item), hierarchyRelation: s.HierarchyRelation));
         var normalizedEdges = store.Relationships.Select(e => e with { From = Resolve(e.From), To = Resolve(e.To) }).ToArray();
         var normalized = new StoreSnapshot(store.Version, store.Items, normalizedEdges, store.RetainedItems,
-            store.Proposals, store.Journal, store.Mappings, store.Benches);
+            store.Plans, store.Journal, store.Mappings, store.Benches);
         var members = Model.ResolveBench(new(definition.Id, definition.Name, normalizedSelectors), normalized, schema, observation.CacheReadAt);
         ct.ThrowIfCancellationRequested();
         if (!members.IsSuccess) return Result<SourceView>.Fail(members.Error);

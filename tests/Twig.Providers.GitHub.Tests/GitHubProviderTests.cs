@@ -146,7 +146,7 @@ public sealed partial class GitHubProviderTests
         var after = await f.Stored();
         after.Version.ShouldBe(stored.Version);
         after.Items.Single().ShouldBe(original);
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         f.Http.Writes.ShouldBe(0);
     }
 
@@ -182,8 +182,8 @@ public sealed partial class GitHubProviderTests
         item.Fields[Provider.StateField].Text.ShouldBe("OPEN");
         var fields = Fields((Provider.StateField, FieldValue.String("CLOSED")));
         if (includeTitle) fields = fields.Set(Provider.Title, FieldValue.String("authored"));
-        var proposal = await f.Proposal(new("close", OpKind.Batch, item.Key, item.Revision, fields, concurrency: ConcurrencyMode.ObservedNonAtomic));
-        var imported = await f.Provider.ImportAsync(proposal, proposal.Digest);
+        var plan = await f.Plan(new("close", OpKind.Batch, item.Key, item.Revision, fields, concurrency: ConcurrencyMode.ObservedNonAtomic));
+        var imported = await f.Provider.ImportAsync(plan, plan.Digest);
         if (gate)
         {
             imported.IsSuccess.ShouldBeFalse();
@@ -191,8 +191,8 @@ public sealed partial class GitHubProviderTests
             return;
         }
         imported.IsSuccess.ShouldBeTrue(imported.IsSuccess ? "" : imported.Error.Message);
-        var applied = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
-        var verified = await f.Provider.VerifyAsync(proposal, applied, default);
+        var applied = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
+        var verified = await f.Provider.VerifyAsync(plan, applied, default);
         verified.Value.Status.ShouldBe(OpStatus.Verified);
         f.Http.Writes.ShouldBe(1);
         f.Http.Issues["I1"]["state"]!.GetValue<string>().ShouldBe("CLOSED");
@@ -222,16 +222,16 @@ public sealed partial class GitHubProviderTests
         item.Fields[Provider.Milestone].ShouldBe(FieldValue.Null);
         item.Fields[Provider.Labels].ShouldBe(FieldValue.Strings([]));
         item.Fields.ContainsKey("not.observed").ShouldBeFalse();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         ack.Revision.ShouldBeNull();
         f.Access.SawDurableAttempt.ShouldBeTrue();
         f.Http.Writes.ShouldBe(1);
         f.Access.Observed.ShouldBe(1);
         (await f.Stored()).Journal.Single().Status.ShouldBe(OpStatus.Applied);
-        var result = (await f.Provider.VerifyAsync(proposal, ack, default)).Value;
+        var result = (await f.Provider.VerifyAsync(plan, ack, default)).Value;
         result.Status.ShouldBe(OpStatus.Verified);
         result.Revision!.Token.ShouldStartWith("github-observation-v1:");
         (await f.Stored()).Journal.Single().Receipts.Length.ShouldBe(2);
@@ -251,8 +251,8 @@ public sealed partial class GitHubProviderTests
     public async Task ImmutableTargetActorAndCredentialChangesNeverSwitchAccounts(string change)
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        var plan = await f.Edit();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         switch (change)
         {
             case "owner": f.Http.Owner = "other-owner"; break;
@@ -263,7 +263,7 @@ public sealed partial class GitHubProviderTests
             case "credential-switch": f.Access.Source = GitHubCredentialSource.GitHubApp; break;
             case "lease": f.Access.InvalidLease = true; break;
         }
-        var result = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var result = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         result.IsSuccess.ShouldBeFalse();
         result.Error.Code.ShouldBeOneOf(ErrorCode.Conflict, ErrorCode.SchemaChanged, ErrorCode.Unavailable);
         f.Http.Writes.ShouldBe(0);
@@ -291,10 +291,10 @@ public sealed partial class GitHubProviderTests
         var discovery = await f.Provider.DiscoverSchemaAsync(f.Connection, default);
         if (discovery.IsSuccess)
         {
-            var proposal = await f.Proposal(new("edit", OpKind.Batch, item.Key, item.Revision,
+            var plan = await f.Plan(new("edit", OpKind.Batch, item.Key, item.Revision,
                 Fields((Provider.Title, FieldValue.String("changed"))), concurrency: ConcurrencyMode.ObservedNonAtomic),
                 discovery.Value);
-            (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+            (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
         }
         else discovery.Error.Code.ShouldBeOneOf(ErrorCode.Unsupported, ErrorCode.Unavailable);
         f.Http.Writes.ShouldBe(0);
@@ -305,16 +305,16 @@ public sealed partial class GitHubProviderTests
     {
         using var f = await Fixture.Create();
         var item = await f.Item();
-        var exact = await f.Proposal(new("exact", OpKind.Batch, item.Key, item.Revision,
+        var exact = await f.Plan(new("exact", OpKind.Batch, item.Key, item.Revision,
             Fields((Provider.Title, FieldValue.String("changed")))));
         (await f.Provider.ImportAsync(exact, exact.Digest)).Error.Code.ShouldBe(ErrorCode.Unsupported);
         f.Access.CloseGate = true;
-        var close = await f.Proposal(new("close", OpKind.Batch, item.Key, item.Revision,
+        var close = await f.Plan(new("close", OpKind.Batch, item.Key, item.Revision,
             Fields((Provider.StateField, FieldValue.String("CLOSED"))), concurrency: ConcurrencyMode.ObservedNonAtomic));
         var denied = await f.Provider.ImportAsync(close, close.Digest);
         denied.IsSuccess.ShouldBeFalse();
         denied.Error.Evidence.ShouldContain(e => e.Contains("same batch", StringComparison.Ordinal));
-        var coupled = await f.Proposal(new("close-with-gate", OpKind.Batch, item.Key, item.Revision,
+        var coupled = await f.Plan(new("close-with-gate", OpKind.Batch, item.Key, item.Revision,
             Fields((Provider.StateField, FieldValue.String("CLOSED")), (Provider.Title, FieldValue.String("closure evidence"))),
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(coupled, coupled.Digest)).Error.Code.ShouldBe(ErrorCode.Unsupported);
@@ -331,22 +331,22 @@ public sealed partial class GitHubProviderTests
         f.Provider.Capabilities.AtomicFieldBatches.ShouldBeFalse();
         item.Fields[Provider.Title].ShouldBe(FieldValue.String("original"));
         item.Fields[Provider.Body].ShouldBe(FieldValue.RichText("", FieldKind.Markdown));
-        var proposal = await f.Proposal(new("independent-fields", OpKind.Batch, item.Key, item.Revision,
+        var plan = await f.Plan(new("independent-fields", OpKind.Batch, item.Key, item.Revision,
             Fields((Provider.Title, FieldValue.String("changed")),
                 (Provider.Body, FieldValue.RichText("**reviewed body**", FieldKind.Markdown))),
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         f.Access.SawDurableAttempt.ShouldBeTrue();
         f.Http.Writes.ShouldBe(1);
         f.Http.LastPayload.ShouldNotBeNull().ShouldContain("**reviewed body**");
         ack.Evidence.ShouldContain(e => e.Contains("no remote CAS or atomic batch guarantee", StringComparison.Ordinal));
         if (interleaved) f.Http.Issues["I1"]["body"] = "another writer";
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(expected);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(expected);
         var stored = await f.Stored();
         stored.Journal.Single().Receipts.Select(r => r.Status).ShouldBe([OpStatus.Applied, expected]);
-        var replay = await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var replay = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         replay.IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
@@ -371,12 +371,12 @@ public sealed partial class GitHubProviderTests
             _ => FieldValue.String("CLOSED"),
         };
         var item = await f.Item();
-        var proposal = await f.Proposal(new("field", OpKind.Batch, item.Key, item.Revision,
+        var plan = await f.Plan(new("field", OpKind.Batch, item.Key, item.Revision,
             Fields((field, value)), concurrency: ConcurrencyMode.ObservedNonAtomic));
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -395,9 +395,9 @@ public sealed partial class GitHubProviderTests
             : defect == "read-only" ? FieldValue.At(DateTimeOffset.UtcNow) : FieldValue.Identity("M1");
         f.Http.ForeignResource = defect == "resource-owner";
         f.Http.Defect = defect;
-        var proposal = await f.Proposal(new("field", OpKind.Batch, item.Key, item.Revision, Fields((field, value)),
+        var plan = await f.Plan(new("field", OpKind.Batch, item.Key, item.Revision, Fields((field, value)),
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        (await f.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(0);
         (await f.Stored()).Journal.ShouldBeEmpty();
     }
@@ -448,16 +448,16 @@ public sealed partial class GitHubProviderTests
     {
         using var f = await Fixture.Create();
         var item = await f.Item();
-        var proposal = await f.Proposal(new("link", OpKind.Relate, item.Key, item.Revision,
+        var plan = await f.Plan(new("link", OpKind.Relate, item.Key, item.Revision,
             other: f.Key("I2"), relation: kind, concurrency: ConcurrencyMode.ObservedNonAtomic));
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
         var stored = await f.Stored();
         stored.Relationships.Single().Origin.ShouldBe(RelationshipOrigin.Provider);
         var refreshed = await f.Item();
-        var remove = await f.Proposal(new("unlink", OpKind.Unrelate, refreshed.Key, refreshed.Revision,
+        var remove = await f.Plan(new("unlink", OpKind.Unrelate, refreshed.Key, refreshed.Revision,
             other: f.Key("I2"), relation: kind, concurrency: ConcurrencyMode.ObservedNonAtomic));
         await f.Import(remove);
         var removed = (await f.Provider.ApplyAsync(remove, 0, Guid.NewGuid(), default)).Value;
@@ -465,7 +465,7 @@ public sealed partial class GitHubProviderTests
         (await f.Provider.VerifyAsync(remove, removed, default)).Value.Status.ShouldBe(OpStatus.Verified);
         (await f.Stored()).Relationships.ShouldBeEmpty();
         refreshed = await f.Item();
-        var deniedLink = await f.Proposal(new("denied-link", OpKind.Relate, refreshed.Key, refreshed.Revision,
+        var deniedLink = await f.Plan(new("denied-link", OpKind.Relate, refreshed.Key, refreshed.Revision,
             other: f.Key("I2"), relation: kind, concurrency: ConcurrencyMode.ObservedNonAtomic));
         await f.Import(deniedLink);
         f.Http.WriteStatus = 403;
@@ -507,13 +507,13 @@ public sealed partial class GitHubProviderTests
         var draft = new LocalEdits(item.Key, item.Type, item, Fields((Provider.Title, FieldValue.String("local intent"))));
         (await f.Store.CommitAsync(f.Connection, before.Version, new(before.Version + 1, before.Items, before.Relationships,
             [draft], benches: [bench]), default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("local", OpKind.Relate, item.Key, other: f.Key("I2"), relation: kind,
+        var plan = await f.Plan(new("local", OpKind.Relate, item.Key, other: f.Key("I2"), relation: kind,
             origin: RelationshipOrigin.Local));
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
-        var remove = await f.Proposal(new("remove", OpKind.Unrelate, item.Key, other: f.Key("I2"), relation: kind,
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var remove = await f.Plan(new("remove", OpKind.Unrelate, item.Key, other: f.Key("I2"), relation: kind,
             origin: RelationshipOrigin.Local, expectedLocalVersion: 1));
         await f.Import(remove);
         var removed = (await f.Provider.ApplyAsync(remove, 0, Guid.NewGuid(), default)).Value;
@@ -525,7 +525,7 @@ public sealed partial class GitHubProviderTests
         stored.RetainedItems.Single().Fields.ShouldBe(draft.Fields);
         stored.Benches.Single().Name.ShouldBe("retained");
         f.Http.Writes.ShouldBe(0);
-        var stale = await f.Proposal(new("stale", OpKind.Relate, item.Key, other: f.Key("I2"), relation: kind,
+        var stale = await f.Plan(new("stale", OpKind.Relate, item.Key, other: f.Key("I2"), relation: kind,
             origin: RelationshipOrigin.Local, expectedLocalVersion: 1));
         (await f.Provider.ImportAsync(stale, stale.Digest)).Error.Code.ShouldBe(ErrorCode.Conflict);
     }
@@ -538,14 +538,14 @@ public sealed partial class GitHubProviderTests
     public async Task HttpRejectionAndUncertainExecutionHaveDistinctDurableOutcomes(int status, OpStatus expected)
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        await f.Import(proposal);
+        var plan = await f.Edit();
+        await f.Import(plan);
         f.Http.WriteStatus = status;
-        var receipt = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var receipt = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         receipt.Status.ShouldBe(expected);
         (await f.Stored()).Journal.Single().Status.ShouldBe(expected);
         f.Reopen();
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -563,21 +563,21 @@ public sealed partial class GitHubProviderTests
         var fields = Fields((Provider.Title, FieldValue.String("seed")), (Provider.StateField, FieldValue.String("OPEN")));
         var draft = new Seed(local, "T1", fields);
         (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [draft]), default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, local, fields: fields, type: "T1",
+        var plan = await f.Plan(new("create", OpKind.Create, local, fields: fields, type: "T1",
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        await f.Import(proposal);
+        await f.Import(plan);
         f.Http.WriteFailure = failure;
         if (failure == "receipt-storage") await f.FailReceiptPersistence();
-        var outcome = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var outcome = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         outcome.Status.ShouldBe(OpStatus.Indeterminate);
         f.Http.Writes.ShouldBe(1);
         f.Http.Issues.Count.ShouldBe(3);
         if (failure == "receipt-storage") await f.ClearReceiptFailure();
         f.Reopen();
-        (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
-        var replacement = await f.Proposal(new("replacement", OpKind.Create, local, fields: fields, type: "T1",
+        (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
+        var replacement = await f.Plan(new("replacement", OpKind.Create, local, fields: fields, type: "T1",
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        replacement.Digest.ShouldNotBe(proposal.Digest);
+        replacement.Digest.ShouldNotBe(plan.Digest);
         (await f.Provider.ImportAsync(replacement, replacement.Digest)).IsSuccess.ShouldBeFalse();
         (await f.Stored()).Mappings.ShouldBeEmpty();
         f.Http.Writes.ShouldBe(1);
@@ -590,10 +590,10 @@ public sealed partial class GitHubProviderTests
         var local = ItemKey.Local(Guid.NewGuid());
         var fields = Fields((Provider.Title, FieldValue.String("seed")), (Provider.StateField, FieldValue.String("OPEN")));
         (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [new Seed(local, "T1", fields)]), default)).IsSuccess.ShouldBeTrue();
-        var proposal = await f.Proposal(new("create", OpKind.Create, local, fields: fields, type: "T1",
+        var plan = await f.Plan(new("create", OpKind.Create, local, fields: fields, type: "T1",
             concurrency: ConcurrencyMode.ObservedNonAtomic));
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         ack.PublishedKey.ShouldBe(f.Key("I3"));
         var stored = await f.Stored();
@@ -601,7 +601,7 @@ public sealed partial class GitHubProviderTests
         stored.Mappings.Single().Local.ShouldBe(local);
         stored.Mappings.Single().Remote.ShouldBe(ack.PublishedKey);
         f.Reopen();
-        (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Verified);
         (await f.Stored()).Items.Single().Key.ShouldBe(ack.PublishedKey);
         f.Http.Writes.ShouldBe(1);
     }
@@ -613,16 +613,16 @@ public sealed partial class GitHubProviderTests
     {
         using var f = await Fixture.Create();
         var item = await f.Item();
-        var proposal = await f.Proposal(new("comment", OpKind.Comment, item.Key, item.Revision,
+        var plan = await f.Plan(new("comment", OpKind.Comment, item.Key, item.Revision,
             body: FieldValue.RichText("exact **comment**", FieldKind.Markdown), concurrency: ConcurrencyMode.ObservedNonAtomic));
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         ack.Evidence.ShouldContain("comment-id:C1");
         f.Reopen();
         if (changedActor) f.Access.Actor = f.Http.Actor = "other-actor";
-        (await f.Provider.RecoverAsync(proposal, 0)).Value.Status.ShouldBe(expected);
-        (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(expected);
+        (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -632,16 +632,16 @@ public sealed partial class GitHubProviderTests
         using var f = await Fixture.Create();
         var item = await f.Item();
         var schema = await f.Schema();
-        var proposal = new Proposal(f.Connection, schema.Fingerprint, (await f.Stored()).Version, [
+        var plan = new Plan(f.Connection, schema.Fingerprint, (await f.Stored()).Version, [
             new("title", OpKind.Batch, item.Key, item.Revision, Fields((Provider.Title, FieldValue.String("first"))),
                 concurrency: ConcurrencyMode.ObservedNonAtomic),
             new("body", OpKind.Batch, item.Key, item.Revision, Fields((Provider.Body, FieldValue.RichText("second", FieldKind.Markdown))),
                 concurrency: ConcurrencyMode.ObservedNonAtomic)]);
-        await f.Import(proposal);
-        (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
-        (await f.Provider.ApplyAsync(proposal, 1, Guid.NewGuid(), default)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        await f.Import(plan);
+        (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).Error.Code.ShouldBe(ErrorCode.Conflict);
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -649,10 +649,10 @@ public sealed partial class GitHubProviderTests
     public async Task AdmissionRefusalIsNoDispatchWhileLostNativeResponseDurabilityIsUnknown()
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        await f.Import(proposal);
+        var plan = await f.Edit();
+        await f.Import(plan);
         f.Access.Deny = true;
-        var result = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var result = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         result.Status.ShouldBe(OpStatus.Failed);
         result.Evidence.ShouldContain(e => e.StartsWith("no-dispatch:", StringComparison.Ordinal));
         f.Http.Writes.ShouldBe(0);
@@ -663,13 +663,13 @@ public sealed partial class GitHubProviderTests
     public async Task CompetingAdapterAttemptLosesDurableCasBeforeTransport()
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        await f.Import(proposal);
+        var plan = await f.Edit();
+        await f.Import(plan);
         f.Access.PauseAdmission = true;
-        var winner = f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var winner = f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         await f.Access.AdmissionEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
         using var competitor = new Provider(f.Connection, f.Access, f.Store, f.Http);
-        var loser = await competitor.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var loser = await competitor.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         loser.IsSuccess.ShouldBeFalse();
         loser.Error.Code.ShouldBe(ErrorCode.Indeterminate);
         f.Access.ResumeAdmission.TrySetResult();
@@ -684,13 +684,13 @@ public sealed partial class GitHubProviderTests
     public async Task ReadbackFailureRetainsAcknowledgementAndNeverPermitsReplay(string defect, OpStatus expected)
     {
         using var f = await Fixture.Create();
-        var proposal = await f.Edit();
-        await f.Import(proposal);
-        var ack = (await f.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var plan = await f.Edit();
+        await f.Import(plan);
+        var ack = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         ack.Status.ShouldBe(OpStatus.Applied);
         if (defect == "readback-denied") f.Http.Defect = "metadata-denied";
         else f.Http.Issues["I1"]["title"] = "changed by another writer";
-        (await f.Provider.VerifyAsync(proposal, ack, default)).Value.Status.ShouldBe(expected);
+        (await f.Provider.VerifyAsync(plan, ack, default)).Value.Status.ShouldBe(expected);
         var receipts = (await f.Stored()).Journal.Single().Receipts;
         receipts.Length.ShouldBe(2);
         receipts[0].Status.ShouldBe(OpStatus.Applied);
@@ -739,17 +739,17 @@ public sealed partial class GitHubProviderTests
             result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
             return result.Value.Items.Single();
         }
-        internal async Task<Proposal> Proposal(Op op, ProcessSchema? schema = null)
+        internal async Task<Plan> Plan(Op op, ProcessSchema? schema = null)
             => new(Connection, (schema ?? await Schema()).Fingerprint, (await Stored()).Version, [op]);
-        internal async Task<Proposal> Edit()
+        internal async Task<Plan> Edit()
         {
             var item = await Item();
-            return await Proposal(new("edit", OpKind.Batch, item.Key, item.Revision, Fields((Provider.Title, FieldValue.String("changed"))),
+            return await Plan(new("edit", OpKind.Batch, item.Key, item.Revision, Fields((Provider.Title, FieldValue.String("changed"))),
                 concurrency: ConcurrencyMode.ObservedNonAtomic));
         }
-        internal async Task Import(Proposal proposal)
+        internal async Task Import(Plan plan)
         {
-            var result = await Provider.ImportAsync(proposal, proposal.Digest);
+            var result = await Provider.ImportAsync(plan, plan.Digest);
             result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
         }
         internal void Reopen()
@@ -823,7 +823,7 @@ public sealed partial class GitHubProviderTests
             public override async Task<Result<GitHubWriteAdmission>> AdmitAsync(GitHubWriteIntent intent, CancellationToken ct)
             {
                 var stored = await fixture.Stored();
-                access.SawDurableAttempt = stored.Journal.Any(j => j.Digest == intent.Proposal.Digest
+                access.SawDurableAttempt = stored.Journal.Any(j => j.Digest == intent.Plan.Digest
                     && j.Operation == intent.Operation && j.Attempt == intent.Attempt && j.Status == OpStatus.Applying);
                 access.SawDurableAttempt.ShouldBeTrue();
                 intent.Payload.ShouldContain(intent.Attempt.ToString("D"));

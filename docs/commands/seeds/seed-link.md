@@ -23,4 +23,4 @@ or publish a native relationship, and is distinct from `link local related`.
 ## Failure modes
 
 Absent/ambiguous endpoints, unsupported/duplicate links, attempted protected UUIDs
-or changed store evidence refuse. Publication later rechecks the full proposal.
+or changed store evidence refuse. Publication later rechecks the full plan.

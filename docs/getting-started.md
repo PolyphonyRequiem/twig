@@ -82,13 +82,13 @@ Read `twig <command> --help` first. `update`, `state`, `note`, `batch`, and `pat
 can write to the provider immediately through Core; they are not merely a local
 editing buffer. Seeds remain local until explicitly published.
 
-For file-based work use the [proposal lifecycle](features/proposals.md):
+For file-based work use the [plan lifecycle](features/plans.md):
 
 ```sh
-twig proposal validate --file change.json -o json
-twig proposal preview --file change.json -o json
-twig proposal apply --file change.json --confirm <exact-preview-digest> -o json
-twig proposal status --file change.json -o json
+twig plan validate --file change.json -o json
+twig plan preview --file change.json -o json
+twig plan apply --file change.json --confirm <exact-preview-digest> -o json
+twig plan status --file change.json -o json
 ```
 
 The file must use the current canonical Core format and belong to this workspace's
@@ -121,5 +121,5 @@ protect custom files and sidecars outside `.twig` from Git separately.
 For disposable developer data, use a fresh worktree and, when needed, a fresh
 explicit `TWIG_USER_HOME`. Discard only identified Twig application data.
 Credentials and upstream items are not reset targets. If a write outcome is
-uncertain, retain its original proposal and evidence: a new workspace does not
+uncertain, retain its original plan and evidence: a new workspace does not
 establish what happened or make replay safe.

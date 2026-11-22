@@ -46,7 +46,7 @@ internal sealed class ConnectionRemoteWriteReconciliationService : IConnectionRe
             history.Intent.Request, history.Observations, history.Receipt,
             ConnectionRemoteWriteAdmission.SameAuthority(current, history.Intent.Origin) ? []
                 : ["remote-write-origin-changed: original binding/principal differs from the recorded selection."],
-            ["Correlated native transport evidence only. Core proposal status is execution authority; inspection does not settle, replay or clear fences."]))
+            ["Correlated native transport evidence only. Core plan status is execution authority; inspection does not settle, replay or clear fences."]))
             .ToArray();
     }
 

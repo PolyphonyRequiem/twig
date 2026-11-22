@@ -21,7 +21,7 @@ fields; a local seed has no remote pre-state to which closure gates could apply.
 Normal drafts and active-item context remain separate.
 
 `NativePlanReview` retains a whole digest over exact scopes, sources, capture
-revisions, draft fingerprints and immutable Core proposal bytes. Apply validates
+revisions, draft fingerprints and immutable Core plan bytes. Apply validates
 every affected scope before the first dispatch, then rechecks each remaining
 scope and passes those exact retained Core digests to `SaveDraftSetAsync`.
 Application is sequential, not cross-source atomic. The Core journal remains the
@@ -38,7 +38,7 @@ Apply. Apply retains its independent fresh authority/schema/policy checks.
 Verified remote effects, original-cache read delivery, additive Bench seed pins
 and capture settlement are separate. Failed delivery remains
 `VerifiedDeliveryPending`; `ContinueDeliveryAsync` never dispatches an upstream
-operation. Converged null-proposal drafts settle locally without manufacturing a
+operation. Converged null-plan drafts settle locally without manufacturing a
 Verified receipt. Uncertain attempts remain protected across restart and are
 never automatically replayed. Historical Verified rows do not block new intent
 to the same item after the original capture was fully delivered and settled.
@@ -62,7 +62,7 @@ Native host support for [twig](https://github.com/PolyphonyRequiem/twig), target
 registration graph are removed, not moved into this library.
 
 The CLI composes the retained Core workspace through its closed native catalog.
-`Twig.Core` owns the result/error family, process schema, three-way merge, proposals
+`Twig.Core` owns the result/error family, process schema, three-way merge, plans
 and execution authority; the separate store and ADO/GitHub providers implement its
 two ports. Infrastructure connects that spine to native host requirements:
 
@@ -239,7 +239,7 @@ performed. The result uses existing `Twig.Core` types, not transport DTOs.
 `StoreSnapshot` and its `CacheReadAt` time, plus optional schema evidence and
 `SchemaObservedAt`. Native `Snapshot.Benches` are read evidence suitable for
 explicit selector copying, not aliases or a mutation API. Items, relationships,
-drafts, mappings, proposals and journal are retained unchanged. No active item,
+drafts, mappings, plans and journal are retained unchanged. No active item,
 default Bench, provider item refresh or publication is performed.
 
 With `observeSchema: false` (the default), admission is local: no token acquisition
@@ -345,7 +345,7 @@ fallback. Empty removals still refuse before dispatch.
 GitHub does not advertise this compound capability; unsupported links cannot become a
 field-only write. The original three-argument `CreationLink` constructor and
 default add tuple bytes remain unchanged; only explicit removal adds a fourth
-true tuple member. Proposal/store format versions are unchanged.
+true tuple member. This member did not change the canonical Plan grammar.
 
 Remote Core Draft relationship restrictions remain unchanged. No browser/SDK
 editing or publication route is enabled here.
@@ -435,7 +435,7 @@ Native registry upgrades add pending capture-provenance schema atomically with
 Under-lock version re-probes and CAS prevent new concurrent migrators downgrading
 each other; corrupt v11 prerequisites refuse rather than being recreated empty.
 Original credentials, transport evidence and
-Core proposals/journals are not rewritten or backfilled as successful outcomes.
+Core plans/journals are not rewritten or backfilled as successful outcomes.
 Even a fresh registry stays pending: it does not prove historical roots are absent.
 
 Before publishing, the native coordinator inventories system-worktree roots,
@@ -451,7 +451,7 @@ New previously unknown opened stores invalidate inventory confirmation.
 
 Current native CLI, normal Save and Plan execution share this gate. Canonical
 provider/resource/item and permanent UUID references retain exact owner-store,
-proposal, operation and attempt attribution. Deterministically ordered native
+plan, operation and attempt attribution. Deterministically ordered native
 leases coordinate roots/actors. Core journal state is execution authority: an
 HTTP ACK cannot clear Applied, Partial or Indeterminate evidence. An unmapped
 unknown create conservatively fences mutations in its immutable destination;
@@ -468,7 +468,7 @@ provenance, not another outcome journal. Prior v11 reference metadata remains
 required; incomplete experimental layouts fail closed without backfill.
 Attributed native `Failed` receipts with no published identity/revision are
 definitive no-effect results, including complete provider-classified HTTP
-rejections. They allow only a fresh proposal, never replay of the failed request;
+rejections. They allow only a fresh plan, never replay of the failed request;
 partial/indeterminate effects and attempted creation UUIDs remain fenced.
 Historical exact-instance Core evidence can be inspected after its authoring
 root disappears; that does not restore the old root's Stage/Apply authority.

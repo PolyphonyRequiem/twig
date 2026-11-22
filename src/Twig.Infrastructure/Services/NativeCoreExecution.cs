@@ -122,7 +122,7 @@ internal static class NativeCoreExecution
                     || !captured.Value.Sources.Any(source => source.Instance == core.StoreInstance
                         && NativePathComparer.Instance.Equals(source.Root, intent.Origin.WorktreeRoot))
                     || !LegacyCorrelationMatches(core, stored)
-                    || !stored.Journal.Any(row => row.Digest == core.ProposalDigest && row.Operation == core.Operation
+                    || !stored.Journal.Any(row => row.Digest == core.PlanDigest && row.Operation == core.Operation
                         && row.Attempt == core.Attempt))
                     return Result<NativeCoreInventory>.Fail(ErrorCode.StorageUnavailable,
                         "Original native transport lacks its exact authoritative Core store/journal reference. ACK is not settlement.");
@@ -131,9 +131,9 @@ internal static class NativeCoreExecution
             foreach (var source in captured.Value.Sources)
                 foreach (var row in snapshots[source.Instance].Journal.Where(row => row.Status != OpStatus.Planned))
                 {
-                    var proposal = snapshots[source.Instance].Proposals.Single(value => value.Digest == row.Digest);
-                    var indexed = await registry.IndexRetainedCoreAttemptAsync(source, proposal, row,
-                        Targets(proposal.Operations[row.Operation], snapshots[source.Instance]), snapshots[source.Instance].Version, ct).ConfigureAwait(false);
+                    var plan = snapshots[source.Instance].Plans.Single(value => value.Digest == row.Digest);
+                    var indexed = await registry.IndexRetainedCoreAttemptAsync(source, plan, row,
+                        Targets(plan.Operations[row.Operation], snapshots[source.Instance]), snapshots[source.Instance].Version, ct).ConfigureAwait(false);
                     if (!indexed.IsSuccess) return Result<NativeCoreInventory>.Fail(indexed.Error);
                 }
             foreach (var root in captured.Value.Sources.Select(value => value.Root).Distinct(NativePathComparer.Instance))
@@ -148,7 +148,7 @@ internal static class NativeCoreExecution
                     if (!snapshots.TryGetValue(intent.StoreInstance, out var stored)
                         || !captured.Value.Sources.Any(source => source.Instance == intent.StoreInstance
                             && NativePathComparer.Instance.Equals(source.Root, root))
-                        || !stored.Proposals.Any(value => value.Digest == intent.Digest && value.Connection == intent.Connection)
+                        || !stored.Plans.Any(value => value.Digest == intent.Digest && value.Connection == intent.Connection)
                         || intent.RequestHash != Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(intent.Payload)))
                         || !stored.Journal.Any(row => row.Digest == intent.Digest && row.Operation == intent.Operation
                             && row.Attempt == intent.Attempt))
@@ -189,23 +189,23 @@ internal static class NativeCoreExecution
     }
 
     internal static async Task<Result<IDisposable>> AdmitAsync(string registryPath, NativeCoreStoreReference source,
-        Proposal proposal, int operation, Guid attempt, CancellationToken ct, bool planned = false)
+        Plan plan, int operation, Guid attempt, CancellationToken ct, bool planned = false)
     {
         IDisposable? lease = null;
         try
         {
             var provenance = await PublishingAsync(registryPath, ct).ConfigureAwait(false);
             if (!provenance.IsSuccess) return Result<IDisposable>.Fail(provenance.Error);
-            if (operation < 0 || operation >= proposal.Operations.Length || attempt == Guid.Empty || proposal.Connection != source.Connection)
+            if (operation < 0 || operation >= plan.Operations.Length || attempt == Guid.Empty || plan.Connection != source.Connection)
                 return Result<IDisposable>.Fail(ErrorCode.InvalidInput, "An exact native Core source and attempt are required.");
             var own = await Snapshot(source, ct).ConfigureAwait(false);
             if (!own.IsSuccess) return Result<IDisposable>.Fail(own.Error);
-            var row = own.Value.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == operation);
+            var row = own.Value.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == operation);
             if (row is null || (planned ? row.Status != OpStatus.Planned || row.Attempt != Guid.Empty
                 : row.Status != OpStatus.Applying || row.Attempt != attempt))
                 return Result<IDisposable>.Fail(ErrorCode.Conflict, "Native target admission requires the exact durable Applying attempt.");
-            var targets = Targets(proposal.Operations[operation], own.Value);
-            lease = ConnectionOperationGate.AcquireCoreTargets(registryPath, OperationKeys(proposal.Operations[operation], own.Value, source.Connection));
+            var targets = Targets(plan.Operations[operation], own.Value);
+            lease = ConnectionOperationGate.AcquireCoreTargets(registryPath, OperationKeys(plan.Operations[operation], own.Value, source.Connection));
             ct.ThrowIfCancellationRequested();
             var freshOwn = await Snapshot(source, ct).ConfigureAwait(false);
             if (!freshOwn.IsSuccess) return Result<IDisposable>.Fail(freshOwn.Error);
@@ -241,23 +241,23 @@ internal static class NativeCoreExecution
                 }
                 foreach (var previous in prior.Value.Journal)
                 {
-                    if (priorSource == source && previous.Digest == proposal.Digest
+                    if (priorSource == source && previous.Digest == plan.Digest
                         && previous.Operation == operation && (planned || previous.Attempt == attempt)) continue;
-                    var previousProposal = prior.Value.Proposals.Single(value => value.Digest == previous.Digest);
-                    var op = previousProposal.Operations[previous.Operation];
+                    var previousPlan = prior.Value.Plans.Single(value => value.Digest == previous.Digest);
+                    var op = previousPlan.Operations[previous.Operation];
                     if (previous.Status == OpStatus.Planned) continue;
                     var overlaps = Targets(op, prior.Value).Intersect(targets).Any();
-                    if (op.Kind == OpKind.Create && proposal.Operations[operation].Kind == OpKind.Create
-                        && op.Item == proposal.Operations[operation].Item)
+                    if (op.Kind == OpKind.Create && plan.Operations[operation].Kind == OpKind.Create
+                        && op.Item == plan.Operations[operation].Item)
                         return Result<IDisposable>.Fail(ErrorCode.Indeterminate, "This permanent creation UUID was already attempted; no replacement request is allowed.");
                     if (previous.Status == OpStatus.Verified || NoEffect(previous)) continue;
                     var unmappedCreate = op.Kind == OpKind.Create && !prior.Value.Mappings.Any(value => value.Local == op.Item);
-                    if (overlaps || unmappedCreate && previousProposal.Connection.Destination == source.Connection.Destination)
+                    if (overlaps || unmappedCreate && previousPlan.Connection.Destination == source.Connection.Destination)
                         return Result<IDisposable>.Fail(ErrorCode.Indeterminate,
                             "An original unresolved native effect fences this target or unmapped-creation destination. Read/status remain available; no replay was performed.");
                 }
             }
-            var recorded = await registry.RecordCoreAttemptAsync(source, proposal, operation, attempt, targets,
+            var recorded = await registry.RecordCoreAttemptAsync(source, plan, operation, attempt, targets,
                 own.Value.Version, !planned, captured.Value.Instance, captured.Value.Revision, ct).ConfigureAwait(false);
             if (!recorded.IsSuccess) return Result<IDisposable>.Fail(recorded.Error);
             var retained = lease ?? throw new InvalidOperationException("Missing native target lease.");
@@ -276,19 +276,19 @@ internal static class NativeCoreExecution
         && receipt.Digest == row.Digest && receipt.Operation == row.Operation && receipt.Attempt == row.Attempt);
 
     internal static bool ReferencesMatch(StoreSnapshot snapshot, IEnumerable<CoreAttemptReference> references)
-        => references.All(reference => snapshot.Proposals.FirstOrDefault(value => value.Digest == reference.Digest) is { } proposal
+        => references.All(reference => snapshot.Plans.FirstOrDefault(value => value.Digest == reference.Digest) is { } plan
             && reference.MinimumVersion <= snapshot.Version
-            && reference.Operation >= 0 && reference.Operation < proposal.Operations.Length
-            && Targets(proposal.Operations[reference.Operation], snapshot).Contains(reference.Target, StringComparer.Ordinal)
+            && reference.Operation >= 0 && reference.Operation < plan.Operations.Length
+            && Targets(plan.Operations[reference.Operation], snapshot).Contains(reference.Target, StringComparer.Ordinal)
             && snapshot.Journal.Any(value => value.Digest == reference.Digest && value.Operation == reference.Operation
                 && (value.Status == OpStatus.Planned && value.Attempt == Guid.Empty && !reference.EverApplying || value.Attempt == reference.Attempt)));
 
     private static bool LegacyCorrelationMatches(CoreWriteCorrelation correlation, StoreSnapshot snapshot)
     {
-        var proposal = snapshot.Proposals.FirstOrDefault(value => value.Digest == correlation.ProposalDigest);
-        if (proposal is null || correlation.Operation < 0 || correlation.Operation >= proposal.Operations.Length
-            || correlation.ConnectionIdentity != CleanCoreAdoAccess.ConnectionText(proposal.Connection)) return false;
-        var op = proposal.Operations[correlation.Operation];
+        var plan = snapshot.Plans.FirstOrDefault(value => value.Digest == correlation.PlanDigest);
+        if (plan is null || correlation.Operation < 0 || correlation.Operation >= plan.Operations.Length
+            || correlation.ConnectionIdentity != CleanCoreAdoAccess.ConnectionText(plan.Connection)) return false;
+        var op = plan.Operations[correlation.Operation];
         return correlation.TargetIdentity == CleanCoreAdoAccess.ItemText(op.Item)
             && correlation.CreationIdentity == (op.Kind == OpKind.Create ? op.Item.LocalId : (Guid?)null)
             && correlation.ExpectedRevision == op.ExpectedRevision?.Token;

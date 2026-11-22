@@ -31,7 +31,7 @@ single-item exclusion. It refuses query/tree rules or unavailable native
 numbers rather than silently returning a partial ID list.
 
 Changes use the captured rule revision, so concurrent edits are not
-overwritten. Selection, work-item state, pending drafts, proposal journals and
+overwritten. Selection, work-item state, pending drafts, plan journals and
 other contexts' exclusions are untouched.
 
 Exit codes: `0` success (including empty/no-op); `1` unavailable/conflicting

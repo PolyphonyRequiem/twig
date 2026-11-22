@@ -8,7 +8,7 @@ internal static class CoreHostContext
         => snapshot.RetainedItems.Select(draft => draft.Key).Concat(snapshot.Mappings.Select(mapping => mapping.Local))
             .Concat(snapshot.RetainedItems.OfType<Seed>().SelectMany(draft => draft.Links.Select(link => link.Other)
                 .Concat(draft.Parent is null ? [] : new[] { draft.Parent })))
-            .Concat(snapshot.Proposals.SelectMany(proposal => proposal.Operations)
+            .Concat(snapshot.Plans.SelectMany(plan => plan.Operations)
                 .SelectMany(op => op.Links.Select(link => link.Other).Prepend(op.Item)
                     .Concat(op.Other is null ? [] : new[] { op.Other })))
             .Concat(snapshot.Relationships.SelectMany(edge => new[] { edge.From, edge.To }))

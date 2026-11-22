@@ -22,7 +22,7 @@ provider error or connection change authorizes fallback. Native credential,
 schema and read acquisition may occur, but **no native mutation** occurs.
 
 Removal stages one existing Core `Unrelate` operation with the exact edge
-`ExpectedLocalVersion`, then uses the shared digest-bound proposal/apply/verify
+`ExpectedLocalVersion`, then uses the shared digest-bound plan/apply/verify
 journal. It persists a tombstone with an incremented local version. It never
 deletes a row, rewrites original seed UUID edge keys, or alters provider-origin
 relationships. `Verified` means local CAS, not tracker publication.

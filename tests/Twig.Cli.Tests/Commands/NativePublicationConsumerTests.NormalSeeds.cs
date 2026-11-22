@@ -60,9 +60,9 @@ public sealed partial class NativePublicationConsumerTests
         complete.RetainedItems.ShouldBeEmpty();
         var mapping = complete.Mappings.ShouldHaveSingleItem();
         mapping.Local.ShouldBe(seed);
-        var proposal = complete.Proposals.ShouldHaveSingleItem();
-        proposal.Operations.ShouldHaveSingleItem().Item.ShouldBe(seed);
-        mapping.ProposalDigest.ShouldBe(proposal.Digest);
+        var plan = complete.Plans.ShouldHaveSingleItem();
+        plan.Operations.ShouldHaveSingleItem().Item.ShouldBe(seed);
+        mapping.PlanDigest.ShouldBe(plan.Digest);
         complete.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
         var bench = (await user.ReadAsync()).Value.Benches.Single();
         bench.Selectors.ShouldContain(selector => selector.Item == mapping.Remote && selector.Connection == host.Stamp.Connection);
@@ -101,7 +101,7 @@ public sealed partial class NativePublicationConsumerTests
         _transport.ReadbacksAfterCommit.ShouldBeGreaterThanOrEqualTo(2, "Real Core verification must precede the local delivery failure.");
         var before = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
-        before.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
+        before.Plans.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
         before.Mappings.ShouldHaveSingleItem().Local.ShouldBe(seed);
         var capture = (await user.ReadEditorCapturesAsync(default)).Value.ShouldHaveSingleItem();
         capture.Id.ShouldBe(reference.CaptureId);
@@ -127,7 +127,7 @@ public sealed partial class NativePublicationConsumerTests
         delivered.Value.Error.ShouldBeNull();
         (await reopened.ContinueSeedDeliveryAsync(reference.CaptureId, reference.Digest)).Value.Status.ShouldBe("Complete");
         var after = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
-        after.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
+        after.Plans.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
         after.Journal.Single().Attempt.ShouldBe(before.Journal.Single().Attempt);
         after.Journal.Single().Receipts.Length.ShouldBe(before.Journal.Single().Receipts.Length);
         after.Mappings.Single().ShouldBe(before.Mappings.Single());
@@ -137,7 +137,7 @@ public sealed partial class NativePublicationConsumerTests
         bench.Selectors.ShouldNotContain(selector => selector.Item == seed);
         var settled = (await user.ReadEditorCapturesAsync(default)).Value.Single();
         settled.Settled.ShouldBeTrue();
-        settled.SeedProposal.ShouldBe(capture.SeedProposal);
+        settled.SeedPlan.ShouldBe(capture.SeedPlan);
         _transport.PostCount.ShouldBe(1);
         HumanPatchAttempts.ShouldBe(0);
     }
@@ -166,7 +166,7 @@ public sealed partial class NativePublicationConsumerTests
         var before = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
         before.RetainedItems.ShouldHaveSingleItem().Key.ShouldBe(seed);
         before.Mappings.ShouldBeEmpty();
-        before.Proposals.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
+        before.Plans.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Indeterminate);
         var capture = (await user.ReadEditorCapturesAsync(default)).Value.Single();
         capture.Settled.ShouldBeFalse();
@@ -182,11 +182,11 @@ public sealed partial class NativePublicationConsumerTests
             (await reopened.ContinueSeedDeliveryAsync(reference.CaptureId, reference.Digest)).Value.Status.ShouldBe("Protected");
         var after = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
         after.RetainedItems.Single().Key.ShouldBe(seed);
-        after.Proposals.Single().Digest.ShouldBe(reference.Digest);
+        after.Plans.Single().Digest.ShouldBe(reference.Digest);
         after.Journal.Single().Attempt.ShouldBe(before.Journal.Single().Attempt);
         after.Journal.Single().Receipts.Length.ShouldBe(before.Journal.Single().Receipts.Length);
         after.Mappings.ShouldBeEmpty();
-        (await user.ReadEditorCapturesAsync(default)).Value.Single().SeedProposal.ShouldBe(capture.SeedProposal);
+        (await user.ReadEditorCapturesAsync(default)).Value.Single().SeedPlan.ShouldBe(capture.SeedPlan);
         (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldNotContain(selector => selector.Item!.IsLocal);
         _transport.PostCount.ShouldBe(1);
     }

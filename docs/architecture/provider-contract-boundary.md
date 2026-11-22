@@ -20,7 +20,7 @@ These are existing public Domain package APIs, not neutral protocols:
 | Contract | Reason retained |
 | --- | --- |
 | `IAdoWorkItemService` | Legacy integer/WIQL reads, seed publication, publish-intent recovery, history and artifact workflows. Its existing callers and shipped package API still require the native ADO contract. |
-| `IRevisionBoundAdoWorkItemService` | Native strict-CAS primitives used only behind the ADO execution adapter; shared proposal code uses the neutral mutation port. |
+| `IRevisionBoundAdoWorkItemService` | Native strict-CAS primitives used only behind the ADO execution adapter; shared plan code uses the neutral mutation port. |
 | `IAdoGitService` | Existing ADO repository/PR and `vstfs` artifact workflows, not GitHub work-item discovery or execution. |
 | `DeleteOutcome.AdoFailed` | Shipped result case used by existing delete consumers. |
 | `PatchOutcome.AdoUnreachable` | Shipped result case used by existing patch consumers. |

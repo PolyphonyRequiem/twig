@@ -97,7 +97,7 @@ credential vault.
 If selection or credential admission fails, inspect the named identities and
 bindings, then renew the intended principal. Do not try another identity merely
 to get a blocked write through. `connection writes` provides read-only native
-transport evidence. Only the original Core proposal journal is execution
+transport evidence. Only the original Core plan journal is execution
 authority; a matching later value or a fresh local workspace does not justify
 replaying an uncertain request.
 

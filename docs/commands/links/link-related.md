@@ -1,7 +1,7 @@
 ---
 command: link related
 group: links
-summary: Add a discovered symmetric native association through a verified Core proposal.
+summary: Add a discovered symmetric native association through a verified Core plan.
 stability: experimental
 mutates: ado
 ---
@@ -24,7 +24,7 @@ including an empty string, refuses before HTTP. The typed relationship effect
 has no comment payload; the command never silently drops it or emits a separate note.
 
 One discovered non-directional association is required. The source's observed
-revision binds one add-link PATCH. The shared proposal/journal workflow requires
+revision binds one add-link PATCH. The shared plan/journal workflow requires
 independent acknowledgement and fresh reciprocal readback, not a best-effort resync.
 
 ## Examples
@@ -33,7 +33,7 @@ independent acknowledgement and fresh reciprocal readback, not a best-effort res
 twig link related 615 --id 619 -o json
 ```
 
-Success exits `0` with `linkAdded`, `status: Verified`, proposal digest and
+Success exits `0` with `linkAdded`, `status: Verified`, plan digest and
 native link records. Duplicate adds, unsupported comments, missing observations
 and unresolved outcomes exit `1`; invalid/self/missing targets exit `2`.
 

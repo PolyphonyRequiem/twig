@@ -24,11 +24,11 @@ retains its new file for inspection; deliberately choose a different new path or
 inspect/remove that exact failed file yourself. Cancellation propagates rather
 than becoming success or an empty snapshot.
 
-The in-progress phase-5 policy/resource contract advances the database/snapshot
-format and proposal grammar to version 3. Earlier clean-core files are refused
-without modification, not silently adopted or migrated. Choose a deliberately
-new isolated path; do not reset a previous file or discard its drafts, retained
-proposals, mappings or unresolved attempts to make initialization succeed.
+The database/snapshot format is version 4 and the canonical Plan file grammar
+remains version 3. Earlier clean-core database files are refused
+without modification, not silently adopted or migrated. For disposable developer
+data, reset only the affected Twig state and [initialize a fresh store](../../docs/commands/getting-started/init.md).
+A local reset does not resolve an uncertain remote write or make it safe to replay.
 
 Each new file stores a native `InstanceId`; `OpenAsync(..., expectedInstance: id)`
 checks it, and every read/commit through an opened handle refuses replacement.
@@ -48,7 +48,7 @@ context are not part of this adapter.
 
 `ReadAsync` uses a read transaction. `CommitAsync` takes an SQLite IMMEDIATE writer
 transaction, reads the current version, checks the caller's CAS, enforces
-`Core.ValidateCommit`, checks proposal connection bindings and validates the
+`Core.ValidateCommit`, checks plan connection bindings and validates the
 serialized roundtrip, then replaces that one row and commits. Any refusal,
 cancellation or write error rolls the transaction back. A competing writer either
 observes the newer version or reports a busy conflict (five-second lock wait);
@@ -57,10 +57,10 @@ WAL is required, and writes use `synchronous=FULL`.
 
 The versioned typed persistence DTOs use this adapter's source-generated
 `TwigJsonContext`, never runtime polymorphism/reflection. Decoding rejects unknown,
-duplicate, missing required or invalid members/versions, mismatched proposal
+duplicate, missing required or invalid members/versions, mismatched plan
 digests and inconsistent journal evidence. Missing fields, explicit null, empty
 text, raw payloads, offset-bearing instants, ordered lists, opaque revisions and
-provider-scoped identities remain distinct. Proposals are reconstructed and their
+provider-scoped identities remain distinct. Plans are reconstructed and their
 canonical digest checked; journal rows are reconstructed through the core's legal
 Begin/Record transitions. No stored target is rewritten on publication.
 
@@ -75,12 +75,12 @@ Import all Planned operations together; commit Applying and its durable attempt
 before transport; commit acknowledgement, journal advance, creation mapping and
 available mirror together; then commit verification and acquired observations.
 Typed resource-link observations retain exact locators, null/empty names and
-comments and their explicit completeness certificate. Resource-link proposal
+comments and their explicit completeness certificate. Resource-link plan
 effects round-trip with the version-3 canonical digest, not a fabricated item key.
 The adapter has **no network calls** and provides local atomicity only. WAL is
 not distributed atomicity. A failed post-dispatch acknowledgement commit leaves
 the durable Applying fence, not permission to replay. Attempts, including unknown
-creation outcomes, fence replacement proposal digests. Native settlement and
+creation outcomes, fence replacement plan digests. Native settlement and
 provider/orchestrator recovery remain later work.
 
 ## Focused verification
@@ -95,7 +95,7 @@ python eng\run-bounded.py --timeout 60 -- python eng\verify-trx.py -- dotnet tes
 
 Tests use unique disposable temporary files, not user workspaces. They exercise
 independent-handle CAS acquisition, WAL reader isolation, injected write rollback,
-reopen durability, full value/draft/Bench/proposal roundtrips, receipts and
+reopen durability, full value/draft/Bench/plan roundtrips, receipts and
 mapping atomicity, mirror/local tombstone separation, and no-blind-replay fences.
 The tightly coupled Core fix compares receipt/error evidence structurally: the
 same durable history cannot depend on `ImmutableArray` backing-array identity.

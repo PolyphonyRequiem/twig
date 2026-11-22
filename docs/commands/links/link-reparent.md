@@ -27,7 +27,7 @@ See [shared targeting, output and safety](./README.md).
 The old implementation removed and then added links in two HTTP requests. It
 was not atomic: a failed add could leave the child parentless. Core has no typed
 single-request replacement effect, and this command does not fake one with a
-multi-operation proposal or fall back to the old writer.
+multi-operation plan or fall back to the old writer.
 
 ## Examples
 

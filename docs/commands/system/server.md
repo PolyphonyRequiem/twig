@@ -126,4 +126,4 @@ code `2`. Success and help exit with code `0`.
 Use the [installation and troubleshooting guide](../../server.md) to resolve
 installation or readiness failures. Do not treat restarting the server as proof
 that an interrupted work-item write succeeded or failed; inspect the original
-proposal journal before another change.
+plan journal before another change.

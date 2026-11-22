@@ -7,28 +7,28 @@ namespace Twig.Infrastructure.Services;
 
 internal static class NativeLocalRelationshipEvidence
 {
-    internal static bool IsLocal(Proposal proposal)
-        => proposal.Connection.Provider.Value == "github" && proposal.Operations.Length == 1
-            && proposal.Operations[0] is { Kind: OpKind.Relate or OpKind.Unrelate, Origin: RelationshipOrigin.Local,
+    internal static bool IsLocal(Plan plan)
+        => plan.Connection.Provider.Value == "github" && plan.Operations.Length == 1
+            && plan.Operations[0] is { Kind: OpKind.Relate or OpKind.Unrelate, Origin: RelationshipOrigin.Local,
                 Other: not null, Relation: not null, ExpectedRevision: null, Type: null, Body: null, Resource: null } op
             && op.Fields.Count == 0 && op.Links.IsEmpty;
 
     internal static Result<bool> Check(NativeEditorCapture capture, StoreSnapshot state)
     {
-        var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
-        if (!IsLocal(proposal) || capture.LocalRelationship is null || capture.PlanMode || capture.ScopeId != Guid.Empty
-            || capture.StoreInstance != capture.Origin.StoreInstance || capture.SeedProposal is not null
+        var plan = UserBenchStore.ParseIntent(capture.IntentJson);
+        if (!IsLocal(plan) || capture.LocalRelationship is null || capture.PlanMode || capture.ScopeId != Guid.Empty
+            || capture.StoreInstance != capture.Origin.StoreInstance || capture.SeedPlan is not null
             || capture.DraftFingerprint != "none" || capture.BeforeFingerprint != "none"
-            || proposal.Connection != capture.Origin.Connection
-            || Encoding.UTF8.GetString(Model.ProposalBytes(proposal)) != capture.IntentJson
+            || plan.Connection != capture.Origin.Connection
+            || Encoding.UTF8.GetString(Model.PlanBytes(plan)) != capture.IntentJson
             || capture.Endpoints.Length != 2 || capture.Endpoints.Select(endpoint => endpoint.Key).Distinct().Count() != 2)
             return Refuse("The exact single local-only capture shape or source changed.");
-        var op = proposal.Operations[0];
+        var op = plan.Operations[0];
         var from = CoreWorkspace.LocalLogical(state, op.Item);
         var to = CoreWorkspace.LocalLogical(state, op.Other!);
-        if (from == to || from.IsLocal || to.IsLocal || !from.BelongsTo(proposal.Connection) || !to.BelongsTo(proposal.Connection)
-            || !CoreWorkspace.DisplayId(proposal.Connection, state, from).IsSuccess
-            || !CoreWorkspace.DisplayId(proposal.Connection, state, to).IsSuccess
+        if (from == to || from.IsLocal || to.IsLocal || !from.BelongsTo(plan.Connection) || !to.BelongsTo(plan.Connection)
+            || !CoreWorkspace.DisplayId(plan.Connection, state, from).IsSuccess
+            || !CoreWorkspace.DisplayId(plan.Connection, state, to).IsSuccess
             || new[] { from, to }.Any(key => !capture.Endpoints.Any(endpoint => endpoint.Key == CleanCoreAdoAccess.ItemText(key))))
             return Refuse("The original logical published pair or Verified UUID mapping is unavailable.");
         foreach (var endpoint in capture.Endpoints)
@@ -36,16 +36,16 @@ internal static class NativeLocalRelationshipEvidence
             var item = state.Items.SingleOrDefault(item => CleanCoreAdoAccess.ItemText(item.Key) == endpoint.Key);
             if (item?.RelationshipsComplete != true || item.Revision is null || string.IsNullOrEmpty(endpoint.Revision)
                 || item.Revision.Token != endpoint.Revision
-                || CoreWorkspace.Fingerprint(proposal.Connection, state.RetainedItems.SingleOrDefault(draft => draft.Key == item.Key)) != endpoint.DraftFingerprint
+                || CoreWorkspace.Fingerprint(plan.Connection, state.RetainedItems.SingleOrDefault(draft => draft.Key == item.Key)) != endpoint.DraftFingerprint
                 || endpoint.DraftFingerprint != "none")
                 return Refuse("The exact local pair endpoint observation or independent draft evidence changed.");
         }
-        var retained = state.Proposals.SingleOrDefault(value => value.Digest == proposal.Digest);
-        var row = state.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == 0);
+        var retained = state.Plans.SingleOrDefault(value => value.Digest == plan.Digest);
+        var row = state.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
         if (capture.Ready && (retained is null || row is null || state.Version < capture.StoreVersion)
-            || retained is not null && Encoding.UTF8.GetString(Model.ProposalBytes(retained)) != capture.IntentJson
-            || !capture.Ready && retained is null && state.Version != proposal.ExpectedStoreVersion)
-            return Refuse("The original local proposal, journal or store-version evidence is unavailable.");
+            || retained is not null && Encoding.UTF8.GetString(Model.PlanBytes(retained)) != capture.IntentJson
+            || !capture.Ready && retained is null && state.Version != plan.ExpectedStoreVersion)
+            return Refuse("The original local plan, journal or store-version evidence is unavailable.");
         if (row is null || row.Status == OpStatus.Planned)
         {
             if (capture.Ready && state.Version != capture.StoreVersion)
@@ -65,7 +65,7 @@ internal static class NativeLocalRelationshipEvidence
                 || row!.Receipts.Any(receipt => receipt.PublishedKey is not null || receipt.Revision is not null))
                 return Refuse("The original local outcome edge/CAS or receipt differs; tracker publication was not inferred.");
         }
-        else if (CoreWorkspace.LocalEdgeFingerprint(proposal.Connection, edge) != capture.LocalRelationship.EdgeFingerprint
+        else if (CoreWorkspace.LocalEdgeFingerprint(plan.Connection, edge) != capture.LocalRelationship.EdgeFingerprint
             || op.ExpectedLocalVersion != edge?.LocalVersion
             || op.Kind == OpKind.Relate && edge is { Deleted: false }
             || op.Kind == OpKind.Unrelate && (edge is null || edge.Deleted))
@@ -77,15 +77,15 @@ internal static class NativeLocalRelationshipEvidence
 
     internal static Result<bool> CheckSettledOutcome(NativeEditorCapture capture, StoreSnapshot state)
     {
-        var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
-        var retained = state.Proposals.SingleOrDefault(value => value.Digest == proposal.Digest);
-        var row = state.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == 0);
-        return !capture.Settled || !IsLocal(proposal) || retained is null
-            || Encoding.UTF8.GetString(Model.ProposalBytes(retained)) != capture.IntentJson
+        var plan = UserBenchStore.ParseIntent(capture.IntentJson);
+        var retained = state.Plans.SingleOrDefault(value => value.Digest == plan.Digest);
+        var row = state.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
+        return !capture.Settled || !IsLocal(plan) || retained is null
+            || Encoding.UTF8.GetString(Model.PlanBytes(retained)) != capture.IntentJson
             || row is not { Status: OpStatus.Verified } || row.Attempt == Guid.Empty
             || row.Receipts.IsEmpty || row.Receipts[^1].Status != OpStatus.Verified
             || !row.Receipts.Any(receipt => receipt.Status == OpStatus.Applied)
-            || row.Receipts.Any(receipt => receipt.Digest != proposal.Digest || receipt.Operation != 0
+            || row.Receipts.Any(receipt => receipt.Digest != plan.Digest || receipt.Operation != 0
                 || receipt.Attempt != row.Attempt || receipt.PublishedKey is not null || receipt.Revision is not null)
             ? Refuse("The original settled local journal/receipt attribution is unavailable; no Verified result was inferred.")
             : Result<bool>.Ok(true);
@@ -93,26 +93,26 @@ internal static class NativeLocalRelationshipEvidence
 
     internal static Result<bool> CheckOriginalReference(NativeEditorCapture capture, StoreSnapshot state)
     {
-        var proposal = UserBenchStore.ParseIntent(capture.IntentJson);
-        if (!IsLocal(proposal) || capture.LocalRelationship is null || capture.SeedProposal is not null
+        var plan = UserBenchStore.ParseIntent(capture.IntentJson);
+        if (!IsLocal(plan) || capture.LocalRelationship is null || capture.SeedPlan is not null
             || capture.DraftFingerprint != "none" || capture.BeforeFingerprint != "none"
             || capture.Endpoints.Length != 2 || capture.Endpoints.Select(endpoint => endpoint.Key).Distinct().Count() != 2
             || capture.Endpoints.Any(endpoint => string.IsNullOrEmpty(endpoint.Revision) || endpoint.DraftFingerprint != "none")
             || capture.LocalRelationship.EdgeFingerprint != "none" && (capture.LocalRelationship.EdgeFingerprint.Length != 64
                 || capture.LocalRelationship.EdgeFingerprint.Any(value => value is not (>= '0' and <= '9' or >= 'a' and <= 'f')))
-            || proposal.Operations[0].ExpectedLocalVersion is < 1
-            || Encoding.UTF8.GetString(Model.ProposalBytes(proposal)) != capture.IntentJson)
+            || plan.Operations[0].ExpectedLocalVersion is < 1
+            || Encoding.UTF8.GetString(Model.PlanBytes(plan)) != capture.IntentJson)
             return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original LOCAL capture is malformed; no review was reconstructed.");
-        var retained = state.Proposals.SingleOrDefault(value => value.Digest == proposal.Digest);
-        var row = state.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == 0);
+        var retained = state.Plans.SingleOrDefault(value => value.Digest == plan.Digest);
+        var row = state.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
         if (capture.Ready && (retained is null || row is null || state.Version < capture.StoreVersion)
             || (retained is null) != (row is null)
-            || retained is not null && Encoding.UTF8.GetString(Model.ProposalBytes(retained)) != capture.IntentJson)
-            return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original retained LOCAL proposal/journal proof is missing or changed.");
-        foreach (var endpoint in new[] { proposal.Operations[0].Item, proposal.Operations[0].Other! })
+            || retained is not null && Encoding.UTF8.GetString(Model.PlanBytes(retained)) != capture.IntentJson)
+            return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original retained LOCAL plan/journal proof is missing or changed.");
+        foreach (var endpoint in new[] { plan.Operations[0].Item, plan.Operations[0].Other! })
         {
             var logical = CoreWorkspace.LocalLogical(state, endpoint);
-            if (logical.IsLocal || !logical.BelongsTo(proposal.Connection)
+            if (logical.IsLocal || !logical.BelongsTo(plan.Connection)
                 || !capture.Endpoints.Any(value => value.Key == CleanCoreAdoAccess.ItemText(logical)))
                 return Result<bool>.Fail(ErrorCode.StorageUnavailable, "Original published endpoint/Verified UUID mapping attribution is missing.");
         }

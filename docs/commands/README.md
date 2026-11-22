@@ -29,7 +29,7 @@ The [getting-started guide](../getting-started.md) covers provider setup.
 | [Change items](work-items/README.md) | `update`, `state`, `note`, `batch`, `patch`, `edit` can publish; `discard` removes eligible local intent |
 | [Relationships](links/README.md) | Qualified ADO native links and explicitly local-only association routes; reparent is refused |
 | [Draft new items](seeds/README.md) | `seed new/view/edit/link/chain/validate`; publication is explicit and human-output-only |
-| [Review proposals](plans/README.md) | File-scoped `proposal validate/preview/apply/status`; preview retains local journal, apply can publish |
+| [Review plans](plans/README.md) | File-scoped `plan validate/preview/apply/status`; preview retains local journal, apply can publish |
 | [Identity and evidence](system/README.md) | Named enrollment and binding, recorded status, read-only transport evidence, version |
 | [Help and skills](configuration/README.md) | Offline help and explicit skill lifecycle |
 
@@ -44,7 +44,7 @@ reads use `show --local-id <uuid> -o json`.
 There is no current item or Bench in the CLI. Human commands require explicit
 targets too; they cannot borrow a viewer's focus. Seed creation must choose
 `--parent <id>` or `--no-parent`. Use `process <type>` for explicit schema reads.
-File-scoped proposal operations are already explicitly bound.
+File-scoped plan operations are already explicitly bound.
 
 `workspace --bench <name-or-id>` reports that Bench's scope and protected drafts.
 Parse complete actual JSON, not terminal output
@@ -63,7 +63,7 @@ These are not experimental alternatives or compatibility routes:
 | `set`, `nav` (all directions), back/forward, `states` | `show <id>`, targeted `tree <id>` or `process <type>` |
 | `bench switch`, contextual `sync` and `refresh` | `workspace --bench <name-or-id>`; add `--refresh` for a supported pull without saving drafts |
 | `bench browser/detail/discussion/configuration`, captured `draft` envelopes | Separate native server host; not a CLI envelope fallback |
-| `policy assess/reconcile`, `proposal latest/seed/reconcile` | Current file-scoped proposal lifecycle; no automatic repair/seed-export replacement |
+| `policy assess/reconcile`, `plan latest/seed/reconcile` | Current file-scoped plan lifecycle; no automatic repair/seed-export replacement |
 | `process layout`, old complete process descriptor | `process description` reports acquired Core schema and explicit gaps |
 | `config`, `config status-fields`, migrations, reset/reinitialize, identity/target hot-switches | Explicit fresh initialization and named enrollment/bindings |
 | `provider discover/bind github` | Fresh `init --provider github` with exact account and repository |

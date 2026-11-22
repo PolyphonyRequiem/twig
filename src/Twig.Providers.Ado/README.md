@@ -23,7 +23,7 @@ collection and authenticated principal through `connectionData`, resolves the
 project **by GUID**, and verifies item project membership. It never searches for
 another account or falls back to ambient credentials.
 
-The mandatory `AdmitAsync` seam receives the exact immutable proposal, ordinal,
+The mandatory `AdmitAsync` seam receives the exact immutable plan, ordinal,
 attempt, method, URI, media type and wire payload **after** the durable Applying
 CAS and **before** dispatch. A host bridge must recheck native write authority and
 durably admit those exact bytes under the original actor/binding. Its returned
@@ -35,7 +35,7 @@ SQLite store are real. Phase 5 now supplies `CleanCoreAdoAccess` in Infrastructu
 existing native admitted binding/generation lease (not a token-only substitute),
 rechecks the selected authority, binds immutable native actor identity and
 requires the exact Core operation's durable Applying attempt before native
-admission. Native intents/responses retain proposal digest, ordinal, attempt,
+admission. Native intents/responses retain plan digest, ordinal, attempt,
 target and creation UUID correlation; acknowledged attempts and creation UUIDs
 cannot acquire replacement requests. Absent correlation is omitted from legacy
 JSON so historical immutable request bytes are not rewritten. This bridge has a
@@ -66,7 +66,7 @@ process-template or custom-field vocabulary in Core.
 On create, Twig uses the selected type's native endpoint name and resolves
 the selected area and iteration paths against the bound project's native
 classification nodes. The resulting type and numeric IDs are typed evidence
-in the proposal digest, not JSON Patch fields. Missing, ambiguous, conflicting,
+in the plan digest, not JSON Patch fields. Missing, ambiguous, conflicting,
 or changed evidence observed before dispatch stops the operation. The
 [ADO Create 7.1 contract](https://learn.microsoft.com/en-us/rest/api/azure/devops/wit/work-items/create?view=azure-devops-rest-7.1)
 documents no conditional create bound to classification IDs. ADO assigns them
@@ -119,7 +119,7 @@ can be discovered native fields and queried as such; they do not become Core por
 ## One-effect execution and recovery
 
 1. Construct intent against acquired schema/items and the current store version.
-   `ImportAsync(proposal, exactDigest)` reacquires authoritative inputs, runs Core
+   `ImportAsync(plan, exactDigest)` reacquires authoritative inputs, runs Core
    validation, and atomically retains intent plus all Planned journal rows.
 2. `ApplyAsync` requires that retained Planned operation, a fresh nonempty attempt
    UUID, unchanged schema and exact observed revision. It reads current evidence,
@@ -168,7 +168,7 @@ does not have a qualified atomic revision-checked ADO deletion route. That is no
 a decision to remove the existing CLI command. Local-origin relationship effects,
 native cross-project relationship mutations, Markdown transport, unsupported
 schema/rule shapes and oversize queries are also refused. No effect is implemented
-as a success-shaped stub. Multi-operation proposals stop after any unresolved
+as a success-shaped stub. Multi-operation plans stop after any unresolved
 effect, and each later operation must still meet its original reviewed revision.
 
 ## Verification

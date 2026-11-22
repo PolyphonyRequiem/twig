@@ -138,7 +138,7 @@
   {
     "command": "batch",
     "group": "work-items",
-    "summary": "Apply explicit typed field/state/comment intent through one ordered Core proposal.",
+    "summary": "Apply explicit typed field/state/comment intent through one ordered Core plan.",
     "stability": "stable",
     "mutates": "ado",
     "path": "work-items/batch.md"
@@ -226,7 +226,7 @@
   {
     "command": "link parent",
     "group": "links",
-    "summary": "Set the parent of an unparented published item through a verified Core proposal.",
+    "summary": "Set the parent of an unparented published item through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-parent.md"
@@ -234,7 +234,7 @@
   {
     "command": "link predecessor",
     "group": "links",
-    "summary": "Mark a published item as blocked by another through a verified Core proposal.",
+    "summary": "Mark a published item as blocked by another through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-predecessor.md"
@@ -242,7 +242,7 @@
   {
     "command": "link related",
     "group": "links",
-    "summary": "Add a discovered symmetric native association through a verified Core proposal.",
+    "summary": "Add a discovered symmetric native association through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-related.md"
@@ -258,7 +258,7 @@
   {
     "command": "link successor",
     "group": "links",
-    "summary": "Mark a published item as blocking another through a verified Core proposal.",
+    "summary": "Mark a published item as blocking another through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-successor.md"
@@ -266,7 +266,7 @@
   {
     "command": "link unlink",
     "group": "links",
-    "summary": "Remove a native predecessor, successor or related edge through a verified Core proposal.",
+    "summary": "Remove a native predecessor, successor or related edge through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-unlink.md"
@@ -274,7 +274,7 @@
   {
     "command": "link unparent",
     "group": "links",
-    "summary": "Remove the one observed native parent through a verified Core proposal.",
+    "summary": "Remove the one observed native parent through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-unparent.md"
@@ -282,7 +282,7 @@
   {
     "command": "link unrelate",
     "group": "links",
-    "summary": "Remove a discovered symmetric association through a verified Core proposal.",
+    "summary": "Remove a discovered symmetric association through a verified Core plan.",
     "stability": "experimental",
     "mutates": "ado",
     "path": "links/link-unrelate.md"
@@ -338,7 +338,7 @@
   {
     "command": "seed publish",
     "group": "seeds",
-    "summary": "Explicitly publish selected seeds through Core proposals and verified mappings.",
+    "summary": "Explicitly publish selected seeds through Core plans and verified mappings.",
     "stability": "stable",
     "mutates": "ado",
     "path": "seeds/seed-publish.md"
@@ -386,7 +386,7 @@
   {
     "command": "plan apply",
     "group": "plans",
-    "summary": "Deprecated alias for exact-file, exact-digest Core proposal application.",
+    "summary": "Apply a current Core plan under its exact confirmed digest and verify outcomes.",
     "stability": "stable",
     "mutates": "ado",
     "path": "plans/plan-apply.md"
@@ -394,7 +394,7 @@
   {
     "command": "plan preview",
     "group": "plans",
-    "summary": "Deprecated alias for current Core proposal preview.",
+    "summary": "Check current Core plan evidence and retain review intent without publication.",
     "stability": "stable",
     "mutates": "local",
     "path": "plans/plan-preview.md"
@@ -402,7 +402,7 @@
   {
     "command": "plan status",
     "group": "plans",
-    "summary": "Deprecated alias for exact Core proposal journal inspection.",
+    "summary": "Inspect exact Core plan journal rows and receipts without replay.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/plan-status.md"
@@ -410,42 +410,10 @@
   {
     "command": "plan validate",
     "group": "plans",
-    "summary": "Deprecated alias for canonical Core proposal format validation.",
+    "summary": "Validate canonical Core plan format and report its digest.",
     "stability": "stable",
     "mutates": "none",
     "path": "plans/plan-validate.md"
-  },
-  {
-    "command": "proposal apply",
-    "group": "plans",
-    "summary": "Apply a current Core proposal under its exact confirmed digest and verify outcomes.",
-    "stability": "stable",
-    "mutates": "ado",
-    "path": "plans/proposal-apply.md"
-  },
-  {
-    "command": "proposal preview",
-    "group": "plans",
-    "summary": "Check current Core proposal evidence and retain review intent without publication.",
-    "stability": "stable",
-    "mutates": "local",
-    "path": "plans/proposal-preview.md"
-  },
-  {
-    "command": "proposal status",
-    "group": "plans",
-    "summary": "Inspect exact Core proposal journal rows and receipts without replay.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/proposal-status.md"
-  },
-  {
-    "command": "proposal validate",
-    "group": "plans",
-    "summary": "Validate canonical Core proposal format and report its digest.",
-    "stability": "stable",
-    "mutates": "none",
-    "path": "plans/proposal-validate.md"
   },
   {
     "command": "help",

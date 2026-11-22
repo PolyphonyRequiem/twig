@@ -4,7 +4,7 @@ using Twig.RenderTree;
 
 namespace Twig.Rendering;
 
-// Provider-owned layout primitives: no proposal semantics, raw ANSI or terminal assumptions.
+// Provider-owned layout primitives: no plan semantics, raw ANSI or terminal assumptions.
 internal sealed class GuidedContent(IRenderable content, string first, string rest) : IRenderable
 {
     public Measurement Measure(RenderOptions options, int maxWidth) => new(1, maxWidth);

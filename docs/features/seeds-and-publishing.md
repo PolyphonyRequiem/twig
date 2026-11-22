@@ -45,9 +45,9 @@ twig seed publish <alias>
 The last command publishes through Core's internally digest-bound save
 path; it does not ask for a separate `--confirm` digest. Review intent before
 issuing it. `--all` is an explicit wider scope, not the default.
-`seed publish` is human-only. Automation uses an explicitly scoped Core proposal.
+`seed publish` is human-only. Automation uses an explicitly scoped Core plan.
 
-Publication uses the existing Core proposal/digest/journal path. A creation
+Publication uses the existing Core plan/digest/journal path. A creation
 attempt UUID is persisted before dispatch. Ordered dependencies and permanent
 local-to-provider mappings preserve original identity; no published ID is
 predicted from another item.
@@ -58,7 +58,7 @@ a remote delete or permission to drop a protected uncertain creation.
 ## Interrupted publication
 
 Do not create a replacement seed, change its UUID, or repeat publication because
-a response was lost. Read the original proposal journal and retained creation
+a response was lost. Read the original plan journal and retained creation
 evidence. Applied acknowledgement, verified provider readback, local mapping and
 local delivery/settlement are distinct outcomes.
 
@@ -69,4 +69,4 @@ unattempted work distinct when reporting results.
 
 The server's normal seed editor and isolated Plan path retain their own ownership
 and admission checks; they do not adopt arbitrary CLI debt. See
-[proposals](proposals.md) and [server operation](../server.md).
+[plans](plans.md) and [server operation](../server.md).

@@ -1,7 +1,7 @@
 ---
 command: link predecessor
 group: links
-summary: Mark a published item as blocked by another through a verified Core proposal.
+summary: Mark a published item as blocked by another through a verified Core plan.
 stability: experimental
 mutates: ado
 ---
@@ -21,7 +21,7 @@ twig link predecessor <targetId> --id <n> [-o <format>]
 
 Canonical direction is **blocker -> blocked**. The command therefore mutates
 `targetId` using that blocker's actual observed revision, not the blocked item's
-revision or a guessed inverse relation reference. The shared proposal and journal
+revision or a guessed inverse relation reference. The shared plan and journal
 path verifies the immutable acknowledgement and fresh reciprocal observations.
 It does not invent transition or dependency-cycle capabilities; discovered native
 constraints and explicitly declared policy determine admission.

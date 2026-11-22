@@ -122,7 +122,7 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                         return NativeResults.Fail("remote-write-native-evidence-unreadable: original native evidence cannot authorize another request.");
                     if (admitted.Request.CoreCorrelation is { } original
                         && (original.Attempt == core.Attempt
-                            || original.ProposalDigest == core.ProposalDigest && original.Operation == core.Operation
+                            || original.PlanDigest == core.PlanDigest && original.Operation == core.Operation
                             || core.CreationIdentity is not null && original.CreationIdentity == core.CreationIdentity))
                         return NativeResults.Fail("remote-write-core-attempt-fenced: this operation, attempt or creation UUID has already been admitted; no replacement request is authorized.");
                     if (!prior.IsDBNull(1)) continue;

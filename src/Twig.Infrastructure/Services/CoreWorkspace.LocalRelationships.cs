@@ -9,10 +9,10 @@ internal sealed partial class CoreWorkspace
 {
     internal static ItemKey LocalLogical(StoreSnapshot state, ItemKey key)
         => state.Mappings.FirstOrDefault(mapping => mapping.Local == key
-            && state.Proposals.Any(proposal => proposal.Digest == mapping.ProposalDigest
-                && mapping.Operation < proposal.Operations.Length
-                && proposal.Operations[mapping.Operation] is { Kind: OpKind.Create } create && create.Item == key)
-            && state.Journal.Any(row => row.Digest == mapping.ProposalDigest && row.Operation == mapping.Operation
+            && state.Plans.Any(plan => plan.Digest == mapping.PlanDigest
+                && mapping.Operation < plan.Operations.Length
+                && plan.Operations[mapping.Operation] is { Kind: OpKind.Create } create && create.Item == key)
+            && state.Journal.Any(row => row.Digest == mapping.PlanDigest && row.Operation == mapping.Operation
                 && row.Status == OpStatus.Verified && row.Receipts.Any(receipt =>
                     receipt.Status == OpStatus.Verified && receipt.PublishedKey == mapping.Remote)))?.Remote ?? key;
 
@@ -39,47 +39,47 @@ internal sealed partial class CoreWorkspace
             : Result<CoreLocalRelationship>.Ok(new(source, target, kinds[0], matches.SingleOrDefault()));
     }
 
-    internal async Task<Result<Proposal>> PrepareLocalRelationshipAsync(ItemKey source, ItemKey target, bool adding,
+    internal async Task<Result<Plan>> PrepareLocalRelationshipAsync(ItemKey source, ItemKey target, bool adding,
         CancellationToken ct, long? expectedStoreVersion = null, string? expectedSchema = null)
     {
         var state = await SnapshotAsync(ct).ConfigureAwait(false);
-        if (!state.IsSuccess) return Result<Proposal>.Fail(state.Error);
+        if (!state.IsSuccess) return Result<Plan>.Fail(state.Error);
         var schema = await SchemaAsync(ct).ConfigureAwait(false);
-        if (!schema.IsSuccess) return Result<Proposal>.Fail(schema.Error);
+        if (!schema.IsSuccess) return Result<Plan>.Fail(schema.Error);
         if (expectedStoreVersion is { } version && version != state.Value.Version
             || expectedSchema is not null && expectedSchema != schema.Value.Fingerprint)
-            return Result<Proposal>.Fail(ErrorCode.Conflict, "Local identity/edge or discovered schema changed during capture.");
+            return Result<Plan>.Fail(ErrorCode.Conflict, "Local identity/edge or discovered schema changed during capture.");
         var selected = LocalRelationship(state.Value, schema.Value, Capabilities, source, target);
-        if (!selected.IsSuccess) return Result<Proposal>.Fail(selected.Error);
+        if (!selected.IsSuccess) return Result<Plan>.Fail(selected.Error);
         var edge = selected.Value.Edge;
         if (adding && edge is { Deleted: false })
-            return Result<Proposal>.Fail(ErrorCode.Conflict, "The LOCAL association already exists; no mutation was journaled.");
+            return Result<Plan>.Fail(ErrorCode.Conflict, "The LOCAL association already exists; no mutation was journaled.");
         if (!adding && (edge is null || edge.Deleted))
-            return Result<Proposal>.Fail(ErrorCode.Conflict, "No active LOCAL association exists; no mutation was journaled.");
+            return Result<Plan>.Fail(ErrorCode.Conflict, "No active LOCAL association exists; no mutation was journaled.");
         // Publication changes logical identity, not the original physical edge or its tombstone CAS.
         var op = new Op("local-related", adding ? OpKind.Relate : OpKind.Unrelate,
             edge?.From ?? source, other: edge?.To ?? target, relation: selected.Value.Kind.Reference,
             origin: RelationshipOrigin.Local, expectedLocalVersion: edge?.LocalVersion);
-        var proposal = await PrepareAsync([op], ct).ConfigureAwait(false);
-        return !proposal.IsSuccess ? proposal
-            : proposal.Value.ExpectedStoreVersion != state.Value.Version || proposal.Value.SchemaFingerprint != schema.Value.Fingerprint
-                ? Result<Proposal>.Fail(ErrorCode.Conflict, "Local identity/edge or discovered schema changed during capture; no stale selection was applied.")
-                : proposal;
+        var plan = await PrepareAsync([op], ct).ConfigureAwait(false);
+        return !plan.IsSuccess ? plan
+            : plan.Value.ExpectedStoreVersion != state.Value.Version || plan.Value.SchemaFingerprint != schema.Value.Fingerprint
+                ? Result<Plan>.Fail(ErrorCode.Conflict, "Local identity/edge or discovered schema changed during capture; no stale selection was applied.")
+                : plan;
     }
 
     internal static string LocalEdgeFingerprint(Connection connection, Relationship? edge)
-        => edge is null ? "none" : new Proposal(connection, "local-edge-evidence", 0,
+        => edge is null ? "none" : new Plan(connection, "local-edge-evidence", 0,
             [new("edge", edge.Deleted ? OpKind.Unrelate : OpKind.Relate, edge.From, other: edge.To,
                 relation: edge.Kind, origin: edge.Origin, expectedLocalVersion: edge.LocalVersion)]).Digest;
 
-    internal async Task<Result<Receipt>> RecoverLocalRelationshipAsync(Proposal proposal, CancellationToken ct)
+    internal async Task<Result<Receipt>> RecoverLocalRelationshipAsync(Plan plan, CancellationToken ct)
     {
-        if (proposal.Connection != connection || !NativeLocalRelationshipEvidence.IsLocal(proposal))
-            return Result<Receipt>.Fail(ErrorCode.Conflict, "Recovery requires the original single local relationship proposal.");
+        if (plan.Connection != connection || !NativeLocalRelationshipEvidence.IsLocal(plan))
+            return Result<Receipt>.Fail(ErrorCode.Conflict, "Recovery requires the original single local relationship plan.");
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<Receipt>.Fail(current.Error);
-        var row = current.Value.Journal.SingleOrDefault(value => value.Digest == proposal.Digest && value.Operation == 0);
+        var row = current.Value.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
         if (row?.Status != OpStatus.Applied)
             return Result<Receipt>.Fail(ErrorCode.Indeterminate, "Only the original durable Applied receipt can continue separate verification; no replay.");
         if (executionRegistryPath is not null)
@@ -89,10 +89,10 @@ internal sealed partial class CoreWorkspace
             var gate = await NativeCoreExecution.PublishingAsync(executionRegistryPath, ct).ConfigureAwait(false);
             if (!gate.IsSuccess) return Result<Receipt>.Fail(gate.Error);
         }
-        var policy = await CheckCurrentPolicyAsync(proposal, ct).ConfigureAwait(false);
+        var policy = await CheckCurrentPolicyAsync(plan, ct).ConfigureAwait(false);
         if (!policy.IsSuccess) return Result<Receipt>.Fail(policy.Error);
         using var targets = executionRegistryPath is null ? null : ConnectionOperationGate.AcquireCoreTargets(
-            executionRegistryPath, NativeCoreExecution.OperationKeys(proposal.Operations[0], current.Value, connection));
-        return await provider.RecoverAsync(proposal, 0, ct).ConfigureAwait(false);
+            executionRegistryPath, NativeCoreExecution.OperationKeys(plan.Operations[0], current.Value, connection));
+        return await provider.RecoverAsync(plan, 0, ct).ConfigureAwait(false);
     }
 }

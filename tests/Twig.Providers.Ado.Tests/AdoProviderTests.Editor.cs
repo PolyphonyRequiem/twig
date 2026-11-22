@@ -19,17 +19,17 @@ public sealed partial class AdoProviderTests
         fixture.Http.Items[1].ContainsKey("relations").ShouldBeFalse("the actual native JSON fixture must omit the property");
         var source = (await fixture.Read(1, 2)).Items.Single(item => item.Key == fixture.Key(1));
         source.RelationshipsComplete.ShouldBeTrue();
-        var proposal = await fixture.Proposal(new("first-related", OpKind.Batch, source.Key, source.Revision,
+        var plan = await fixture.Plan(new("first-related", OpKind.Batch, source.Key, source.Revision,
             FieldValues.Empty.Set("Custom.Empty", FieldValue.String("first native related edge")),
             links: [new(fixture.Key(2), "Native.Association", true, remove)]));
-        var imported = await fixture.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await fixture.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBe(!remove, imported.IsSuccess ? "" : imported.Error.Message);
         fixture.Http.Items[1].ContainsKey("relations").ShouldBeFalse("read/import must not fill in missing native data");
         if (remove) { fixture.Http.Writes.ShouldBe(0); return; }
-        var applied = await fixture.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        var applied = await fixture.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
         applied.Value.Status.ShouldBe(OpStatus.Applied);
-        (await fixture.Provider.VerifyAsync(proposal, applied.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await fixture.Provider.VerifyAsync(plan, applied.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
         fixture.Http.Writes.ShouldBe(1);
         fixture.Http.Items[1]["fields"]!["Custom.Empty"]!.GetValue<string>().ShouldBe("first native related edge");
     }
@@ -45,14 +45,14 @@ public sealed partial class AdoProviderTests
         fixture.Http.Items[1]["relations"] = new JsonArray(Edge("Native.ParentReverse", 2));
         fixture.Http.Items[2]["relations"] = new JsonArray(Edge("Native.ParentForward", 1));
         var source = (await fixture.Read(1, 2, 3)).Items.First(item => item.Key == fixture.Key(1));
-        var proposal = await fixture.Proposal(new("reparent", OpKind.Batch, source.Key, source.Revision,
+        var plan = await fixture.Plan(new("reparent", OpKind.Batch, source.Key, source.Revision,
             FieldValues.Empty.Set("Custom.Empty", FieldValue.String("same atomic reparent")), links:
                 [new(fixture.Key(2), "Native.ParentForward", false, true),
                  new(fixture.Key(3), "Native.ParentForward", false)]));
-        (await fixture.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var applied = (await fixture.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        (await fixture.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var applied = (await fixture.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
-        (await fixture.Provider.VerifyAsync(proposal, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await fixture.Provider.VerifyAsync(plan, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
         fixture.Http.Writes.ShouldBe(1);
         fixture.Http.Items[2]["relations"]!.AsArray().ShouldBeEmpty();
         fixture.Http.Items[3]["relations"]!.AsArray().Single()!["rel"]!.GetValue<string>().ShouldBe("Native.ParentForward");
@@ -68,14 +68,14 @@ public sealed partial class AdoProviderTests
         var source = (await fixture.Read(1, 2)).Items.First(item => item.Key == fixture.Key(1));
         var fields = FieldValues.Empty.Set("System.State", FieldValue.String(fixture.Http.Completed));
         if (includeGate) fields = fields.Set("Custom.Closure", FieldValue.String("exact authored close judgment"));
-        var proposal = await fixture.Proposal(new("compound-close", OpKind.Batch, source.Key, source.Revision, fields,
+        var plan = await fixture.Plan(new("compound-close", OpKind.Batch, source.Key, source.Revision, fields,
             links: [new(fixture.Key(2), "Native.Association", true)]));
-        var imported = await fixture.Provider.ImportAsync(proposal, proposal.Digest);
+        var imported = await fixture.Provider.ImportAsync(plan, plan.Digest);
         imported.IsSuccess.ShouldBe(includeGate);
         if (!includeGate) { fixture.Http.Writes.ShouldBe(0); return; }
-        var applied = (await fixture.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var applied = (await fixture.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
-        (await fixture.Provider.VerifyAsync(proposal, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await fixture.Provider.VerifyAsync(plan, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
         fixture.Http.Writes.ShouldBe(1);
         fixture.Http.Items[1]["fields"]!["Custom.Closure"]!.GetValue<string>().ShouldBe("exact authored close judgment");
     }
@@ -93,15 +93,15 @@ public sealed partial class AdoProviderTests
         fixture.Http.Items[2]["relations"] = new JsonArray(Edge("Native.DependencyReverse", 1), Edge("Native.Association", 1));
         var source = (await fixture.Read(1, 2, 3)).Items.First(item => item.Key == fixture.Key(1));
         var fields = FieldValues.Empty.Set("Custom.Empty", FieldValue.String("compound edited"));
-        var proposal = await fixture.Proposal(new("compound", OpKind.Batch, source.Key, source.Revision, fields, links:
+        var plan = await fixture.Plan(new("compound", OpKind.Batch, source.Key, source.Revision, fields, links:
             [new(fixture.Key(2), "Native.DependencyForward", true, true),
              new(fixture.Key(2), "Native.Association", true, true),
              new(fixture.Key(3), "Native.DependencyForward", false)]));
-        (await fixture.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
-        var applied = await fixture.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default);
+        (await fixture.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        var applied = await fixture.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
         applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
         applied.Value.Status.ShouldBe(OpStatus.Applied);
-        (await fixture.Provider.VerifyAsync(proposal, applied.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        (await fixture.Provider.VerifyAsync(plan, applied.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
         fixture.Http.Writes.ShouldBe(1);
         using var patch = JsonDocument.Parse(fixture.Http.LastPayload!);
         patch.RootElement.EnumerateArray().Where(entry => entry.GetProperty("op").GetString() == "remove")
@@ -117,14 +117,14 @@ public sealed partial class AdoProviderTests
         using var fixture = await Fixture.Create();
         fixture.Http.Defect = "creation-links";
         var source = (await fixture.Read(1, 2)).Items.First(item => item.Key == fixture.Key(1));
-        var proposal = await fixture.Proposal(new("compound", OpKind.Batch, source.Key, source.Revision,
+        var plan = await fixture.Plan(new("compound", OpKind.Batch, source.Key, source.Revision,
             FieldValues.Empty.Set("Custom.Empty", FieldValue.String("edited")),
             links: [new(fixture.Key(2), "Native.Association", true)]));
-        (await fixture.Provider.ImportAsync(proposal, proposal.Digest)).IsSuccess.ShouldBeTrue();
+        (await fixture.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
         fixture.Http.AfterWrite = () => { fixture.Http.Items[2]["relations"] = new JsonArray(); return Task.CompletedTask; };
-        var applied = (await fixture.Provider.ApplyAsync(proposal, 0, Guid.NewGuid(), default)).Value;
+        var applied = (await fixture.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
-        var verified = (await fixture.Provider.VerifyAsync(proposal, applied, default)).Value;
+        var verified = (await fixture.Provider.VerifyAsync(plan, applied, default)).Value;
         verified.Status.ShouldBe(OpStatus.Indeterminate);
         verified.Evidence.ShouldContain(value => value.Contains("incident completeness", StringComparison.Ordinal));
         fixture.Http.Writes.ShouldBe(1);

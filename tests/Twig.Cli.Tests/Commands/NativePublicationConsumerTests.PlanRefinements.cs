@@ -112,7 +112,7 @@ public sealed partial class NativePublicationConsumerTests
             (await store.CommitAsync(host.Stamp.Connection, snapshot.Version, new(snapshot.Version + 1,
                 snapshot.Items, snapshot.Relationships,
                 [new LocalEdits(draft.Key, draft.Type, draft.EditBaseline, draft.Fields.Set("System.Title", FieldValue.String("Newer independent intent")))],
-                snapshot.Proposals, snapshot.Journal, snapshot.Mappings, snapshot.Benches), default)).IsSuccess.ShouldBeTrue();
+                snapshot.Plans, snapshot.Journal, snapshot.Mappings, snapshot.Benches), default)).IsSuccess.ShouldBeTrue();
         }
         await using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString()))
         {

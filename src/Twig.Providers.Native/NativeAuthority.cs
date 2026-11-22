@@ -99,14 +99,14 @@ public sealed class NativeAuthority
         return items.ToImmutable();
     }
 
-    internal async Task<Receipt> Execute(Proposal proposal, int ordinal, Guid attempt, CancellationToken ct)
+    internal async Task<Receipt> Execute(Plan plan, int ordinal, Guid attempt, CancellationToken ct)
     {
         await using var db = await Open(ct);
         using var transaction = db.BeginTransaction(deferred: false);
         await CheckIdentity(db, transaction, ct);
-        if (await Effect(db, transaction, proposal, ordinal, attempt, ct) is not null)
+        if (await Effect(db, transaction, plan, ordinal, attempt, ct) is not null)
             throw new NativeFailure(ErrorCode.Conflict, "This authority effect already exists; recover its original receipt, never replay.");
-        var op = proposal.Operations[ordinal];
+        var op = plan.Operations[ordinal];
         long id;
         var revision = Guid.NewGuid().ToString("D");
         if (op.Kind == OpKind.Create)
@@ -137,22 +137,22 @@ public sealed class NativeAuthority
         }
         await Command(db, transaction, """
             INSERT INTO native_effects(attempt,digest,ordinal,seed,item,revision) VALUES($attempt,$digest,$ordinal,$seed,$item,$rev);
-            """, ct, ("$attempt", attempt.ToString("D")), ("$digest", proposal.Digest), ("$ordinal", ordinal),
+            """, ct, ("$attempt", attempt.ToString("D")), ("$digest", plan.Digest), ("$ordinal", ordinal),
             ("$seed", op.Kind == OpKind.Create ? op.Item.LocalId.ToString("D") : DBNull.Value), ("$item", id), ("$rev", revision));
         ct.ThrowIfCancellationRequested();
         transaction.Commit();
-        return Acknowledgement(proposal, ordinal, attempt, id, revision);
+        return Acknowledgement(plan, ordinal, attempt, id, revision);
     }
 
-    internal async Task<Receipt?> Recover(Proposal proposal, int ordinal, Guid attempt, CancellationToken ct)
+    internal async Task<Receipt?> Recover(Plan plan, int ordinal, Guid attempt, CancellationToken ct)
     {
         await using var db = await Open(ct);
         using var transaction = db.BeginTransaction(deferred: true);
         await CheckIdentity(db, transaction, ct);
-        return await Effect(db, transaction, proposal, ordinal, attempt, ct);
+        return await Effect(db, transaction, plan, ordinal, attempt, ct);
     }
 
-    private async Task<Receipt?> Effect(SqliteConnection db, SqliteTransaction transaction, Proposal proposal, int ordinal,
+    private async Task<Receipt?> Effect(SqliteConnection db, SqliteTransaction transaction, Plan plan, int ordinal,
         Guid attempt, CancellationToken ct)
     {
         await using var command = db.CreateCommand();
@@ -161,21 +161,21 @@ public sealed class NativeAuthority
         command.Parameters.AddWithValue("$attempt", attempt.ToString("D"));
         await using var rows = await command.ExecuteReaderAsync(ct);
         if (!await rows.ReadAsync(ct)) return null;
-        var op = proposal.Operations[ordinal];
-        if (rows.GetString(0) != proposal.Digest || rows.GetInt32(1) != ordinal
+        var op = plan.Operations[ordinal];
+        if (rows.GetString(0) != plan.Digest || rows.GetInt32(1) != ordinal
             || (op.Kind == OpKind.Create ? rows.IsDBNull(2) || rows.GetString(2) != op.Item.LocalId.ToString("D")
                 : !rows.IsDBNull(2) || rows.GetInt64(3) != Id(op.Item)))
             throw new NativeFailure(ErrorCode.Conflict, "Authority receipt does not bind this exact digest, ordinal and target.");
-        return Acknowledgement(proposal, ordinal, attempt, rows.GetInt64(3), rows.GetString(4));
+        return Acknowledgement(plan, ordinal, attempt, rows.GetInt64(3), rows.GetString(4));
     }
 
-    private Receipt Acknowledgement(Proposal proposal, int ordinal, Guid attempt, long id, string revision)
+    private Receipt Acknowledgement(Plan plan, int ordinal, Guid attempt, long id, string revision)
     {
         var key = Key(id);
-        return new(proposal.Digest, ordinal, attempt, OpStatus.Applied,
+        return new(plan.Digest, ordinal, attempt, OpStatus.Applied,
             [$"source:{Connection.ResourceScope}", $"principal:{Connection.IdentityRef}", $"attempt:{attempt:D}",
                 "authority:durable-sqlite-transaction"], new(key, revision),
-            proposal.Operations[ordinal].Kind == OpKind.Create ? key : null);
+            plan.Operations[ordinal].Kind == OpKind.Create ? key : null);
     }
 
     private ItemKey Key(long id) => ItemKey.Remote(Connection.Provider, Connection.ResourceScope, id.ToString(CultureInfo.InvariantCulture));

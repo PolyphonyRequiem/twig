@@ -35,12 +35,12 @@ internal sealed class ConnectionRemoteWriteAdmission : IConnectionRemoteWriteAdm
         if (request.CoreCorrelation is { } core
             && (request.SeedCorrelation is not null || core.Operation < 0 || core.Attempt == Guid.Empty
                 || string.IsNullOrWhiteSpace(core.ConnectionIdentity) || string.IsNullOrWhiteSpace(core.TargetIdentity)
-                || core.ProposalDigest is not { Length: 64 } || core.ProposalDigest.Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f'))
+                || core.PlanDigest is not { Length: 64 } || core.PlanDigest.Any(c => c is not (>= '0' and <= '9' or >= 'a' and <= 'f'))
                 || (request.EffectKind == "workitem-create") != (core.CreationIdentity is not null)
                 || core.CreationIdentity == Guid.Empty || core.StoreInstance == Guid.Empty
                 || core.CreationIdentity is not null && core.ExpectedRevision is not null
                 || core.CreationIdentity is null && string.IsNullOrWhiteSpace(core.ExpectedRevision)))
-            throw new InvalidOperationException("remote-write-core-correlation-invalid: exact connection, proposal, operation and attempt evidence is required.");
+            throw new InvalidOperationException("remote-write-core-correlation-invalid: exact connection, plan, operation and attempt evidence is required.");
         if (request.SeedCorrelation is not null)
             throw new InvalidOperationException("remote-write-legacy-create-retired: original requests remain inspectable, but no legacy seed publication is admitted.");
         var intent = new ConnectionRemoteWriteIntent(1, Guid.NewGuid().ToString("N"), RequestDigest(binding, request),

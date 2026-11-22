@@ -49,7 +49,7 @@ public sealed partial class NativePublicationConsumerTests
             var after = (await handle.Workspace.SnapshotAsync(default)).Value;
             after.Version.ShouldBe(before.Version);
             after.RetainedItems.ShouldBeEmpty();
-            after.Proposals.ShouldBeEmpty();
+            after.Plans.ShouldBeEmpty();
             after.Journal.ShouldBeEmpty();
             (await user.ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
             (await editor.SaveAsync(form.Fields.Ticket, FieldValues.Empty)).Error.Code.ShouldBe(ErrorCode.Unsupported);
@@ -87,7 +87,7 @@ public sealed partial class NativePublicationConsumerTests
         _transport.TitleOf(42).ShouldBe("Atomic Dependency True");
         var first = (await handle.Workspace.SnapshotAsync(default)).Value;
         first.RetainedItems.ShouldBeEmpty();
-        var operation = first.Proposals.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem();
+        var operation = first.Plans.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem();
         operation.Kind.ShouldBe(OpKind.Batch);
         operation.Fields["System.Title"].Text.ShouldBe("Atomic Dependency True");
         operation.Links.ShouldBe([add]);
@@ -132,8 +132,8 @@ public sealed partial class NativePublicationConsumerTests
         _transport.TitleOf(42).ShouldBe("Atomic Dependency True");
         var final = (await handle.Workspace.SnapshotAsync(default)).Value;
         final.RetainedItems.ShouldBeEmpty();
-        final.Proposals.Length.ShouldBe(2);
-        final.Proposals.ShouldAllBe(proposal => proposal.Operations.Length == 1 && proposal.Operations[0].Kind == OpKind.Batch);
+        final.Plans.Length.ShouldBe(2);
+        final.Plans.ShouldAllBe(plan => plan.Operations.Length == 1 && plan.Operations[0].Kind == OpKind.Batch);
         final.Journal.Length.ShouldBe(2);
         final.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified && row.Receipts.Length == 2
             && row.Receipts[0].Status == OpStatus.Applied && row.Receipts[1].Status == OpStatus.Verified

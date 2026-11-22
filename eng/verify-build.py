@@ -114,11 +114,11 @@ def worker(binary, directory, trace):
         run(label, *arguments)
     with headless_server(data, env, trace):
         check_operations(command, workspace, home, env, trace, run)
-    refused = run('disconnected', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json', expected=1)
+    refused = run('disconnected', 'plan', 'preview', '--file', 'smoke.json', '-o', 'json', expected=1)
     if 'server' not in json.loads(refused.stderr)['error'].lower():
         raise RuntimeError('Disconnected CLI did not report server unavailability')
     trace.write('worker', 'end', 0)
-    print('SMOKE PASSED: offline help; server-backed binding, proposal preview and wrong-account refusal; no direct fallback or apply')
+    print('SMOKE PASSED: offline help; server-backed binding, plan preview and wrong-account refusal; no direct fallback or apply')
     return 0
 
 
@@ -165,20 +165,20 @@ def check_operations(command, workspace, home, env, trace, run):
     core_db = workspace / '.twig/core.db'
     with sqlite3.connect(core_db) as db:
         db.execute(f'PRAGMA application_id={0x54574353}')
-        db.execute('PRAGMA user_version=3')
+        db.execute('PRAGMA user_version=4')
         db.execute('PRAGMA journal_mode=WAL')
         db.execute('CREATE TABLE core_identity(id TEXT PRIMARY KEY NOT NULL,workspace_connection TEXT) STRICT')
         db.execute('INSERT INTO core_identity VALUES (?,?)', (instance, connection_text))
         db.execute('CREATE TABLE core_snapshots(connection TEXT PRIMARY KEY NOT NULL,version INTEGER NOT NULL CHECK(version>0),document TEXT NOT NULL) STRICT')
-        snapshot = {'Version': 3, 'StoreVersion': 1, 'Items': [], 'Relationships': [], 'Drafts': [],
-                    'Proposals': [], 'Journal': [], 'Mappings': [], 'Benches': []}
+        snapshot = {'Version': 4, 'StoreVersion': 1, 'Items': [], 'Relationships': [], 'Drafts': [],
+                    'Plans': [], 'Journal': [], 'Mappings': [], 'Benches': []}
         db.execute('INSERT INTO core_snapshots VALUES (?,?,?)', (connection_text, 1, json.dumps(snapshot, separators=(',', ':'))))
     (workspace / '.twig/core-workspace.json').write_text(json.dumps({
         'version': 1, 'databasePath': str(core_db), 'databaseInstance': instance,
         'connection': {'provider': {'value': 'ado'}, 'resourceScope': collection,
                        'destination': project_id, 'identityRef': identity_ref}, 'principalId': actor}))
     key = ['remote', 'ado', collection, '42']
-    proposal = {'version': 3, 'connection': {'provider': 'ado', 'scope': collection,
+    plan = {'version': 3, 'connection': {'provider': 'ado', 'scope': collection,
                     'destination': project_id, 'identity': identity_ref},
                 'schema': 'fictional-offline-schema', 'storeVersion': 1,
                 'policyIdentity': None, 'policyRevision': None,
@@ -187,17 +187,17 @@ def check_operations(command, workspace, home, env, trace, run):
                     'fields': {'System.Title': [1, 'Reviewed smoke item']}, 'other': None,
                     'relation': None, 'origin': 0, 'concurrency': 0, 'localVersion': None,
                     'body': None, 'resource': None}]}
-    (workspace / 'smoke.json').write_text(json.dumps(proposal))
-    preview = json.loads(run('preview', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json').stdout)
+    (workspace / 'smoke.json').write_text(json.dumps(plan))
+    preview = json.loads(run('preview', 'plan', 'preview', '--file', 'smoke.json', '-o', 'json').stdout)
     if len(preview.get('operations', [])) != 1:
-        raise RuntimeError('Offline native proposal preview lost its operation')
+        raise RuntimeError('Offline native plan preview lost its operation')
     decisions = preview.get('reviewModel', {}).get('policyDecisions', [])
     if preview.get('canApply') or not any(
             decision.get('kind') == 'process-required-fields'
             and decision.get('outcome') == 'unavailable'
             and decision.get('blocking') is True
             for decision in decisions):
-        raise RuntimeError('Offline native proposal preview did not fail closed on unavailable process rules')
+        raise RuntimeError('Offline native plan preview did not fail closed on unavailable process rules')
     token_cache = home / 'metadata/credentials/cred-cccccccccccccccccccccccccccccccc.token-cache'
     expiry, token = token_cache.read_text().splitlines()[:2]
     header, payload, signature = token.split('.')
@@ -212,8 +212,8 @@ def check_operations(command, workspace, home, env, trace, run):
     trace.write('journal', 'start')
     with sqlite3.connect(core_db) as db:
         retained = json.loads(db.execute('SELECT document FROM core_snapshots WHERE connection=?', (connection_text,)).fetchone()[0])
-        if len(retained['Proposals']) != 1 or len(retained['Journal']) != 1:
-            raise RuntimeError('Core preview must retain the exact unconfirmed proposal')
+        if len(retained['Plans']) != 1 or len(retained['Journal']) != 1:
+            raise RuntimeError('Core preview must retain the exact unconfirmed plan')
         row = retained['Journal'][0]
         if row['Status'] != 0 or row['Attempt'] != '00000000-0000-0000-0000-000000000000' or row['Receipts']:
             raise RuntimeError('Core smoke must never acquire Applying or a transport attempt')

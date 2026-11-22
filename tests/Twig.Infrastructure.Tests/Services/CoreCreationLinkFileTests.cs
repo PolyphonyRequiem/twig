@@ -10,7 +10,7 @@ namespace Twig.Infrastructure.Tests.Services;
 
 public sealed class CoreCreationLinkFileTests
 {
-    private static Proposal Proposal(bool includeLinks)
+    private static Plan Plan(bool includeLinks)
     {
         var connection = new Connection(new("test"), "scope", "destination", "actor");
         var seed = ItemKey.Local(Guid.Parse("01900000-0000-7000-8000-000000000001"));
@@ -27,24 +27,24 @@ public sealed class CoreCreationLinkFileTests
     [InlineData(true)]
     public void CanonicalCreationLinksRoundTripWithoutChangingIntent(bool includeLinks)
     {
-        var original = Proposal(includeLinks);
-        using var json = JsonDocument.Parse(Rules.ProposalBytes(original));
-        var parsed = CoreProposalFiles.Parse(json.RootElement);
+        var original = Plan(includeLinks);
+        using var json = JsonDocument.Parse(Rules.PlanBytes(original));
+        var parsed = CorePlanFiles.Parse(json.RootElement);
         parsed.Digest.ShouldBe(original.Digest);
         parsed.Operations[0].Links.ShouldBe(original.Operations[0].Links);
-        Rules.ProposalBytes(parsed).ShouldBe(Rules.ProposalBytes(original));
+        Rules.PlanBytes(parsed).ShouldBe(Rules.PlanBytes(original));
     }
 
     [Fact]
     public void CanonicalCreateEvidenceRoundTripsAndChangesTheDigest()
     {
-        var original = Proposal(true);
-        Encoding.UTF8.GetString(Rules.ProposalBytes(original)).ShouldNotContain("createEvidence");
+        var original = Plan(true);
+        Encoding.UTF8.GetString(Rules.PlanBytes(original)).ShouldNotContain("createEvidence");
         var evidence = FieldValues.Empty.Set("System.AreaId", FieldValue.Integer(17));
-        var reviewed = new Proposal(original.Connection, original.SchemaFingerprint, original.ExpectedStoreVersion,
+        var reviewed = new Plan(original.Connection, original.SchemaFingerprint, original.ExpectedStoreVersion,
             [original.Operations.Single() with { CreateEvidence = evidence }]);
-        using var json = JsonDocument.Parse(Rules.ProposalBytes(reviewed));
-        var parsed = CoreProposalFiles.Parse(json.RootElement);
+        using var json = JsonDocument.Parse(Rules.PlanBytes(reviewed));
+        var parsed = CorePlanFiles.Parse(json.RootElement);
         parsed.Digest.ShouldNotBe(original.Digest);
         parsed.Digest.ShouldBe(reviewed.Digest);
         parsed.Operations.Single().CreateEvidence.ShouldBe(evidence);
@@ -61,7 +61,7 @@ public sealed class CoreCreationLinkFileTests
     [InlineData("""[[["remote","test","scope","1"],"dependency",true],[["remote","test","scope","1"],"dependency",true]]""")]
     public async Task MalformedCreationLinksFailExplicitFileValidation(string payload)
     {
-        var canonical = Encoding.UTF8.GetString(Rules.ProposalBytes(Proposal(true)));
+        var canonical = Encoding.UTF8.GetString(Rules.PlanBytes(Plan(true)));
         using var original = JsonDocument.Parse(canonical);
         var links = original.RootElement.GetProperty("operations")[0].GetProperty("links").GetRawText();
         var marker = "\"links\":" + links;
@@ -70,11 +70,11 @@ public sealed class CoreCreationLinkFileTests
         malformed.ShouldNotBe(canonical);
         var root = Path.Combine(Path.GetTempPath(), "twig-creation-link-file-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
-        var file = Path.Combine(root, "proposal.json");
+        var file = Path.Combine(root, "plan.json");
         try
         {
             await File.WriteAllTextAsync(file, malformed);
-            var result = await CoreProposalFiles.ReadAsync(root, file, CancellationToken.None);
+            var result = await CorePlanFiles.ReadAsync(root, file, CancellationToken.None);
             result.IsSuccess.ShouldBeFalse();
             result.Error.Code.ShouldBe(ErrorCode.InvalidInput);
             result.Error.Message.ShouldNotBeNullOrWhiteSpace();

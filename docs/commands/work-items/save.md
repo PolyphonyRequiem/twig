@@ -16,7 +16,7 @@ not an invocation recipe.
 ## Behavior
 
 The retained Core save helper freezes eligible existing-item typed drafts and
-uses preview, digest-bound proposal, journal and independent verification.
+uses preview, digest-bound plan, journal and independent verification.
 Current `update`/`edit` save their own changes through that lifecycle.
 To inspect a named Bench, use `twig workspace --bench MyWork`. To refresh its
 view, use `twig workspace --bench MyWork --refresh`. Neither is a save command.

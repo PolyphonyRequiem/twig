@@ -87,10 +87,10 @@ public sealed partial class NativePublicationConsumerTests
             var op = intent.Operations.Single();
             var fields = op.Fields.Set("System.Description", FieldValue.RichText(
                 "<pre>" + new string('\\', slashes) + new string('a', padding) + "</pre>", FieldKind.Html));
-            var proposal = new Proposal(intent.Connection, intent.SchemaFingerprint, intent.ExpectedStoreVersion,
+            var plan = new Plan(intent.Connection, intent.SchemaFingerprint, intent.ExpectedStoreVersion,
                 [new(op.Id, op.Kind, op.Item, op.ExpectedRevision, fields, op.Type, concurrency: op.Concurrency, links: op.Links)]);
             return previous with { Revision = previous.Revision + 1, Ready = false,
-                IntentJson = Encoding.UTF8.GetString(Model.ProposalBytes(proposal)),
+                IntentJson = Encoding.UTF8.GetString(Model.PlanBytes(plan)),
                 DraftFingerprint = origin.Workspace.DraftFingerprint(new LocalEdits(key, before.RetainedItems.Single().Type,
                     before.RetainedItems.OfType<LocalEdits>().Single().EditBaseline, fields)) };
         }

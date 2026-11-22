@@ -304,7 +304,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             var preview = await workspace.PreviewDraftAsync(draft.Key, ct);
             if (!preview.IsSuccess) return Result<(int, string?)>.Fail(preview.Error);
             captures.Add(preview.Value);
-            if (preview.Value.Proposal is { } intent)
+            if (preview.Value.Plan is { } intent)
             {
                 var op = intent.Operations.Single();
                 operations.Add(new($"save-{operations.Count}", op.Kind, op.Item, op.ExpectedRevision,
@@ -312,19 +312,19 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                     op.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links, op.CreateEvidence));
             }
         }
-        Proposal? proposal = null;
+        Plan? plan = null;
         if (operations.Count != 0)
         {
             var prepared = await workspace.PrepareAsync(operations, ct);
             if (!prepared.IsSuccess) return Result<(int, string?)>.Fail(prepared.Error);
-            proposal = prepared.Value;
+            plan = prepared.Value;
         }
-        var saved = await workspace.SaveDraftSetAsync(captures, proposal, proposal?.Digest, ct);
+        var saved = await workspace.SaveDraftSetAsync(captures, plan, plan?.Digest, ct);
         if (!saved.IsSuccess) return Result<(int, string?)>.Fail(saved.Error);
         if (saved.Value.Error is { } error) return Result<(int, string?)>.Fail(error);
         if (!saved.Value.EffectsVerified)
             return Result<(int, string?)>.Fail(ErrorCode.Indeterminate, "Save has unresolved journal effects; local edits were retained without replay.");
-        return Result<(int, string?)>.Ok((drafts.Length, proposal?.Digest));
+        return Result<(int, string?)>.Ok((drafts.Length, plan?.Digest));
     }
 
     private int SaveResult(string output, int count, string? digest)
@@ -603,8 +603,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var draft = matches.Length == 1 ? snapshot.Value.RetainedItems.OfType<Seed>().SingleOrDefault(draft => draft.Key == matches[0]) : null;
         if (draft is null) return Error(output, "The exact unpublished seed alias is absent or ambiguous.");
         if (snapshot.Value.Mappings.Any(mapping => mapping.Local == draft.Key)
-            || snapshot.Value.Journal.Any(row => row.Status != OpStatus.Planned && snapshot.Value.Proposals
-                .Single(proposal => proposal.Digest == row.Digest).Operations[row.Operation].Item == draft.Key))
+            || snapshot.Value.Journal.Any(row => row.Status != OpStatus.Planned && snapshot.Value.Plans
+                .Single(plan => plan.Digest == row.Digest).Operations[row.Operation].Item == draft.Key))
             return Error(output, "The original creation UUID has already been attempted; its captured editor intent remains fenced.");
         var schema = await workspace.SchemaAsync(ct);
         if (!schema.IsSuccess) return Error(output, schema.Error.Message);
@@ -695,7 +695,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (!staged.IsSuccess) return Error(output, staged.Error.Message);
             var preview = await workspace.PreviewDraftAsync(key, ct);
             if (!preview.IsSuccess) return Error(output, preview.Error.Message);
-            var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal?.Digest, ct);
+            var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Plan?.Digest, ct);
             if (!saved.IsSuccess) return Error(output, saved.Error.Message);
             if (saved.Value.Error is { } failure) return Error(output, failure.Message);
             if (!saved.Value.EffectsVerified) return Error(output, "The editor effect remains unresolved; its journal and draft were retained.");
@@ -704,7 +704,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             new Dictionary<string, RenderCell>
             {
                 ["itemId"] = RenderCell.Integer(id.Value), ["changeCount"] = RenderCell.Integer(changes.Count),
-                ["message"] = RenderCell.String(changes.Count == 0 ? "No changes detected." : "Editor fields applied through one digest-bound proposal and verified journal."),
+                ["message"] = RenderCell.String(changes.Count == 0 ? "No changes detected." : "Editor fields applied through one digest-bound plan and verified journal."),
             })]));
         return 0;
     }
@@ -794,7 +794,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             var preview = await workspace.PreviewDraftAsync(draft.Key, ct, operations);
             if (preview.IsSuccess)
             {
-                var op = preview.Value.Proposal!.Operations.Last();
+                var op = preview.Value.Plan!.Operations.Last();
                 operations.Add(op.WithId($"validate-{operations.Count}"));
             }
             if (id is not null && LocalAlias(draft.Key) != id) continue;
@@ -818,7 +818,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         string? branch, string? repository, string output, CancellationToken ct)
     {
         if (factory.IsGitHub && branch is not null) return Error(output, "GitHub creation-bound resources are not qualified.");
-        if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use an explicit reviewed proposal apply.", 2);
+        if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use an explicit reviewed plan apply.", 2);
         if (id is not null && (id >= 0 || all) || id is null && !all)
             return Error(output, "Specify one negative seed ID or --all.", 2);
         if (repository is not null && branch is null)
@@ -866,25 +866,25 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             var preview = await workspace.PreviewDraftAsync(draft.Key, ct, operations, seedPublication: true);
             if (!preview.IsSuccess) return Error(output, preview.Error.Message);
             captures.Add(preview.Value);
-            var op = preview.Value.Proposal!.Operations.Last();
+            var op = preview.Value.Plan!.Operations.Last();
             operations.Add(op.WithId($"create-{operations.Count}"));
         }
         var prepared = await workspace.PrepareSeedPublicationAsync(operations, dryRun, ct);
         if (!prepared.IsSuccess) return Error(output, prepared.Error.Message);
-        var (proposal, reviewedStoreVersion) = prepared.Value;
+        var (plan, reviewedStoreVersion) = prepared.Value;
         if (dryRun)
         {
             var cells = new Dictionary<string, RenderCell>
             {
-                ["digest"] = RenderCell.String(proposal.Digest), ["seedCount"] = RenderCell.Integer(drafts.Length),
+                ["digest"] = RenderCell.String(plan.Digest), ["seedCount"] = RenderCell.Integer(drafts.Length),
                 ["message"] = RenderCell.String("Retained exact unattempted creation intent; no seed was published."),
             };
-            if (proposal.Connection.Provider.Value == "ado")
+            if (plan.Connection.Provider.Value == "ado")
                 cells["notice"] = RenderCell.String(AdoProvider.CreateConcurrencyNotice);
             renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview", cells)]));
             return 0;
         }
-        var published = await workspace.SaveDraftSetAsync(captures, proposal, proposal.Digest, ct, reviewedStoreVersion);
+        var published = await workspace.SaveDraftSetAsync(captures, plan, plan.Digest, ct, reviewedStoreVersion);
         if (!published.IsSuccess) return Error(output, published.Error.Message);
         if (published.Value.Error is { } error) return Error(output, error.Message);
         if (!published.Value.EffectsVerified) return Error(output, "Creation is unresolved; its UUID fence, drafts and receipts remain. No replay was performed.");
@@ -896,7 +896,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["oldId"] = RenderCell.Integer(LocalAlias(mapping.Local)),
                 ["newId"] = RenderCell.String(mapping.Remote.NativeId!),
                 ["localId"] = RenderCell.String(mapping.Local.LocalId.ToString("D")),
-                ["status"] = RenderCell.String("Created"), ["digest"] = RenderCell.String(mapping.ProposalDigest),
+                ["status"] = RenderCell.String("Created"), ["digest"] = RenderCell.String(mapping.PlanDigest),
             })).ToArray();
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Table("Published seeds",
             [new("oldId", "Seed"), new("newId", "Native ID"), new("status", "Status")], rows)]));
@@ -1016,7 +1016,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             {
                 ["sourceId"] = RenderCell.Integer(sourceId), ["targetId"] = RenderCell.Integer(targetId),
                 ["linkType"] = RenderCell.String(type ?? "related"),
-                ["message"] = RenderCell.String(remove ? "Removed exact local creation-link intent; no native effect." : "Captured creation-link intent; publication requires its exact reviewed proposal."),
+                ["message"] = RenderCell.String(remove ? "Removed exact local creation-link intent; no native effect." : "Captured creation-link intent; publication requires its exact reviewed plan."),
             })]));
         return 0;
     }
@@ -1288,7 +1288,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         if (!staged.IsSuccess) return Error(output, staged.Error.Message);
         var preview = await workspace.PreviewDraftAsync(key, ct);
         if (!preview.IsSuccess) return Error(output, preview.Error.Message);
-        var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Proposal?.Digest, ct);
+        var saved = await workspace.SaveDraftAsync(preview.Value, preview.Value.Plan?.Digest, ct);
         if (!saved.IsSuccess) return Error(output, saved.Error.Message);
         if (saved.Value.Error is { } failure) return Error(output, failure.Message);
         if (!saved.Value.EffectsVerified) return Error(output, "The requested effect did not verify; retained journal evidence requires attention.");
@@ -1300,8 +1300,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             ["field"] = RenderCell.String(name), ["valueDisplay"] = RenderCell.String(text),
             ["valueSource"] = RenderCell.String(body.Origin.ToString().ToLowerInvariant()),
             ["append"] = RenderCell.Boolean(append), ["wasSeed"] = RenderCell.Boolean(false),
-            ["message"] = RenderCell.String(message), ["digest"] = preview.Value.Proposal is { } proposal
-                ? RenderCell.String(proposal.Digest) : new("", new RenderValue.Null()),
+            ["message"] = RenderCell.String(message), ["digest"] = preview.Value.Plan is { } plan
+                ? RenderCell.String(plan.Digest) : new("", new RenderValue.Null()),
             ["journalStatus"] = RenderCell.String("Verified"),
         };
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([output == "human"
@@ -1315,18 +1315,18 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return code;
     }
 
-    internal Task<int> ValidateProposalAsync(string? file, string output, CancellationToken ct)
-        => InspectAsync("proposal validate", output, async format =>
+    internal Task<int> ValidatePlanAsync(string? file, string output, CancellationToken ct)
+        => InspectAsync("plan validate", output, async format =>
         {
-            if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core proposal file is required.", 2);
-            var parsed = await CoreProposalFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
+            if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core plan file is required.", 2);
+            var parsed = await CorePlanFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
             if (!parsed.IsSuccess) return Error(format, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
-            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("proposalValidation",
+            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("planValidation",
                 new Dictionary<string, RenderCell>
                 {
                     ["isValid"] = RenderCell.Boolean(true),
                     ["digest"] = RenderCell.String(parsed.Value.Digest),
-                    ["formatVersion"] = RenderCell.Integer(Proposal.FormatVersion),
+                    ["formatVersion"] = RenderCell.Integer(Plan.FormatVersion),
                     ["operationCount"] = RenderCell.Integer(parsed.Value.Operations.Length),
                     ["validationScope"] = RenderCell.String("canonical-format"),
                     ["applicationEvidenceChecked"] = RenderCell.Boolean(false),
@@ -1335,26 +1335,26 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return 0;
         });
 
-    internal Task<int> ProposalStatusAsync(string? file, string output, CancellationToken ct)
-        => InspectAsync("proposal status", output, async format =>
+    internal Task<int> PlanStatusAsync(string? file, string output, CancellationToken ct)
+        => InspectAsync("plan status", output, async format =>
         {
-            if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core proposal file is required.", 2);
-            var parsed = await CoreProposalFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
+            if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core plan file is required.", 2);
+            var parsed = await CorePlanFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
             if (!parsed.IsSuccess) return Error(format, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
             var opened = await factory.OpenAsync(ct);
             if (!opened.IsSuccess) return Error(format, opened.Error.Message);
             using var handle = opened.Value;
             var workspace = handle.Workspace;
             if (parsed.Value.Connection != workspace.Connection)
-                return Error(format, "The proposal belongs to another immutable workspace connection.", 2);
+                return Error(format, "The plan belongs to another immutable workspace connection.", 2);
             var snapshot = await workspace.SnapshotAsync(ct);
             if (!snapshot.IsSuccess) return Error(format, snapshot.Error.Message);
-            var proposal = snapshot.Value.Proposals.SingleOrDefault(value => value.Digest == parsed.Value.Digest);
+            var plan = snapshot.Value.Plans.SingleOrDefault(value => value.Digest == parsed.Value.Digest);
             var rows = snapshot.Value.Journal.Where(row => row.Digest == parsed.Value.Digest).OrderBy(row => row.Operation).ToArray();
-            var found = proposal is not null;
-            if (proposal is not null && (rows.Length != proposal.Operations.Length
+            var found = plan is not null;
+            if (plan is not null && (rows.Length != plan.Operations.Length
                 || rows.Where((row, ordinal) => row.Operation != ordinal).Any()))
-                return Error(format, "The retained proposal has incomplete journal ordinals; no execution outcome was inferred.");
+                return Error(format, "The retained plan has incomplete journal ordinals; no execution outcome was inferred.");
             var operations = rows.Select(row => new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
             {
                 ["ordinal"] = RenderCell.Integer(row.Operation),
@@ -1380,7 +1380,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                             })) : new("", new RenderValue.Null()),
                     }))).ToArray())),
             }))).ToArray();
-            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("proposalStatus",
+            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("planStatus",
                 new Dictionary<string, RenderCell>
                 {
                     ["digest"] = RenderCell.String(parsed.Value.Digest),
@@ -1491,72 +1491,72 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             ["localId"] = InspectionText(key.IsLocal ? key.LocalId.ToString("D") : null),
         }));
 
-    internal async Task<int> ApplyProposalAsync(string? file, string? confirmation, string output, CancellationToken ct)
+    internal async Task<int> ApplyPlanAsync(string? file, string? confirmation, string output, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(file) || string.IsNullOrWhiteSpace(confirmation))
-            return Error(output, "A Core proposal file and its exact --confirm digest are required.", 2);
-        var parsed = await CoreProposalFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
+            return Error(output, "A Core plan file and its exact --confirm digest are required.", 2);
+        var parsed = await CorePlanFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
         if (!parsed.IsSuccess) return Error(output, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
-        var proposal = parsed.Value;
-        if (proposal.Digest != confirmation) return Error(output, "Confirmation differs from the exact canonical proposal digest.");
+        var plan = parsed.Value;
+        if (plan.Digest != confirmation) return Error(output, "Confirmation differs from the exact canonical plan digest.");
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
         var snapshot = await workspace.SnapshotAsync(ct);
         if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
-        var draft = proposal.Operations.Length == 1 ? snapshot.Value.RetainedItems.FirstOrDefault(d =>
-            d.Key == proposal.Operations[0].Item && d.Fields.Equals(proposal.Operations[0].Fields)
-            && (proposal.Operations[0].Kind != OpKind.Create || (d as Seed)?.Parent == proposal.Operations[0].Other
-                && (d as Seed)?.ParentRelation == proposal.Operations[0].Relation && (d as Seed)?.Resource == proposal.Operations[0].Resource
-                && ((d as Seed)?.Links ?? []).SequenceEqual(proposal.Operations[0].Links))
-            && (d.Key.IsLocal || (d as LocalEdits)?.EditBaseline?.Revision == proposal.Operations[0].ExpectedRevision)) : null;
-        var applied = draft is null ? await workspace.ApplyAsync(proposal, confirmation, ct)
-            : await workspace.SaveDraftAsync(new(draft, proposal), confirmation, ct);
+        var draft = plan.Operations.Length == 1 ? snapshot.Value.RetainedItems.FirstOrDefault(d =>
+            d.Key == plan.Operations[0].Item && d.Fields.Equals(plan.Operations[0].Fields)
+            && (plan.Operations[0].Kind != OpKind.Create || (d as Seed)?.Parent == plan.Operations[0].Other
+                && (d as Seed)?.ParentRelation == plan.Operations[0].Relation && (d as Seed)?.Resource == plan.Operations[0].Resource
+                && ((d as Seed)?.Links ?? []).SequenceEqual(plan.Operations[0].Links))
+            && (d.Key.IsLocal || (d as LocalEdits)?.EditBaseline?.Revision == plan.Operations[0].ExpectedRevision)) : null;
+        var applied = draft is null ? await workspace.ApplyAsync(plan, confirmation, ct)
+            : await workspace.SaveDraftAsync(new(draft, plan), confirmation, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
-        if (!applied.Value.EffectsVerified) return Error(output, "The proposal has an unresolved effect; no blind replay was performed.");
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("proposalApplied",
+        if (!applied.Value.EffectsVerified) return Error(output, "The plan has an unresolved effect; no blind replay was performed.");
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("planApplied",
             new Dictionary<string, RenderCell>
             {
-                ["digest"] = RenderCell.String(proposal.Digest),
+                ["digest"] = RenderCell.String(plan.Digest),
                 ["verified"] = RenderCell.Boolean(true),
-                ["operationCount"] = RenderCell.Integer(proposal.Operations.Length),
+                ["operationCount"] = RenderCell.Integer(plan.Operations.Length),
                 ["alreadyVerified"] = RenderCell.Boolean(applied.Value.AlreadyVerified),
             })]));
         return 0;
     }
 
-    internal async Task<int> PreviewProposalAsync(string? file, string output, CancellationToken ct, string? expectedDigest = null)
+    internal async Task<int> PreviewPlanAsync(string? file, string output, CancellationToken ct, string? expectedDigest = null)
     {
-        if (string.IsNullOrWhiteSpace(file)) return Error(output, "An explicit Core proposal file is required.", 2);
-        var parsed = await CoreProposalFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
+        if (string.IsNullOrWhiteSpace(file)) return Error(output, "An explicit Core plan file is required.", 2);
+        var parsed = await CorePlanFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
         if (!parsed.IsSuccess) return Error(output, parsed.Error.Message, 2);
-        var proposal = parsed.Value;
-        if (expectedDigest is not null && expectedDigest != proposal.Digest)
-            return Error(output, "The proposal differs from the exact expected review digest.");
+        var plan = parsed.Value;
+        if (expectedDigest is not null && expectedDigest != plan.Digest)
+            return Error(output, "The plan differs from the exact expected review digest.");
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
         var workspace = handle.Workspace;
-        if (proposal.Connection != workspace.Connection) return Error(output, "The proposal belongs to another immutable workspace connection.");
-        var checkedIntent = await workspace.CheckProposalAsync(proposal, ct);
+        if (plan.Connection != workspace.Connection) return Error(output, "The plan belongs to another immutable workspace connection.");
+        var checkedIntent = await workspace.CheckPlanAsync(plan, ct);
         if (!checkedIntent.IsSuccess) return Error(output, checkedIntent.Error.Message);
         var blocked = checkedIntent.Value.FirstOrDefault();
-        var retained = await workspace.RetainReviewAsync(proposal, ct);
+        var retained = await workspace.RetainReviewAsync(plan, ct);
         if (!retained.IsSuccess) return Error(output, retained.Error.Message);
         var cells = new Dictionary<string, RenderCell>
         {
-            ["digest"] = RenderCell.String(proposal.Digest),
+            ["digest"] = RenderCell.String(plan.Digest),
             ["canApply"] = RenderCell.Boolean(blocked is null),
-            ["operations"] = new("Operations", new RenderValue.Array(proposal.Operations.Select(op =>
+            ["operations"] = new("Operations", new RenderValue.Array(plan.Operations.Select(op =>
                 new RenderCell(op.Id, new RenderValue.Object(new Dictionary<string, RenderCell>
                 {
                     ["id"] = RenderCell.String(op.Id), ["kind"] = RenderCell.String(op.Kind.ToString()),
                     ["concurrency"] = RenderCell.String(op.Concurrency.ToString()),
                 }))).ToArray())),
         };
-        if (proposal.Connection.Provider.Value == "ado" && proposal.Operations.Any(op => op.Kind == OpKind.Create))
+        if (plan.Connection.Provider.Value == "ado" && plan.Operations.Any(op => op.Kind == OpKind.Create))
             cells["notice"] = RenderCell.String(AdoProvider.CreateConcurrencyNotice);
         cells["reviewModel"] = new("Review", new RenderValue.Object(new Dictionary<string, RenderCell>
         {
@@ -1570,7 +1570,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 }))
             ])),
         }));
-        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("proposalPreview", cells)]));
+        renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("planPreview", cells)]));
         return 0;
     }
 
@@ -1655,10 +1655,10 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 })]));
             return 0;
         }
-        var proposal = await workspace.PrepareAsync([new("state", OpKind.Batch, key, read.Value.Revision,
+        var plan = await workspace.PrepareAsync([new("state", OpKind.Batch, key, read.Value.Revision,
             new([KeyValuePair.Create(type.StateField, FieldValue.String(target))]), concurrency: workspace.Concurrency)], ct);
-        if (!proposal.IsSuccess) return Error(output, proposal.Error.Message);
-        var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
+        if (!plan.IsSuccess) return Error(output, plan.Error.Message);
+        var applied = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
         if (!applied.Value.EffectsVerified) return Error(output, "The transition has unresolved journal evidence.");
@@ -1670,7 +1670,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["requestedState"] = RenderCell.String(requested), ["transitionCount"] = RenderCell.Integer(1),
                 ["isCategoryResolution"] = RenderCell.Boolean(category),
                 ["message"] = RenderCell.String($"#{id.Value} moved to '{target}'."),
-                ["digest"] = RenderCell.String(proposal.Value.Digest),
+                ["digest"] = RenderCell.String(plan.Value.Digest),
             })]));
         return 0;
     }
@@ -1722,9 +1722,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ? new("note-" + target, OpKind.Comment, key, read.Value.Revision, body: body, concurrency: workspace.Concurrency)
                 : new("batch-" + target, OpKind.Batch, key, read.Value.Revision, fields, body: body, concurrency: workspace.Concurrency));
         }
-        var proposal = await workspace.PrepareAsync(operations, ct);
-        if (!proposal.IsSuccess) return Error(output, proposal.Error.Message);
-        var executed = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
+        var plan = await workspace.PrepareAsync(operations, ct);
+        if (!plan.IsSuccess) return Error(output, plan.Error.Message);
+        var executed = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
         if (!executed.IsSuccess) return Error(output, executed.Error.Message);
         if (executed.Value.Error is { } failure) return Error(output, failure.Message);
         if (!executed.Value.EffectsVerified) return Error(output, "The ordered batch has unresolved effects; no remaining operation was replayed.");
@@ -1733,7 +1733,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("batchCompleted",
             new Dictionary<string, RenderCell>
             {
-                ["digest"] = RenderCell.String(proposal.Value.Digest), ["successCount"] = RenderCell.Integer(operations.Count),
+                ["digest"] = RenderCell.String(plan.Value.Digest), ["successCount"] = RenderCell.Integer(operations.Count),
                 ["failureCount"] = RenderCell.Integer(0),
                 ["results"] = new("Results", new RenderValue.Array(operations.Select(op => new RenderCell(op.Item.NativeId!,
                     new RenderValue.Object(new Dictionary<string, RenderCell>
@@ -1820,9 +1820,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             fields = fields.Set(definition.Reference, value);
         }
         if (fields.Count == 0) return Error(output, "At least one explicit patch field is required.", 2);
-        var proposal = await workspace.PrepareAsync([new("patch", OpKind.Batch, key, read.Value.Revision, fields, concurrency: workspace.Concurrency)], ct);
-        if (!proposal.IsSuccess) return Error(output, proposal.Error.Message);
-        var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
+        var plan = await workspace.PrepareAsync([new("patch", OpKind.Batch, key, read.Value.Revision, fields, concurrency: workspace.Concurrency)], ct);
+        if (!plan.IsSuccess) return Error(output, plan.Error.Message);
+        var applied = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
         if (!applied.IsSuccess) return Error(output, applied.Error.Message);
         if (applied.Value.Error is { } failure) return Error(output, failure.Message);
         if (!applied.Value.EffectsVerified) return Error(output, "The patch did not verify; its journal remains authoritative.");
@@ -1832,7 +1832,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 ["id"] = RenderCell.Integer(id.Value), ["title"] = Cell(read.Value.Fields[TitleField]),
                 ["fieldCount"] = RenderCell.Integer(fields.Count), ["wasSeed"] = RenderCell.Boolean(false),
                 ["message"] = RenderCell.String($"Patched {fields.Count} field(s) on #{id.Value}."),
-                ["digest"] = RenderCell.String(proposal.Value.Digest),
+                ["digest"] = RenderCell.String(plan.Value.Digest),
             })]));
         return 0;
     }
@@ -1864,7 +1864,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    private async Task<Proposal?> ExecuteEffectAsync(int id, Func<WorkItem, Op> build, string output, CancellationToken ct)
+    private async Task<Plan?> ExecuteEffectAsync(int id, Func<WorkItem, Op> build, string output, CancellationToken ct)
     {
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) { Error(output, opened.Error.Message); return null; }
@@ -1877,13 +1877,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var op = build(read.Value);
         op = new(op.Id, op.Kind, op.Item, op.ExpectedRevision, op.Fields, op.Type, op.Other, op.Relation,
             op.Origin, op.Body, workspace.Concurrency, op.ExpectedLocalVersion, op.Resource, op.Links, op.CreateEvidence);
-        var proposal = await workspace.PrepareAsync([op], ct);
-        if (!proposal.IsSuccess) { Error(output, proposal.Error.Message); return null; }
-        var applied = await workspace.ApplyAsync(proposal.Value, proposal.Value.Digest, ct);
+        var plan = await workspace.PrepareAsync([op], ct);
+        if (!plan.IsSuccess) { Error(output, plan.Error.Message); return null; }
+        var applied = await workspace.ApplyAsync(plan.Value, plan.Value.Digest, ct);
         if (!applied.IsSuccess) { Error(output, applied.Error.Message); return null; }
         if (applied.Value.Error is { } error) { Error(output, error.Message); return null; }
         if (!applied.Value.EffectsVerified) { Error(output, "The effect is unresolved; no automatic retry was performed."); return null; }
-        return proposal.Value;
+        return plan.Value;
     }
 
     internal static RenderCell Cell(FieldValue value) => value.Kind switch

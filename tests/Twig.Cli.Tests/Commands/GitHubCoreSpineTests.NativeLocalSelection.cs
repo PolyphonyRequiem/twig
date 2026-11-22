@@ -20,7 +20,7 @@ public sealed partial class GitHubCoreSpineTests
         before.Items.Length.ShouldBe(2);
         before.Items.ShouldAllBe(item => !item.Key.IsLocal && item.RelationshipsComplete && item.Revision != null);
         before.RetainedItems.ShouldBeEmpty();
-        before.Proposals.ShouldBeEmpty();
+        before.Plans.ShouldBeEmpty();
         before.Journal.ShouldBeEmpty();
         var handles = fixture.Native.Http.HandleCreations;
         var selected = await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture));
@@ -36,7 +36,7 @@ public sealed partial class GitHubCoreSpineTests
         fixture.Writes.ShouldBe(0);
         var after = await fixture.SnapshotAsync();
         after.RetainedItems.ShouldBeEmpty();
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
     }
 
@@ -52,7 +52,7 @@ public sealed partial class GitHubCoreSpineTests
         var before = await fixture.SnapshotAsync();
         before.Items.Length.ShouldBe(2);
         before.RetainedItems.ShouldBeEmpty();
-        before.Proposals.ShouldBeEmpty();
+        before.Plans.ShouldBeEmpty();
         before.Journal.ShouldBeEmpty();
         if (damage == "actor") fixture.Defect = damage;
         else if (damage == "mode") await fixture.SetPlanAsync(true);
@@ -77,7 +77,7 @@ public sealed partial class GitHubCoreSpineTests
         var before = await fixture.SnapshotAsync();
         before.Items.Length.ShouldBe(2);
         before.RetainedItems.ShouldBeEmpty();
-        before.Proposals.ShouldBeEmpty();
+        before.Plans.ShouldBeEmpty();
         before.Journal.ShouldBeEmpty();
         RetainedItem? debt = null;
         fixture.Native.Http.BeforeIssueRead = async id =>
@@ -99,7 +99,7 @@ public sealed partial class GitHubCoreSpineTests
         result.Error.Code.ShouldBe(ErrorCode.Conflict);
         var after = await fixture.SnapshotAsync();
         after.RetainedItems.ShouldHaveSingleItem().ShouldBe(debt);
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         fixture.Writes.ShouldBe(0);
     }
@@ -116,7 +116,7 @@ public sealed partial class GitHubCoreSpineTests
         var before = await fixture.SnapshotAsync();
         before.Items.Length.ShouldBe(2);
         before.RetainedItems.ShouldBeEmpty();
-        before.Proposals.ShouldBeEmpty();
+        before.Plans.ShouldBeEmpty();
         before.Journal.ShouldBeEmpty();
         var reads = 0;
         fixture.Native.Http.BeforeIssueRead = async id =>
@@ -133,7 +133,7 @@ public sealed partial class GitHubCoreSpineTests
         result.Error.Code.ShouldBe(ErrorCode.Conflict);
         var after = await fixture.SnapshotAsync();
         after.RetainedItems.ShouldBeEmpty();
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         fixture.Writes.ShouldBe(0);
     }

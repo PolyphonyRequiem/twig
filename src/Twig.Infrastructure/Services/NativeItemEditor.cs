@@ -81,7 +81,7 @@ public sealed partial class NativeItemEditor : IDisposable
             var selected = await editor.SelectAsync(key, ct).ConfigureAwait(false);
             if (!selected.IsSuccess) return Result<NativeEditForm>.Fail(selected.Error);
             var item = selected.Value;
-            if (key.IsLocal && !PlanMode && item.Capture is { SeedProposal: not null })
+            if (key.IsLocal && !PlanMode && item.Capture is { SeedPlan: not null })
                 return Result<NativeEditForm>.Fail(ErrorCode.Indeterminate, "The original seed publication is protected. Observe or continue its exact delivery reference; never edit or create it again.");
             if (item.Capture is { Ready: false })
                 return Result<NativeEditForm>.Fail(ErrorCode.Conflict, "Interrupted native intent requires explicit recovery before editing.");
@@ -309,7 +309,7 @@ public sealed partial class NativeItemEditor : IDisposable
     }
 
     private string InputBaseline(NativeEditorItem item)
-        => new Proposal(editor.Origin.Connection, editor.Metadata.Schema.Fingerprint, 0,
+        => new Plan(editor.Origin.Connection, editor.Metadata.Schema.Fingerprint, 0,
             [new("observation", OpKind.Batch, item.Observation.Key, item.Observation.Revision, item.Observation.Fields,
                 item.Observation.Type)]).Digest + ":" + editor.Workspace.DraftFingerprint(item.Draft)
             + ":" + item.Capture?.Id.ToString("D") + ":" + item.Capture?.Revision;

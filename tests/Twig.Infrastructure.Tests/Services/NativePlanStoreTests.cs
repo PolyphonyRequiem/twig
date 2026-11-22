@@ -154,23 +154,23 @@ public sealed class NativePlanStoreTests : IDisposable
     [InlineData(OpStatus.Indeterminate)]
     public async Task UnresolvedOriginalAttemptBlocksReassociationAndPreservesItsJournal(OpStatus status)
     {
-        var (library, bench, plan, source) = await Reserve();
-        var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var (library, bench, benchPlan, source) = await Reserve();
+        var scope = benchPlan.Scopes.Single();
+        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, benchPlan.Revision, scope.Id));
         var store = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, root, source));
         var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "I_item");
         var fields = new FieldValues([KeyValuePair.Create("github.title", FieldValue.String("authored"))]);
-        var proposal = new Proposal(connection, "schema", 0, [new("edit", OpKind.Batch, key, new(key, "revision"), fields)]);
-        Required(await store.CommitAsync(connection, 0, new(1, proposals: [proposal],
-            journal: [JournalEntry.Planned(proposal.Digest, 0)]), default));
-        var applying = Required(JournalEntry.Planned(proposal.Digest, 0).Begin(Guid.NewGuid()));
-        Required(await store.CommitAsync(connection, 1, new(2, proposals: [proposal], journal: [applying]), default));
+        var plan = new Plan(connection, "schema", 0, [new("edit", OpKind.Batch, key, new(key, "revision"), fields)]);
+        Required(await store.CommitAsync(connection, 0, new(1, plans: [plan],
+            journal: [JournalEntry.Planned(plan.Digest, 0)]), default));
+        var applying = Required(JournalEntry.Planned(plan.Digest, 0).Begin(Guid.NewGuid()));
+        Required(await store.CommitAsync(connection, 1, new(2, plans: [plan], journal: [applying]), default));
         if (status != OpStatus.Applying)
         {
-            var receipt = new Receipt(proposal.Digest, 0, applying.Attempt, status, ["fixture-boundary"],
+            var receipt = new Receipt(plan.Digest, 0, applying.Attempt, status, ["fixture-boundary"],
                 error: status == OpStatus.Indeterminate ? new(ErrorCode.Indeterminate, "fixture unknown") : null);
             var recorded = Required(applying.Record(receipt));
-            Required(await store.CommitAsync(connection, 2, new(3, proposals: [proposal], journal: [recorded]), default));
+            Required(await store.CommitAsync(connection, 2, new(3, plans: [plan], journal: [recorded]), default));
         }
         var before = Required(await store.ReadAsync(connection, default));
         var beforeDocument = await SnapshotDocument(scope.DatabasePath);
@@ -205,32 +205,32 @@ public sealed class NativePlanStoreTests : IDisposable
     [Fact]
     public async Task VerifiedSeedPrefixAndPermanentOwnershipStayInOriginalScopeAfterReassociation()
     {
-        var (library, bench, plan, source) = await Reserve();
-        var scope = plan.Scopes.Single();
-        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, plan.Revision, scope.Id));
+        var (library, bench, benchPlan, source) = await Reserve();
+        var scope = benchPlan.Scopes.Single();
+        var ready = Required(await User.CompletePlanScopeAsync(library.InstanceId, bench.Id, benchPlan.Revision, scope.Id));
         var key = ItemKey.Local(Guid.NewGuid());
         var owned = Required(await User.ReservePlanSeedAsync(library.InstanceId, bench.Id, ready.Revision, scope.Id, key.LocalId));
         var owner = Required(await User.ReadPlanSeedOwnerAsync(key.LocalId));
         var store = Required(await User.OpenPlanScopeAsync(library.InstanceId, bench.Id, owned.Revision, scope.Id, root, source));
         var fields = new FieldValues([KeyValuePair.Create("github.title", FieldValue.String("Seed"))]);
         var draft = new Seed(key, "github.issue", fields);
-        var proposal = new Proposal(connection, "schema", 0, [new("create", OpKind.Create, key, fields: fields,
+        var plan = new Plan(connection, "schema", 0, [new("create", OpKind.Create, key, fields: fields,
             type: draft.Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
-        var planned = JournalEntry.Planned(proposal.Digest, 0);
-        Required(await store.CommitAsync(connection, 0, new(1, retainedItems: [draft], proposals: [proposal], journal: [planned]), default));
+        var planned = JournalEntry.Planned(plan.Digest, 0);
+        Required(await store.CommitAsync(connection, 0, new(1, retainedItems: [draft], plans: [plan], journal: [planned]), default));
         var applying = Required(planned.Begin(Guid.NewGuid()));
-        Required(await store.CommitAsync(connection, 1, new(2, retainedItems: [draft], proposals: [proposal], journal: [applying]), default));
+        Required(await store.CommitAsync(connection, 1, new(2, retainedItems: [draft], plans: [plan], journal: [applying]), default));
         var published = ItemKey.Remote(connection.Provider, connection.ResourceScope, "I_published");
         var revision = new Revision(published, "observed-published-revision");
-        var mapping = new PublishMapping(key, published, proposal.Digest, 0);
-        var applied = Required(applying.Record(new(proposal.Digest, 0, applying.Attempt, OpStatus.Applied,
+        var mapping = new PublishMapping(key, published, plan.Digest, 0);
+        var applied = Required(applying.Record(new(plan.Digest, 0, applying.Attempt, OpStatus.Applied,
             ["synthetic attributed acknowledgement"], revision, published)));
-        Required(await store.CommitAsync(connection, 2, new(3, retainedItems: [draft], proposals: [proposal],
+        Required(await store.CommitAsync(connection, 2, new(3, retainedItems: [draft], plans: [plan],
             journal: [applied], mappings: [mapping]), default));
-        var verified = Required(applied.Record(new(proposal.Digest, 0, applying.Attempt, OpStatus.Verified,
+        var verified = Required(applied.Record(new(plan.Digest, 0, applying.Attempt, OpStatus.Verified,
             ["synthetic independent readback"], revision, published)));
         Required(await store.CommitAsync(connection, 3, new(4, [new(published, draft.Type, fields, revision, true)],
-            proposals: [proposal], journal: [verified], mappings: [mapping]), default));
+            plans: [plan], journal: [verified], mappings: [mapping]), default));
         var before = await SnapshotDocument(scope.DatabasePath);
         var moved = Required(await User.ReassociatePlanScopeAsync(library.InstanceId, bench.Id, owned.Revision, scope.Id,
             4, Path.Combine(root, "new-worktree"), source with

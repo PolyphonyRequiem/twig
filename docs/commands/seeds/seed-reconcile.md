@@ -22,4 +22,4 @@ redispatches Create or treats an unknown attempt as failed.
 ## Failure modes
 
 Missing, inconsistent, protected or unresolved original evidence refuses.
-Inspect the original proposal journal; do not change UUID/digest to bypass a fence.
+Inspect the original plan journal; do not change UUID/digest to bypass a fence.

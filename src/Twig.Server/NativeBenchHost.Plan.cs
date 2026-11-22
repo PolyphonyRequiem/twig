@@ -86,10 +86,10 @@ public static partial class NativeBenchHost
         }
         PlanReviewDto ReviewDto(ViewSession session, NativePlanReview review)
         {
-            var effects = review.Proposals.SelectMany(proposal =>
+            var effects = review.Plans.SelectMany(plan =>
             {
-                var source = session.Plan.Contexts.Single(context => context.Stamp.Connection == proposal.Connection);
-                return proposal.Operations.Select(op => new PlanEffectDto(source.Source.Id, source.Source.Label,
+                var source = session.Plan.Contexts.Single(context => context.Stamp.Connection == plan.Connection);
+                return plan.Operations.Select(op => new PlanEffectDto(source.Source.Id, source.Source.Label,
                     ViewMapping.Key(new(source.Source.Id, op.Item)),
                     op.Item.IsLocal ? op.Item.LocalId.ToString("D") : op.Item.NativeId!, op.Item.IsLocal,
                     op.Type, op.Fields.Select(field => new FieldDto(field.Key, ViewMapping.Value(field.Value))).ToArray(),
@@ -98,10 +98,10 @@ public static partial class NativeBenchHost
             }).ToArray();
             return new(session.Plan.Ticket, review.BenchId, review.Digest, effects, review.CoreDigests.ToArray(),
                 "Apply is sequential across items and connections, not atomic. Only this exact native review is authorized; verified, remaining, uncertain and delivery-pending outcomes stay distinct."
-                    + (review.Proposals.Any(proposal => proposal.Connection.Provider.Value == "github")
+                    + (review.Plans.Any(plan => plan.Connection.Provider.Value == "github")
                         ? " GitHub uses observed-non-atomic checks and readback, not server CAS or an edit lock. Repository automation rules are not discoverable." : "")
-                    + (review.Proposals.Any(proposal => proposal.Connection.Provider.Value == "ado"
-                        && proposal.Operations.Any(op => op.Kind == OpKind.Create)) ? " " + AdoProvider.CreateConcurrencyNotice : ""),
+                    + (review.Plans.Any(plan => plan.Connection.Provider.Value == "ado"
+                        && plan.Operations.Any(op => op.Kind == OpKind.Create)) ? " " + AdoProvider.CreateConcurrencyNotice : ""),
                 null, session.Plan.ApplyAllowed);
         }
 

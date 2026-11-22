@@ -86,9 +86,9 @@ public static class StructuredMutationArgumentValidator
         var machine = GetOutputFormat(args) is { } format && format != OutputFormats.Default;
         var command = GetCommand(args);
         if (command is null) return null;
-        if (args[0] is "proposal" or "plan" && args.Count > 1 && args[1] is "validate" or "preview" or "apply" or "status"
+        if (args[0] is "plan" && args.Count > 1 && args[1] is "validate" or "preview" or "apply" or "status"
             && !HasNonEmptyValueOption(args, "--file"))
-            return "Specify an explicit proposal file with --file.";
+            return "Specify an explicit plan file with --file.";
         if (command is "workspace" or "ws" && (args.Count == 1 || args[1].StartsWith('-'))
             && !HasNonEmptyValueOption(args, "--bench"))
             return "Name the Bench with --bench <name-or-guid>.";
@@ -134,7 +134,7 @@ public static class StructuredMutationArgumentValidator
         }
 
         if (command == "seed publish" && machine)
-            return "Structured seed publication is refused. Use an explicit reviewed proposal apply.";
+            return "Structured seed publication is refused. Use an explicit reviewed plan apply.";
         if (command is "seed publish" or "seed discard" or "seed edit"
             && !(command == "seed publish" && HasBooleanOption(args, "--all"))
             && !Positionals(args, 2).Any(value => int.TryParse(value, out var n) && n < 0))

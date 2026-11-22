@@ -10,8 +10,8 @@ mutates: none
 
 ```sh
 twig --help
-twig proposal --help
-twig proposal apply --help
+twig plan --help
+twig plan apply --help
 twig help bench rules
 twig --skill operations
 ```

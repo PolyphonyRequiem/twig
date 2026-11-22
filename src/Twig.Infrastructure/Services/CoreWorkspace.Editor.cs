@@ -48,10 +48,10 @@ internal sealed partial class CoreWorkspace
     internal static string Fingerprint(Connection connection, RetainedItem? item) => item switch
     {
         null => "none",
-        Seed seed => new Proposal(connection, "native-draft", 0,
+        Seed seed => new Plan(connection, "native-draft", 0,
             [new("draft", OpKind.Create, seed.Key, fields: seed.Fields, type: seed.Type,
                 other: seed.Parent, relation: seed.ParentRelation, resource: seed.Resource, links: seed.Links)]).Digest,
-        LocalEdits { EditBaseline: var baseline } edits => new Proposal(connection, "native-draft", 0,
+        LocalEdits { EditBaseline: var baseline } edits => new Plan(connection, "native-draft", 0,
             [new("draft", OpKind.Batch, edits.Key, baseline.Revision, edits.Changes, edits.Type),
              new("baseline", OpKind.Batch, baseline.Key, baseline.Revision, baseline.Fields, baseline.Type)]).Digest,
         _ => throw new ArgumentException("Unknown retained item kind.", nameof(item)),
@@ -80,7 +80,7 @@ internal sealed partial class CoreWorkspace
                 && proof.DraftFingerprint == DraftFingerprint(state.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint))))
                 return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The exact captured native endpoint revision changed; no relationship was published.");
         }
-        var effect = preview.Value.Proposal?.Operations.Single(value => value.Item == key);
+        var effect = preview.Value.Plan?.Operations.Single(value => value.Item == key);
         var prepared = await PrepareAsync([new("edit", OpKind.Batch, key, observed.Revision,
             effect?.Fields ?? FieldValues.Empty, effect?.Type,             concurrency: Concurrency, links: links)], ct, review).ConfigureAwait(false);
         return prepared.IsSuccess ? Result<CoreDraftPreview>.Ok(new(preview.Value.Draft, prepared.Value))

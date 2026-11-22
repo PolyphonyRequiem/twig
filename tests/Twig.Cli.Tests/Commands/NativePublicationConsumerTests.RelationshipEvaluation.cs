@@ -66,7 +66,7 @@ public sealed partial class NativePublicationConsumerTests
         var after = (await origin.Workspace.SnapshotAsync(default)).Value;
         after.Version.ShouldBe(before.Version, "Field evaluation must not stage, recapture, prepare or update the Core store.");
         origin.Workspace.DraftFingerprint(after.RetainedItems.SingleOrDefault(draft => draft.Key == key)).ShouldBe(draftFingerprint);
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         after.Items.Single(item => item.Key == key).Fields[type.StateField].Text.ShouldBe(doing);
         var unchanged = (await user.ReadEditorCapturesAsync(default)).Value.SingleOrDefault();
@@ -110,7 +110,7 @@ public sealed partial class NativePublicationConsumerTests
         after.Version.ShouldBe(before.Version);
         after.RetainedItems.Select(draft => origin.Workspace.DraftFingerprint(draft))
             .ShouldBe(before.RetainedItems.Select(draft => origin.Workspace.DraftFingerprint(draft)));
-        after.Proposals.ShouldBeEmpty();
+        after.Plans.ShouldBeEmpty();
         after.Journal.ShouldBeEmpty();
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
         _transport.PatchAttempts.ShouldBe(0);

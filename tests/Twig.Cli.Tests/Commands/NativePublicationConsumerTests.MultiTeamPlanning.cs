@@ -92,7 +92,7 @@ public sealed partial class NativePublicationConsumerTests
         BenchCodec.Serialize(RequiredPlanning(await shared.ReadAsync()).Benches.Single()).ShouldBe(BenchCodec.Serialize(bench));
         (await TwigConfiguration.LoadSplitAsync(paths)).Team.ShouldBe(config.Team);
         (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName))).ShouldBe(marker);
-        RequiredPlanning(await store.ReadAsync(connection, default)).Proposals.ShouldBeEmpty();
+        RequiredPlanning(await store.ReadAsync(connection, default)).Plans.ShouldBeEmpty();
         RequiredPlanning(await store.ReadAsync(connection, default)).Journal.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0);
         _transport.PatchAttempts.ShouldBe(0);
@@ -124,7 +124,7 @@ public sealed partial class NativePublicationConsumerTests
         var visible = RequiredPlanning(Twig.Core.Core.ApplyViewExclusions(keys,
             [new(SelectorKind.Query, query: Backlog(PrincipalTransport.TeamB), connection: connection)], observed.Snapshot, retainedSchema));
         visible.Single().NativeId.ShouldBe("42");
-        RequiredPlanning(await store.ReadAsync(connection, default)).Proposals.ShouldBeEmpty();
+        RequiredPlanning(await store.ReadAsync(connection, default)).Plans.ShouldBeEmpty();
         _transport.CommittedWrites.ShouldBe(0);
         _transport.PostCount.ShouldBe(0);
     }

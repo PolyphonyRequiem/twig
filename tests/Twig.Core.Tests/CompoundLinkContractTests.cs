@@ -31,9 +31,9 @@ public sealed class CompoundLinkContractTests
         var source = new WorkItem(Item, "type", Fields, new(Item, "1"), true);
         var changes = FieldValues.Empty.Set("title", FieldValue.String("one"));
         var op = new Op("edit", OpKind.Batch, Item, source.Revision, changes);
-        var proposal = new Proposal(Connection, schema.Fingerprint, 0, [op]);
-        var snapshot = new StoreSnapshot(0, [source], proposals: [proposal], journal: [JournalEntry.Planned(proposal.Digest, 0)]);
-        var actual = Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
+        var plan = new Plan(Connection, schema.Fingerprint, 0, [op]);
+        var snapshot = new StoreSnapshot(0, [source], plans: [plan], journal: [JournalEntry.Planned(plan.Digest, 0)]);
+        var actual = Model.ValidateEffect(plan, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
         var evaluation = Model.EvaluateEditorFields(schema, source, changes, true);
         if (scenario == "ambiguous-supplier")
         {
@@ -69,11 +69,11 @@ public sealed class CompoundLinkContractTests
             seed ? null : new(key, "1"), true);
         var op = new Op("authored", seed ? OpKind.Create : OpKind.Batch, key, source.Revision, changes, seed ? "type" : null,
             concurrency: seed ? ConcurrencyMode.ObservedNonAtomic : ConcurrencyMode.ExactRevision);
-        var proposal = new Proposal(Connection, schema.Fingerprint, 0, [op]);
+        var plan = new Plan(Connection, schema.Fingerprint, 0, [op]);
         var snapshot = new StoreSnapshot(0, seed ? [] : [source],
-            retainedItems: seed ? [new Seed(key, "type", changes)] : [], proposals: [proposal],
-            journal: [JournalEntry.Planned(proposal.Digest, 0)]);
-        Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Create, OpKind.Batch], [], [], true, true)).ShouldBeEmpty();
+            retainedItems: seed ? [new Seed(key, "type", changes)] : [], plans: [plan],
+            journal: [JournalEntry.Planned(plan.Digest, 0)]);
+        Model.ValidateEffect(plan, 0, schema, snapshot, new([OpKind.Create, OpKind.Batch], [], [], true, true)).ShouldBeEmpty();
         var evaluated = Model.EvaluateEditorFields(schema, source, changes, true);
         evaluated.IsSuccess.ShouldBeTrue(evaluated.IsSuccess ? "" : evaluated.Error.Message);
         var field = evaluated.Value.Fields.Single(value => value.Definition.Reference == "title");
@@ -96,12 +96,12 @@ public sealed class CompoundLinkContractTests
         var target = new WorkItem(Other, "type", Fields, new(Other, "1"), defect != "incomplete");
         var other = defect == "foreign" ? ItemKey.Remote(Connection.Provider, "foreign-scope", "43") : Other;
         var delta = new CreationLink(other, "related", defect != "inverse-association", defect == "missing-remove");
-        var proposal = new Proposal(Connection, Schema.Fingerprint, 0,
+        var plan = new Plan(Connection, Schema.Fingerprint, 0,
             [new("edit", OpKind.Batch, Item, source.Revision, FieldValues.Empty.Set("title", FieldValue.String("new")),
                 links: defect == "duplicate" ? [delta, delta] : [delta])]);
         var capabilities = new ProviderCapabilities([OpKind.Batch, OpKind.Relate, OpKind.Unrelate], ["related"], [], true, true)
             { AtomicRelationshipBatches = defect != "capability" };
-        Model.Validate(proposal, proposal.Digest, Schema, new(0, [source, target]), capabilities).ShouldNotBeEmpty();
+        Model.Validate(plan, plan.Digest, Schema, new(0, [source, target]), capabilities).ShouldNotBeEmpty();
     }
 
     [Fact]
@@ -110,10 +110,10 @@ public sealed class CompoundLinkContractTests
         var seed = ItemKey.Local(Guid.NewGuid());
         var delta = new CreationLink(Other, "related", true, true);
         var draft = new Seed(seed, "type", Fields, links: [delta]);
-        var proposal = new Proposal(Connection, Schema.Fingerprint, 0,
+        var plan = new Plan(Connection, Schema.Fingerprint, 0,
             [new("create", OpKind.Create, seed, fields: Fields, type: "type",
                 concurrency: ConcurrencyMode.ObservedNonAtomic, links: [delta])]);
-        Model.Validate(proposal, proposal.Digest, Schema,
+        Model.Validate(plan, plan.Digest, Schema,
             new(0, [new(Other, "type", Fields, new(Other, "1"), true)], retainedItems: [draft]),
             new([OpKind.Create], ["related"], [], true, true)).ShouldContain(error => error.Code == ErrorCode.InvalidInput);
         Should.Throw<ArgumentException>(() => new Seed(Item, "type", Fields, links: [delta]));
@@ -122,18 +122,18 @@ public sealed class CompoundLinkContractTests
     [Fact]
     public void AddDefaultsPreserveCanonicalTupleAndRemovalChangesOnlyItsExplicitDelta()
     {
-        Proposal WithLink(CreationLink link) => new(Connection, Schema.Fingerprint, 0,
+        Plan WithLink(CreationLink link) => new(Connection, Schema.Fingerprint, 0,
             [new("edit", OpKind.Batch, Item, new(Item, "1"), FieldValues.Empty.Set("title", FieldValue.String("new")), links: [link])]);
         var legacy = WithLink(new(Other, "related", true));
         var explicitDefault = WithLink(new(Other, "related", true, false));
         var removal = WithLink(new(Other, "related", true, true));
-        Model.ProposalBytes(explicitDefault).ShouldBe(Model.ProposalBytes(legacy));
-        using var added = JsonDocument.Parse(Model.ProposalBytes(legacy));
-        using var removed = JsonDocument.Parse(Model.ProposalBytes(removal));
+        Model.PlanBytes(explicitDefault).ShouldBe(Model.PlanBytes(legacy));
+        using var added = JsonDocument.Parse(Model.PlanBytes(legacy));
+        using var removed = JsonDocument.Parse(Model.PlanBytes(removal));
         added.RootElement.GetProperty("operations")[0].GetProperty("links")[0].GetArrayLength().ShouldBe(3);
         removed.RootElement.GetProperty("operations")[0].GetProperty("links")[0].GetArrayLength().ShouldBe(4);
         removal.Digest.ShouldNotBe(legacy.Digest);
-        Proposal.FormatVersion.ShouldBe(3);
+        Plan.FormatVersion.ShouldBe(3);
     }
 
     [Fact]
@@ -204,11 +204,11 @@ public sealed class CompoundLinkContractTests
             var evaluation = Model.EvaluateEditorFields(schema, source, fields, true).Value;
             var valid = fields.ContainsKey("state") && fields.ContainsKey("severity");
             evaluation.Errors.IsEmpty.ShouldBe(valid, "Neither replacing just state nor just severity can authorize the effect.");
-            var proposal = new Proposal(Connection, schema.Fingerprint, 0,
+            var plan = new Plan(Connection, schema.Fingerprint, 0,
                 [new("edit", OpKind.Batch, Item, source.Revision, fields)]);
-            var snapshot = new StoreSnapshot(0, [source], proposals: [proposal],
-                journal: [JournalEntry.Planned(proposal.Digest, 0)]);
-            var errors = Model.ValidateEffect(proposal, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
+            var snapshot = new StoreSnapshot(0, [source], plans: [plan],
+                journal: [JournalEntry.Planned(plan.Digest, 0)]);
+            var errors = Model.ValidateEffect(plan, 0, schema, snapshot, new([OpKind.Batch], [], [], true, true));
             errors.Select(error => (error.Code, error.Message))
                 .ShouldBe(evaluation.Errors.Select(error => (error.Code, "edit: " + error.Message)));
         }
@@ -233,10 +233,10 @@ public sealed class CompoundLinkContractTests
         field.HasAllowedConstraint.ShouldBeFalse("No active Allowed rule is unconstrained, not a constrained empty intersection.");
         field.Allowed.ShouldBeEmpty();
         evaluation.Errors.ShouldBeEmpty();
-        var proposal = new Proposal(Connection, schema.Fingerprint, 0,
+        var plan = new Plan(Connection, schema.Fingerprint, 0,
             [new("edit", OpKind.Batch, Item, source.Revision, changes)]);
-        Model.ValidateEffect(proposal, 0, schema,
-            new(0, [source], proposals: [proposal], journal: [JournalEntry.Planned(proposal.Digest, 0)]),
+        Model.ValidateEffect(plan, 0, schema,
+            new(0, [source], plans: [plan], journal: [JournalEntry.Planned(plan.Digest, 0)]),
             new([OpKind.Batch], [], [], true, true)).ShouldBeEmpty();
     }
 
@@ -257,10 +257,10 @@ public sealed class CompoundLinkContractTests
         var snapshot = new StoreSnapshot(0, [source, target]);
         var op = new Op("edit", OpKind.Batch, Item, source.Revision,
             FieldValues.Empty.Set("title", FieldValue.String("new")), links: [new(Other, "related", true)]);
-        var proposal = new Proposal(Connection, Schema.Fingerprint, snapshot.Version, [op]);
+        var plan = new Plan(Connection, Schema.Fingerprint, snapshot.Version, [op]);
         var capabilities = new ProviderCapabilities([OpKind.Batch, OpKind.Relate, OpKind.Unrelate], ["related"], [], true, true)
             { AtomicRelationshipBatches = true };
-        Model.Validate(proposal, proposal.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
+        Model.Validate(plan, plan.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
     }
 
     [Fact]
@@ -268,6 +268,6 @@ public sealed class CompoundLinkContractTests
     {
         typeof(CreationLink).GetConstructor([typeof(ItemKey), typeof(string), typeof(bool)])!.ShouldNotBeNull();
         typeof(CreationLink).GetConstructor([typeof(ItemKey), typeof(string), typeof(bool), typeof(bool)]).ShouldNotBeNull();
-        Proposal.FormatVersion.ShouldBe(3);
+        Plan.FormatVersion.ShouldBe(3);
     }
 }

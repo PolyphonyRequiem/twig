@@ -83,15 +83,15 @@ public sealed class WorkspaceInvariantTests
         var capabilities = new ProviderCapabilities([OpKind.Relate], ["parent-child"], ["related"], true, true);
         var snapshot = new StoreSnapshot(0, [Item("a"), Item("b")]);
         var op = new Op("link", OpKind.Relate, Key("a"), new Revision(Key("a"), "r"), other: Key("b"), relation: "related");
-        var proposal = new Proposal(Connection, Schema.Fingerprint, 0, [op]);
-        Rules.Validate(proposal, proposal.Digest, Schema, snapshot, capabilities)
+        var plan = new Plan(Connection, Schema.Fingerprint, 0, [op]);
+        Rules.Validate(plan, plan.Digest, Schema, snapshot, capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Unsupported);
         op = new("link", OpKind.Relate, Key("a"), other: Key("b"), relation: "related", origin: RelationshipOrigin.Local);
-        proposal = new(Connection, Schema.Fingerprint, 0, [op]);
-        Rules.Validate(proposal, proposal.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
+        plan = new(Connection, Schema.Fingerprint, 0, [op]);
+        Rules.Validate(plan, plan.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
         op = new("link", OpKind.Relate, Key("a"), new Revision(Key("a"), "r"), other: Key("b"), relation: "parent-child");
-        proposal = new(Connection, Schema.Fingerprint, 0, [op]);
-        Rules.Validate(proposal, proposal.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
+        plan = new(Connection, Schema.Fingerprint, 0, [op]);
+        Rules.Validate(plan, plan.Digest, Schema, snapshot, capabilities).ShouldBeEmpty();
     }
 
     [Fact]
@@ -120,13 +120,13 @@ public sealed class WorkspaceInvariantTests
         var tombstone = new Relationship(Key("a"), Key("b"), "related", RelationshipOrigin.Local, 2, Deleted: true);
         var op = new Op("revive", OpKind.Relate, Key("b"), other: Key("a"), relation: "related",
             origin: RelationshipOrigin.Local, expectedLocalVersion: 2);
-        var proposal = new Proposal(Connection, Schema.Fingerprint, 0, [op]);
-        var planned = JournalEntry.Planned(proposal.Digest, 0);
-        var store = new StoreSnapshot(1, [Item("a"), Item("b")], [tombstone], proposals: [proposal], journal: [planned]);
-        Rules.ValidateEffect(proposal, 0, Schema, store, capabilities).ShouldBeEmpty();
+        var plan = new Plan(Connection, Schema.Fingerprint, 0, [op]);
+        var planned = JournalEntry.Planned(plan.Digest, 0);
+        var store = new StoreSnapshot(1, [Item("a"), Item("b")], [tombstone], plans: [plan], journal: [planned]);
+        Rules.ValidateEffect(plan, 0, Schema, store, capabilities).ShouldBeEmpty();
         var moved = new StoreSnapshot(2, store.Items, [tombstone with { LocalVersion = 3 }],
-            proposals: [proposal], journal: [planned]);
-        Rules.ValidateEffect(proposal, 0, Schema, moved, capabilities)
+            plans: [plan], journal: [planned]);
+        Rules.ValidateEffect(plan, 0, Schema, moved, capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
     }
 

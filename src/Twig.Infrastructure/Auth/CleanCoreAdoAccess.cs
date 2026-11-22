@@ -110,17 +110,17 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
         {
             if (Volatile.Read(ref _disposed) != 0)
                 return Result<AdoWriteAdmission>.Fail(ErrorCode.Conflict, "The native operation lease has been released.");
-            var proposal = intent.Proposal;
-            if (proposal.Connection != Connection || intent.Operation < 0 || intent.Operation >= proposal.Operations.Length
+            var plan = intent.Plan;
+            if (plan.Connection != Connection || intent.Operation < 0 || intent.Operation >= plan.Operations.Length
                 || intent.Attempt == Guid.Empty || intent.MediaType != "application/json-patch+json")
-                return Result<AdoWriteAdmission>.Fail(ErrorCode.Conflict, "The exact retained proposal operation and attempt are required.");
+                return Result<AdoWriteAdmission>.Fail(ErrorCode.Conflict, "The exact retained plan operation and attempt are required.");
             var snapshot = await access._store.ReadAsync(Connection, ct).ConfigureAwait(false);
             if (!snapshot.IsSuccess) return Result<AdoWriteAdmission>.Fail(snapshot.Error);
-            var row = snapshot.Value.Journal.SingleOrDefault(j => j.Digest == proposal.Digest && j.Operation == intent.Operation);
-            if (!snapshot.Value.Proposals.Any(p => p.Digest == proposal.Digest)
+            var row = snapshot.Value.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == intent.Operation);
+            if (!snapshot.Value.Plans.Any(p => p.Digest == plan.Digest)
                 || row is not { Status: OpStatus.Applying } || row.Attempt != intent.Attempt)
                 return Result<AdoWriteAdmission>.Fail(ErrorCode.Conflict, "Native admission requires this exact durably Applying attempt.");
-            var op = proposal.Operations[intent.Operation];
+            var op = plan.Operations[intent.Operation];
             var kind = op.Kind switch
             {
                 OpKind.Create => "workitem-create",
@@ -141,15 +141,15 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
             await access.RevalidateAsync(ct).ConfigureAwait(false);
             var policy = await new ConfiguredPolicyProjectionSource(access._paths.RepoRoot).ReadAsync(ct).ConfigureAwait(false);
             if (!policy.IsSuccess) return Result<AdoWriteAdmission>.Fail(policy.Error);
-            if (proposal.PolicyIdentity != policy.Value.Identity || proposal.PolicyRevision != policy.Value.Revision)
+            if (plan.PolicyIdentity != policy.Value.Identity || plan.PolicyRevision != policy.Value.Revision)
                 return Result<AdoWriteAdmission>.Fail(ErrorCode.SchemaChanged,
                     "The actual configured Twig policy appeared, disappeared or changed after preview.");
-            var correlation = new CoreWriteCorrelation(ConnectionText(Connection), proposal.Digest, intent.Operation,
+            var correlation = new CoreWriteCorrelation(ConnectionText(Connection), plan.Digest, intent.Operation,
                 intent.Attempt, ItemText(op.Item), op.Kind == OpKind.Create ? op.Item.LocalId : null,
                 op.ExpectedRevision?.Token, access._storeInstance);
             var targets = await NativeCoreExecution.AdmitAsync(access._bindings.RegistryPath,
                 new(access._storeInstance, ((SqliteStore)access._store).DatabasePath, access._paths.RepoRoot, Connection),
-                proposal, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+                plan, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
             if (!targets.IsSuccess) return Result<AdoWriteAdmission>.Fail(targets.Error);
             try
             {

@@ -8,7 +8,7 @@ namespace Twig.Store.Sqlite;
 public sealed class SqliteStore : IStore
 {
     private const int ApplicationId = 0x54574353; // TWCS, not a legacy Twig cache.
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private readonly string _connectionString;
     public string DatabasePath { get; }
     public Guid InstanceId { get; private set; }
@@ -177,7 +177,7 @@ public sealed class SqliteStore : IStore
             if (!errors.IsEmpty)
                 return Result<long>.Fail(new Error(errors[0].Code, "Snapshot violates the clean-core commit contract.")
                 { Evidence = errors.Select(e => e.Message).ToImmutableArray() });
-            if (next.Proposals.Any(p => p.Connection != connection))
+            if (next.Plans.Any(p => p.Connection != connection))
                 return Result<long>.Fail(ErrorCode.Conflict, "Retained intent must belong to this exact connection binding.");
             var document = Persistence.Serialize(next);
             _ = Persistence.Deserialize(document);
@@ -215,8 +215,8 @@ public sealed class SqliteStore : IStore
         await using var reader = await command.ExecuteReaderAsync(ct);
         if (!await reader.ReadAsync(ct)) return new StoreSnapshot(0);
         var snapshot = Persistence.Deserialize(reader.GetString(1));
-        if (snapshot.Version != reader.GetInt64(0) || snapshot.Proposals.Any(p => p.Connection != connection))
-            throw new InvalidDataException("Snapshot version or proposal connection does not match its stored partition.");
+        if (snapshot.Version != reader.GetInt64(0) || snapshot.Plans.Any(p => p.Connection != connection))
+            throw new InvalidDataException("Snapshot version or plan connection does not match its stored partition.");
         return snapshot;
     }
 

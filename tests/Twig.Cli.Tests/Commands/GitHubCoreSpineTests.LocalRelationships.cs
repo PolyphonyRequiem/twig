@@ -44,7 +44,7 @@ public sealed partial class GitHubCoreSpineTests
         original.Origin.ShouldBe(RelationshipOrigin.Local);
         original.LocalVersion.ShouldBe(1);
         original.Deleted.ShouldBeFalse();
-        added.Proposals.Single().Operations.Single().ExpectedLocalVersion.ShouldBeNull();
+        added.Plans.Single().Operations.Single().ExpectedLocalVersion.ShouldBeNull();
         added.Journal.Single().Status.ShouldBe(OpStatus.Verified);
         using (var result = JsonDocument.Parse(f.Output))
         {
@@ -79,20 +79,20 @@ public sealed partial class GitHubCoreSpineTests
         (await f.Snapshot()).Version.ShouldBe(added.Version);
         File.Exists(Path.Combine(f.Root, ".twig", "core-context.json")).ShouldBeFalse();
         f.Run("link", "local", "related", uuid, "--id", "42", "-o", "json").ShouldBe(1);
-        (await f.Snapshot()).Proposals.Length.ShouldBe(1, "duplicate add is not a fake Verified operation");
+        (await f.Snapshot()).Plans.Length.ShouldBe(1, "duplicate add is not a fake Verified operation");
         f.Run("link", "local", "unrelate", "42", "--id", uuid, "-o", "json").ShouldBe(0, f.Error);
         var removed = await f.Snapshot();
         removed.Relationships.Single().ShouldBe(original with { Deleted = true, LocalVersion = 2 });
         using (var result = JsonDocument.Parse(f.Output))
             AssertLocalRelationship(result.RootElement.GetProperty("relationship"), original with { Deleted = true, LocalVersion = 2 });
-        removed.Proposals.Last().Operations.Single().ExpectedLocalVersion.ShouldBe(1);
+        removed.Plans.Last().Operations.Single().ExpectedLocalVersion.ShouldBe(1);
         f.Run("link", "local", "unrelate", uuid, "--id", "42", "-o", "json").ShouldBe(1);
         f.Run("link", "local", "related", "42", "--id", uuid, "-o", "json").ShouldBe(0, f.Error);
         var resurrected = await f.Snapshot();
         resurrected.Relationships.Single().ShouldBe(original with { LocalVersion = 3 });
         using (var result = JsonDocument.Parse(f.Output))
             AssertLocalRelationship(result.RootElement.GetProperty("relationship"), original with { LocalVersion = 3 });
-        resurrected.Proposals.Last().Operations.Single().ExpectedLocalVersion.ShouldBe(2);
+        resurrected.Plans.Last().Operations.Single().ExpectedLocalVersion.ShouldBe(2);
         resurrected.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
         f.Http.Writes.ShouldBe(0, "metadata/read acquisition is allowed; native GraphQL mutations are not");
         telemetry.ShouldNotBeNull();
@@ -123,7 +123,7 @@ public sealed partial class GitHubCoreSpineTests
         var original = linked.Relationships.Single();
         using (var output = JsonDocument.Parse(f.Output))
             AssertLocalRelationship(output.RootElement.GetProperty("relationship"), original);
-        var bytes = Core.Core.ProposalBytes(linked.Proposals.Single());
+        var bytes = Core.Core.PlanBytes(linked.Plans.Single());
         f.Run("seed", "publish", CoreHostContext.LocalAlias(source.Key).ToString(CultureInfo.InvariantCulture)).ShouldBe(0, f.Error);
         var published = await f.Snapshot();
         published.Mappings.Single().Local.ShouldBe(source.Key);
@@ -149,7 +149,7 @@ public sealed partial class GitHubCoreSpineTests
         var final = await f.Snapshot();
         final.Relationships.Single().ShouldBe(original with { LocalVersion = 3 });
         final.Mappings.Single().ShouldBe(published.Mappings.Single());
-        Core.Core.ProposalBytes(final.Proposals.First()).ShouldBe(bytes);
+        Core.Core.PlanBytes(final.Plans.First()).ShouldBe(bytes);
         final.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
         f.Http.Writes.ShouldBe(1, "only the explicit seed publication may mutate the tracker");
         var parallel = original with
@@ -162,7 +162,7 @@ public sealed partial class GitHubCoreSpineTests
         f.Error.ShouldContain("Conflicting logical");
         f.Run("link", "local", "unrelate", other, "--id", uuid, "-o", "json").ShouldBe(1);
         f.Error.ShouldContain("Conflicting logical");
-        (await f.Snapshot()).Proposals.Length.ShouldBe(final.Proposals.Length);
+        (await f.Snapshot()).Plans.Length.ShouldBe(final.Plans.Length);
     }
 
     [Fact]
@@ -183,7 +183,7 @@ public sealed partial class GitHubCoreSpineTests
         f.Error.ShouldContain("unresolved");
         var after = await f.Snapshot();
         after.Relationships.ShouldBeEmpty();
-        after.Proposals.Length.ShouldBe(before.Proposals.Length);
+        after.Plans.Length.ShouldBe(before.Plans.Length);
         after.Version.ShouldBe(before.Version);
         after.Journal.Single().Digest.ShouldBe(before.Journal.Single().Digest);
         after.Journal.Single().Attempt.ShouldBe(before.Journal.Single().Attempt);
@@ -220,7 +220,7 @@ public sealed partial class GitHubCoreSpineTests
         }
         f.Http.Requests.ShouldBe(requests);
         (await f.Snapshot()).Version.ShouldBe(before.Version);
-        (await f.Snapshot()).Proposals.ShouldBeEmpty();
+        (await f.Snapshot()).Plans.ShouldBeEmpty();
         f.Http.Writes.ShouldBe(0);
     }
 

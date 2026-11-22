@@ -50,11 +50,11 @@ public sealed record Op
     public FieldValues CreateEvidence { get; init; }
 }
 
-public sealed record Proposal
+public sealed record Plan
 {
     public const int FormatVersion = 3;
 
-    public Proposal(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations,
+    public Plan(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations,
         string? policyIdentity = null, string? policyRevision = null)
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
@@ -62,7 +62,7 @@ public sealed record Proposal
         if (expectedStoreVersion < 0) throw new ArgumentOutOfRangeException(nameof(expectedStoreVersion));
         ExpectedStoreVersion = expectedStoreVersion;
         Operations = Contract.Unique(operations, o => o.Id);
-        if (Operations.IsEmpty) throw new ArgumentException("A proposal must declare an effect.", nameof(operations));
+        if (Operations.IsEmpty) throw new ArgumentException("A plan must declare an effect.", nameof(operations));
         if ((policyIdentity is null) != (policyRevision is null))
             throw new ArgumentException("Configured policy identity and revision must be supplied together.", nameof(policyIdentity));
         PolicyIdentity = policyIdentity is null ? null : Contract.Text(policyIdentity, nameof(policyIdentity));

@@ -21,7 +21,7 @@ exact discovered references are preferable for automation.
 Use exactly one value source: inline, `--file`, or `--stdin`.
 `--append` requires an actually observed text-like field.
 
-Published-item changes stage, preview and save through the same Core proposal
+Published-item changes stage, preview and save through the same Core plan
 and verified journal path. Seed field edits CAS the original local draft and
 do not create a provider item. Name the target with `--id` in every output format.
 HTML fields use supported Markdown/raw conversion; native Markdown stays Markdown.

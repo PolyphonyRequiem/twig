@@ -251,7 +251,7 @@ public sealed partial class NativePublicationConsumerTests
             .Value.Single().NativeId.ShouldBe("43");
         BenchCodec.Serialize((await shared.ReadAsync()).Value.Benches.Single()).ShouldBe(definition);
         (await store.ReadAsync(connection, default)).Value.Benches.ShouldBeEmpty();
-        (await store.ReadAsync(connection, default)).Value.Proposals.ShouldBeEmpty();
+        (await store.ReadAsync(connection, default)).Value.Plans.ShouldBeEmpty();
         (await store.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
         File.Exists(Path.Combine(paths.TwigDir, "core-context.json")).ShouldBeFalse();
         _transport.CommittedWrites.ShouldBe(0);
@@ -324,10 +324,10 @@ public sealed partial class NativePublicationConsumerTests
         var edge = new Relationship(key, other, "Native.ParentForward", RelationshipOrigin.Provider);
         var draft = new Seed(ItemKey.Local(Guid.NewGuid()), item.Type, item.Fields);
         var bench = new Twig.Core.Bench(Guid.NewGuid(), "Copy this scope", [new(SelectorKind.Pin, key)]);
-        var proposal = new Proposal(connection, "retained-schema", 0,
+        var plan = new Plan(connection, "retained-schema", 0,
             [new("keep", OpKind.Batch, key, item.Revision, item.Fields)]);
-        var journal = JournalEntry.Planned(proposal.Digest, 0);
-        (await store.CommitAsync(connection, 0, new(1, [item], [edge], [draft], [proposal], [journal],
+        var journal = JournalEntry.Planned(plan.Digest, 0);
+        (await store.CommitAsync(connection, 0, new(1, [item], [edge], [draft], [plan], [journal],
             benches: [bench]), default)).IsSuccess.ShouldBeTrue();
         var before = (await store.ReadAsync(connection, default)).Value;
         var marker = await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName));
@@ -373,7 +373,7 @@ public sealed partial class NativePublicationConsumerTests
         (await File.ReadAllBytesAsync(Path.Combine(paths.TwigDir, CoreWorkspaceFactory.FileName))).ShouldBe(marker);
         var after = (await store.ReadAsync(connection, default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Proposals.Select(value => value.Digest).ShouldBe(before.Proposals.Select(value => value.Digest));
+        after.Plans.Select(value => value.Digest).ShouldBe(before.Plans.Select(value => value.Digest));
         after.Journal.ShouldBe(before.Journal);
     }
 

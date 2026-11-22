@@ -125,7 +125,7 @@ public sealed class StructuredMutationArgumentValidatorTests
         StructuredMutationArgumentValidator.Validate(["tree", "--all", "-o", "json"]).ShouldBeNull();
         foreach (var format in new[] { "json", "minimal", "json-full" })
             CoreMutationAdmissionGuard.ValidateCatalog(["nav", "history", "-o", format]).ShouldNotBeNull().ShouldContain("retired");
-        AssertError(["seed", "publish", "-6", "-o", "json"], "reviewed proposal");
+        AssertError(["seed", "publish", "-6", "-o", "json"], "reviewed plan");
     }
 
     [Theory]
@@ -178,9 +178,9 @@ public sealed class StructuredMutationArgumentValidatorTests
     }
 
     [Fact]
-    public void FileScopedProposalApplyDoesNotDependOnActiveItem()
+    public void FileScopedPlanApplyDoesNotDependOnActiveItem()
     {
-        StructuredMutationArgumentValidator.Validate(["proposal", "apply", "--file", "proposal.json", "--confirm", "digest", "-o", "json"])
+        StructuredMutationArgumentValidator.Validate(["plan", "apply", "--file", "plan.json", "--confirm", "digest", "-o", "json"])
             .ShouldBeNull();
     }
 

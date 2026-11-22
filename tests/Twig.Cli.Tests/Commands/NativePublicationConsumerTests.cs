@@ -664,7 +664,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CorePlanInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders()
     {
-        var native = await AttachAsync();
+        var native = await AttachAsync(canonicalRoot: true);
         var config = native.GetRequiredService<TwigConfiguration>();
         var paths = native.GetRequiredService<TwigPaths>();
         _transport.CoreMetadataEnabled = true;
@@ -950,7 +950,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreExplicitSaveReturnsOneVerifiedPlanAndDoesNotReplayIt()
     {
-        var native = await AttachAsync();
+        var native = await AttachAsync(canonicalRoot: true);
         var config = native.GetRequiredService<TwigConfiguration>();
         var paths = native.GetRequiredService<TwigPaths>();
         _transport.CoreMetadataEnabled = true;
@@ -1529,7 +1529,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CoreSeedPublicationUsesTheRetainedUuidAndPermanentVerifiedMapping()
     {
-        var native = await AttachAsync();
+        var native = await AttachAsync(canonicalRoot: true);
         var config = native.GetRequiredService<TwigConfiguration>();
         var paths = native.GetRequiredService<TwigPaths>();
         _transport.CoreMetadataEnabled = true;
@@ -2216,7 +2216,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     [Fact]
     public async Task CleanCoreAdmissionRetainsRealNativeLeaseAndExactDurableAttemptAttribution()
     {
-        var runtime = await AttachAsync();
+        var runtime = await AttachAsync(canonicalRoot: true);
         var config = runtime.GetRequiredService<TwigConfiguration>();
         var paths = runtime.GetRequiredService<TwigPaths>();
         var origin = await _bindings.ResolveAsync(config, paths);
@@ -2360,11 +2360,13 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
     }
 
-    private async Task<ServiceProvider> AttachAsync()
+    private async Task<ServiceProvider> AttachAsync(bool canonicalRoot = false)
     {
         var root = Path.Combine(_temp, "checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        // Native admission tests reopen from Git's reported path; use that spelling from the start.
+        if (canonicalRoot) root = WorktreeAnchorDetector.Detect(root)!.Value.WorktreeRoot;
         var config = new TwigConfiguration { Organization = "fixture", Project = "Project" };
         config.Display.Hints = false;
         var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), config, root);

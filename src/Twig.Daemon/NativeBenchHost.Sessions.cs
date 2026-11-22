@@ -207,7 +207,8 @@ public static partial class NativeBenchHost
             var available = repository?.Connections.ToHashSet();
             var cached = cachedAdmissionOnly || repository is not null;
             var registry = Require(await panel.WorkspacesAsync(ct));
-            var retainedRoots = ViewSessions.Roots(before.Choices).ToHashSet(ViewSession.PathComparer);
+            var sameScope = ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, repository?.RepositoryRoot);
+            var retainedRoots = (sameScope ? ViewSessions.Roots(before.Choices) : []).ToHashSet(ViewSession.PathComparer);
             var references = sessions.StateReferences(session).Where(reference => retainedRoots.Contains(reference.Root));
             NativePanelContext? initialViewing;
             NativePanelContext? initialPopulation;
@@ -245,7 +246,11 @@ public static partial class NativeBenchHost
                             if (cachedAdmissionOnly && !result.IsSuccess && result.Error.Code == Twig.Core.ErrorCode.Conflict)
                                 throw new HttpFailure(409, "SourceChanged", "A retained source binding changed. Choose the exact intended connection explicitly.");
                             if (!result.IsSuccess) state = new(reference.Root, "unavailable", result.Error.Code.ToString());
-                            else if (CatalogFingerprint.Binding(result.Value.Source.Binding) != reference.Binding)
+                            else if (CatalogFingerprint.Binding(result.Value.Source.Binding) != reference.Binding
+                                || (available is not null && (!available.Contains(result.Value.Stamp.Connection)
+                                    || !registry.Any(workspace => ViewSession.PathComparer.Equals(workspace.Root, reference.Root)
+                                        && workspace.Connection == result.Value.Stamp.Connection
+                                        && workspace.StoreInstance == result.Value.Stamp.StoreInstance))))
                                 state = new(reference.Root, "changed", "SourceChanged");
                             else { context = result.Value; state = new(reference.Root, "restored", null); }
                         }
@@ -269,12 +274,11 @@ public static partial class NativeBenchHost
                 }
             }
             var shared = Require(await panel.ListAsync(ct));
-            var retained = ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, session.RepositoryRoot)
-                ? before.Choices.BenchId : null;
+            var retained = sameScope ? before.Choices.BenchId : null;
             var currentBench = before.CurrentBenchId;
             if (!session.StartupSelectionResolved)
                 currentBench = RepositoryBench(sessions, session, repository, shared, retained);
-            else if (session.AppliedChoices is { } previous && previous.BenchId != retained)
+            else if (repository is null && session.AppliedChoices is { } previous && previous.BenchId != retained)
                 currentBench = retained;
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
                 ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cached)).ToArray()
@@ -294,11 +298,11 @@ public static partial class NativeBenchHost
                             || !ReferenceEquals(current, pair.Value)))
                         throw new HttpFailure(409, "ViewStateConflict", "A connection choice changed during restoration. Read the current view before restoring.");
                     session.Editor.Invalidate();
-                    session.NativeContext = before.Choices.ViewingRoot is { } viewing
-                        ? resolved.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, viewing))
-                        : resolved.FirstOrDefault();
-                    session.PopulationContext = before.Choices.AddRoot is { } add
-                        ? resolved.FirstOrDefault(value => ViewSession.PathComparer.Equals(value.Root, add)) : null;
+                    session.NativeContext = sameScope && before.Choices.ViewingRoot is { } viewing
+                        ? resolved.FirstOrDefault(value => ReferenceEquals(value, opened.GetValueOrDefault(viewing)))
+                        : repository is null || resolved.Length == 1 ? resolved.FirstOrDefault() : null;
+                    session.PopulationContext = currentBench is not null && before.Choices.AddRoot is { } add
+                        ? opened.GetValueOrDefault(add) : null;
                     session.DisplayContexts.Clear();
                     foreach (var context in resolved)
                         session.DisplayContexts[context.Stamp.Connection] = context;
@@ -314,27 +318,72 @@ public static partial class NativeBenchHost
         finally { session.RecoveryGate.Release(); }
     }
 
+    private sealed record SelectionSnapshot(long Revision, long ExplicitRevision, bool StartupResolved, Guid? Bench,
+        UserRepositoryBindings? Repository, NativePanelContext? Viewing, NativePanelContext? Add, NativePanelContext[] Display)
+    {
+        internal bool Matches(SelectionSnapshot other) => Revision == other.Revision && StartupResolved == other.StartupResolved
+            && Bench == other.Bench && ReferenceEquals(Repository, other.Repository)
+            && ReferenceEquals(Viewing, other.Viewing) && ReferenceEquals(Add, other.Add)
+            && Display.Length == other.Display.Length && Display.All(source => other.Display.Any(current => ReferenceEquals(current, source)));
+    }
+
+    private static SelectionSnapshot CaptureSelection(ViewSession session)
+    {
+        lock (session) return new(session.SelectionRevision, session.ExplicitSelectionRevision, session.StartupSelectionResolved,
+            session.CurrentBenchId, session.RepositoryBindings, session.NativeContext, session.PopulationContext,
+            session.DisplayContexts.Values.ToArray());
+    }
+
+    private static HttpFailure SelectionChanged()
+        => new(409, "BenchViewChanged", "The selected Bench or connection choices changed during connection resolution.");
+
+    private static async Task<(NativePanelContext? Viewing, NativePanelContext? Add, NativePanelContext[] Display)>
+        ResolveSelectionChoices(NativePanel panel, SelectionSnapshot captured, Twig.Core.Bench? bench, HashSet<Twig.Core.Connection>? available,
+            CancellationToken ct)
+    {
+        if (bench is null) return (null, null, []);
+        var registry = Require(await panel.WorkspacesAsync(ct));
+        async Task<NativePanelContext?> Keep(NativePanelContext? source)
+        {
+            if (source is null || available?.Contains(source.Stamp.Connection) == false
+                || !registry.Any(workspace => ViewSession.PathComparer.Equals(workspace.Root, source.Root)
+                    && workspace.Connection == source.Stamp.Connection && workspace.StoreInstance == source.Stamp.StoreInstance))
+                return null;
+            var exact = await panel.OpenAsync(source.Root, ct, CatalogFingerprint.Binding(source.Source.Binding), cachedAdmissionOnly: true);
+            return exact.IsSuccess && exact.Value.Stamp == source.Stamp ? source : null;
+        }
+        var viewing = captured.Viewing is { } anchor && bench.Connections.Contains(anchor.Stamp.Connection) ? await Keep(anchor) : null;
+        var add = viewing is not null && ReferenceEquals(viewing, captured.Add) ? viewing : await Keep(captured.Add);
+        var refused = new[] { (Prior: captured.Viewing, Kept: viewing), (Prior: captured.Add, Kept: add) }
+            .Where(choice => choice.Prior is not null && choice.Kept is null)
+            .Select(choice => choice.Prior!.Stamp.Connection).ToHashSet();
+        var permitted = bench.Connections.Where(connection => !refused.Contains(connection)
+            && available?.Contains(connection) != false).ToHashSet();
+        var previous = captured.Display.Where(source => permitted.Contains(source.Stamp.Connection));
+        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Id, previous, ct, permitted,
+            cachedAdmissionOnly: captured.Repository is not null)).ToArray();
+        return (resolved.FirstOrDefault(source => ReferenceEquals(source, viewing)), add, resolved);
+    }
+
     private static async Task ResolveBenchConnections(NativePanel panel, ViewSession session, CancellationToken ct,
         bool cachedAdmissionOnly = false)
     {
-        Guid? bench;
-        NativePanelContext[] previous;
-        lock (session) { bench = session.CurrentBenchId; previous = session.DisplayContexts.Values.ToArray(); }
-        if (bench is null) return;
-        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct, AvailableConnections(session), cachedAdmissionOnly));
+        var captured = CaptureSelection(session);
+        if (captured.Bench is not { } bench) return;
+        var available = captured.Repository?.Connections.ToHashSet();
+        var resolved = Require(await panel.ResolveConnectionsAsync(bench, captured.Display, ct, available,
+            cachedAdmissionOnly || captured.Repository is not null));
         lock (session.Agent)
         lock (session)
         {
-            if (session.CurrentBenchId != bench)
-                throw new HttpFailure(409, "BenchViewChanged", "The selected Bench changed during connection resolution.");
-            if (resolved.Length == previous.Length && resolved.All(previous.Contains)) return;
+            if (!captured.Matches(CaptureSelection(session)) || session.Revoked) throw SelectionChanged();
+            if (resolved.Length == captured.Display.Length && resolved.All(captured.Display.Contains)) return;
             session.Agent.Invalidate();
             session.Editor.Invalidate();
-            session.NativeContext = resolved.FirstOrDefault();
+            session.NativeContext = resolved.FirstOrDefault(source => ReferenceEquals(source, captured.Viewing))
+                ?? (captured.Repository is null || resolved.Length == 1 ? resolved.FirstOrDefault() : null);
             session.DisplayContexts.Clear();
             foreach (var source in resolved) session.DisplayContexts[source.Stamp.Connection] = source;
-            if (session.PopulationContext is { } population && !resolved.Contains(population))
-                session.PopulationContext = null;
         }
     }
 }

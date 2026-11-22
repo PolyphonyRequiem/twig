@@ -173,8 +173,8 @@ internal static class SessionTests
             var response = await host.Send("PUT", $"/api/v1/views/{next.ViewId:D}/selection",
                 new SelectionBody(selected, fallback), next.ContentCapability, null, ct);
             Check(response.Status == 200, "Another session can choose a different Bench.");
-            Check(await Initial(host, Open(restarted, "first", repository)) == selected,
-                "An existing session's explicit saved selection takes precedence over repository memory.");
+            Check(await Initial(host, Open(restarted, "first", repository)) == fallback,
+                "Reopening an old session must not shadow the latest explicit repository selection.");
             var fresh = Open(restarted, "latest", repository);
             Check(await Initial(host, fresh) == fallback,
                 "A later new session must use the latest explicit repository selection.");

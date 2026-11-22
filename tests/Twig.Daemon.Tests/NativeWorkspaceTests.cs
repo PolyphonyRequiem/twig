@@ -137,12 +137,15 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         var second = await Bench("Second", source.Stamp.Connection);
         await Select(first.Id);
         await Workspace();
-        var (entered, release) = BlockNextRead();
+        var (entered, release) = BlockNextAccountRead();
         var reading = client.GetAsync(View + "workspace");
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await Select(second.Id, first.Id);
-        await Select(first.Id, second.Id);
-        release.SetResult();
+        try
+        {
+            await Select(second.Id, first.Id);
+            await Select(first.Id, second.Id);
+        }
+        finally { release.SetResult(); }
         using var refused = await reading;
         refused.StatusCode.ShouldBe(HttpStatusCode.Conflict);
         (await refused.Content.ReadAsStringAsync()).ShouldContain("ViewStateConflict");
@@ -361,6 +364,148 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task SelectionCannotPublishConnectionsFromSupersededRepositoryBindings()
+    {
+        await Start();
+        var source = await Source("superseded");
+        var bench = await Bench("Same Bench", source.Stamp.Connection);
+        var repository = await Repository("repository");
+        var bindings = (await definitions.SaveRepositoryAsync(repository, 0, [source.Stamp.Connection], null)).Value;
+        await SetRepository(repository);
+        var (entered, release) = BlockNextRead();
+        var selecting = PutSelection(bench.Id);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            (await definitions.SaveRepositoryAsync(repository, bindings.Revision, [], null)).IsSuccess.ShouldBeTrue();
+            await Workspace();
+        }
+        finally { release.SetResult(); }
+        using var response = await selecting;
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        sessions.Content(owner.ViewId, owner.ContentCapability, true).NativeContext.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task SelectionCannotPublishAfterOwnerAuthorityExpires()
+    {
+        await Start();
+        var source = await Source("expiry");
+        var bench = await Bench("Expired request", source.Stamp.Connection);
+        var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+        var (entered, release) = BlockNextRead();
+        var selecting = PutSelection(bench.Id);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            clock.Now += TimeSpan.FromHours(25);
+        }
+        finally { release.SetResult(); }
+        using var response = await selecting;
+        response.StatusCode.ShouldBe(HttpStatusCode.Forbidden);
+        session.NativeContext.ShouldBeNull();
+        session.CurrentBenchId.ShouldBeNull();
+    }
+
+    [Fact]
+    public async Task ExplicitSelectionWinsWhenStartupResolvesDuringAdmission()
+    {
+        await Start();
+        var source = await Source("explicit");
+        var choice = await Bench("Explicit", source.Stamp.Connection);
+        var fallback = await Bench("Startup default");
+        var repository = await Repository("repository");
+        (await definitions.SaveRepositoryAsync(repository, 0, [source.Stamp.Connection], fallback.Id)).IsSuccess.ShouldBeTrue();
+        await SetRepository(repository);
+
+        var (entered, release) = BlockNextRead();
+        var selecting = PutSelection(choice.Id);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(fallback.Id);
+        }
+        finally { release.SetResult(); }
+        using var response = await selecting;
+        response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
+        (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(choice.Id);
+    }
+
+    [Fact]
+    public async Task CompetingExplicitSelectionCannotOverwriteTheWinner()
+    {
+        await Start();
+        var source = await Source("slow-choice");
+        var slow = await Bench("Slow choice", source.Stamp.Connection);
+        var winner = await Bench("Winning choice");
+        var (entered, release) = BlockNextRead();
+        var selecting = PutSelection(slow.Id);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Select(winner.Id);
+        }
+        finally { release.SetResult(); }
+        using var response = await selecting;
+        response.StatusCode.ShouldBe(HttpStatusCode.Conflict);
+        (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(winner.Id);
+    }
+
+    [Fact]
+    public async Task OlderProfileCannotShadowNewerRepositoryChoice()
+    {
+        await Start();
+        var first = await Bench("First");
+        var second = await Bench("Second");
+        var repository = await Repository("repository");
+        await SetRepository(repository);
+        await Select(first.Id);
+        var instance = (await definitions.ReadAsync()).Value.InstanceId;
+        owner = sessions.ConnectOwner(instance, null, Guid.NewGuid());
+        client.DefaultRequestHeaders.Authorization = new("Bearer", owner.ContentCapability);
+        await SetRepository(repository);
+        await Select(second.Id);
+        owner = sessions.ConnectOwner(instance, null, profile);
+        client.DefaultRequestHeaders.Authorization = new("Bearer", owner.ContentCapability);
+        (await Workspace()).GetProperty("view").GetProperty("id").GetGuid().ShouldBe(second.Id);
+    }
+
+    [Fact]
+    public async Task BenchSwitchRetainsExactViewingAndAddChoicesStillInScope()
+    {
+        await Start();
+        var first = await Source("first");
+        var second = await Source("second");
+        var firstBench = await Bench("First", first.Stamp.Connection, second.Stamp.Connection);
+        var secondBench = await Bench("Second", first.Stamp.Connection, second.Stamp.Connection);
+        var thirdBench = await Bench("Third", first.Stamp.Connection);
+        var repository = await Repository("repository");
+        (await definitions.SaveRepositoryAsync(repository, 0, [first.Stamp.Connection, second.Stamp.Connection],
+            firstBench.Id)).IsSuccess.ShouldBeTrue();
+        await SetRepository(repository);
+        await Workspace();
+        var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+        var state = sessions.ReadState(session);
+        sessions.SaveState(session, new(state.Revision, state.Choices with
+        { ViewingRoot = second.Root, AddRoot = second.Root, DisplayRoots = [first.Root, second.Root] }));
+        await Workspace();
+        await Select(secondBench.Id, firstBench.Id);
+        var workspace = await Workspace();
+        workspace.GetProperty("summary").GetProperty("contextRoot").GetString().ShouldBe(second.Root);
+        workspace.GetProperty("summary").GetProperty("populationRoot").GetString().ShouldBe(second.Root);
+        await Select(thirdBench.Id, secondBench.Id);
+        state = sessions.ReadState(session);
+        state.Choices.ViewingRoot.ShouldBeNull();
+        state.Choices.AddRoot.ShouldBe(second.Root); // Add is repository-scoped, not Bench-scoped.
+        var otherRepository = await Repository("other");
+        (await definitions.SaveRepositoryAsync(otherRepository, 0, [first.Stamp.Connection], thirdBench.Id)).IsSuccess.ShouldBeTrue();
+        await SetRepository(otherRepository);
+        workspace = await Workspace();
+        workspace.GetProperty("summary").GetProperty("contextRoot").GetString().ShouldBe(first.Root);
+        workspace.GetProperty("summary").GetProperty("populationRoot").ValueKind.ShouldBe(JsonValueKind.Null);
+    }
+
+    [Fact]
     public async Task RepositoryScopeWithholdsUnassignedSourceWithoutRetargetingSavedBench()
     {
         await Start();
@@ -428,6 +573,16 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         return (entered, release);
     }
 
+    private (TaskCompletionSource Entered, TaskCompletionSource Release) BlockNextAccountRead()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        setup.NextRead = async () => { entered.SetResult(); await release.Task; };
+        return (entered, release);
+    }
+
+    private readonly SetupGateway setup = new();
+
     private async Task Start()
     {
         Directory.CreateDirectory(root);
@@ -437,7 +592,7 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         profile = Guid.NewGuid();
         owner = sessions.ConnectOwner(instance, null, profile);
         app = NativeBenchHost.Build(new(0, root),
-            new(definitions, gateway, new(Path.Combine(root, "admissions"), gateway, changes)), sessions, changes);
+            new(definitions, gateway, new(Path.Combine(root, "admissions"), gateway, changes)), sessions, changes, setup);
         await app.StartAsync();
         client.BaseAddress = new(app.Urls.Single());
         client.DefaultRequestHeaders.Authorization = new("Bearer", owner.ContentCapability);
@@ -494,11 +649,14 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
 
     private async Task Select(Guid next, Guid? previous = null)
     {
-        using var response = await client.PutAsync(View + "selection", new StringContent(
-            $$"""{"expectedBenchId":{{(previous is null ? "null" : "\"" + previous + "\"")}},"benchId":"{{next}}"}""",
-            Encoding.UTF8, "application/json"));
+        using var response = await PutSelection(next, previous);
         response.StatusCode.ShouldBe(HttpStatusCode.OK, await response.Content.ReadAsStringAsync());
     }
+
+    private Task<HttpResponseMessage> PutSelection(Guid next, Guid? previous = null)
+        => client.PutAsync(View + "selection", new StringContent(
+            $$"""{"expectedBenchId":{{(previous is null ? "null" : "\"" + previous + "\"")}},"benchId":"{{next}}"}""",
+            Encoding.UTF8, "application/json"));
 
     private async Task<JsonElement> Workspace()
     {
@@ -520,6 +678,22 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     {
         internal DateTimeOffset Now { get; set; } = DateTimeOffset.UtcNow;
         public override DateTimeOffset GetUtcNow() => Now;
+    }
+
+    private sealed class SetupGateway : INativeConnectionSetupGateway
+    {
+        internal Func<Task>? NextRead;
+        public async Task<Result<NativeAadEnrollment[]>> ListAadIdentitiesAsync(CancellationToken ct)
+        {
+            if (Interlocked.Exchange(ref NextRead, null) is { } next) await next().WaitAsync(ct);
+            return Result<NativeAadEnrollment[]>.Ok([]);
+        }
+        public Task<Result<NativeAadEnrollment>> EnrollAadAsync(NativeAadEnrollmentRequest request, Action<Uri> authorizationUrl,
+            CancellationToken ct) => throw new NotSupportedException();
+        public Task<Result<NativeAdoBinding>> CreateAdoBindingAsync(NativeAdoBindingRequest request, CancellationToken ct)
+            => throw new NotSupportedException();
+        public Task<Result<NativeSourceObservation>> InitializeFreshAsync(NativeFreshSetupRequest request, CancellationToken ct)
+            => throw new NotSupportedException();
     }
 
     private sealed class Gateway : INativeSourceGateway

@@ -32,8 +32,7 @@ public static partial class NativeBenchHost
         UserRepositoryBindings? bindings, UserBenchSnapshot catalogue, Guid? retained)
     {
         bool Exists(Guid? id) => id is { } candidate && catalogue.Benches.Any(bench => bench.Id == candidate);
-        if (Exists(retained)) return retained;
-        if (bindings is null) return null;
+        if (bindings is null) return Exists(retained) ? retained : null;
         var remembered = sessions.ReadRepositoryBench(session, bindings.RepositoryId);
         if (Exists(remembered)) return remembered;
         return Exists(bindings.DefaultBench) ? bindings.DefaultBench : null;
@@ -63,14 +62,16 @@ public static partial class NativeBenchHost
     private static async Task SynchronizeRepository(NativePanel panel, ViewSessions sessions, ViewSession session, CancellationToken ct)
     {
         await session.RepositoryGate.WaitAsync(ct);
-        try
-        {
-            await ApplyRuntimeRepository(panel, session, ct);
-            var root = sessions.ReadState(session).Choices.RepositoryRoot;
-            var next = root is null ? null : Require(await panel.ReadRepositoryAsync(root, ct));
-            ApplyRepositoryBindings(session, next);
-        }
+        try { await SynchronizeRepositoryLocked(panel, sessions, session, ct); }
         finally { session.RepositoryGate.Release(); }
+    }
+
+    private static async Task SynchronizeRepositoryLocked(NativePanel panel, ViewSessions sessions, ViewSession session, CancellationToken ct)
+    {
+        await ApplyRuntimeRepository(panel, session, ct);
+        var root = sessions.ReadState(session).Choices.RepositoryRoot;
+        var next = root is null ? null : Require(await panel.ReadRepositoryAsync(root, ct));
+        ApplyRepositoryBindings(session, next);
     }
 
     private static void ApplyRepositoryBindings(ViewSession session, UserRepositoryBindings? next)

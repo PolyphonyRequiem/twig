@@ -60,10 +60,13 @@ scope and drafts. Structured `set`, navigation, and seed publication are refused
 
 The daemon uses isolated view profiles and explicit source admission. Repository
 bindings can constrain available sources without rewriting shared Bench intent.
-On context entry, the daemon tries the session's valid saved choice, then the
-owner's last valid explicit choice for the verified repository (shared with
-linked worktrees), then its saved Default Bench. Without a verified repository,
-only that session's choice is considered. A successful workspace without a
+On context entry for a verified repository, the daemon tries the owner's last
+valid explicit choice for that repository (shared with linked worktrees), then
+its saved Default Bench. Without a verified repository, only the session's
+choice is considered. A concurrent explicit choice takes precedence over
+startup selection. Changing Benches keeps the exact viewing source if it still
+belongs to the new Bench, and keeps the Add items source if it is still admitted
+in the current scope. A successful workspace without a
 selection means no candidate exists in the catalogue. Read or access failures
 aren't no-selection results, and a refresh does not rerun startup selection.
 Remembering a choice does not change the default or share source admission,

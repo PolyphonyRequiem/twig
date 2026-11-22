@@ -211,6 +211,7 @@ public static partial class NativeBenchHost
                 session.NativeContext = opened;
                 session.DisplayContexts[opened.Stamp.Connection] = opened;
                 session.CurrentBenchId ??= selection.SelectedBenchId;
+                session.AdvanceSelectionRevision();
                 session.ReferencesRestored = true;
             }
             updates.Publish(0);
@@ -219,27 +220,52 @@ public static partial class NativeBenchHost
         app.MapPut("/api/v1/views/{id:guid}/selection", async (HttpContext context, Guid id) =>
         {
             var session = await Authorize(context, id, true);
-            var body = await Body<SelectionBody>(context);
-            long selectionRevision;
-            string? repositoryId;
-            lock (session) { selectionRevision = session.SelectionRevision; repositoryId = session.RepositoryBindings?.RepositoryId; }
             var before = sessions.ReadState(session);
-            if (before.CurrentBenchId != body.ExpectedBenchId)
+            var captured = CaptureSelection(session);
+            var body = await Body<SelectionBody>(context);
+            if (captured.Bench != body.ExpectedBenchId)
                 throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
-            session.Agent.Invalidate();
-            CancelEditor(session);
-            session.Setup.Invalidate();
             var shared = Require(await panel.ListAsync(context.RequestAborted));
-            if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
+            if (shared.InstanceId != session.CatalogId)
+                throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed. Reconnect.");
+            var target = shared.Benches.SingleOrDefault(value => value.Id == body.BenchId);
+            if (body.BenchId is not null && target is null)
                 throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
-            await session.RepositoryGate.WaitAsync(context.RequestAborted);
-            try
+            while (true)
             {
-                var committed = sessions.CommitSelection(session, selectionRevision, before, body.BenchId);
-                sessions.RememberRepositoryBench(session, body.BenchId, repositoryId, committed);
+                var available = captured.Repository?.Connections.ToHashSet();
+                var choices = await ResolveSelectionChoices(panel, captured, target, available, context.RequestAborted);
+                await session.RepositoryGate.WaitAsync(context.RequestAborted);
+                try
+                {
+                    await SynchronizeRepositoryLocked(panel, sessions, session, context.RequestAborted);
+                    var latest = Require(await panel.ListAsync(context.RequestAborted));
+                    if (latest.InstanceId != shared.InstanceId
+                        || (target is not null && latest.Benches.SingleOrDefault(bench => bench.Id == target.Id)?.Revision != target.Revision))
+                        throw SelectionChanged();
+                    var current = CaptureSelection(session);
+                    if (!captured.Matches(current))
+                    {
+                        // Only the provisional startup selection may move underneath an explicit choice.
+                        if (captured.StartupResolved || !current.StartupResolved
+                            || captured.ExplicitRevision != current.ExplicitRevision
+                            || !ReferenceEquals(captured.Repository, current.Repository))
+                            throw SelectionChanged();
+                        captured = current;
+                        continue;
+                    }
+                    session.Agent.Invalidate();
+                    CancelEditor(session);
+                    session.Setup.Invalidate();
+                    sessions.CommitSelection(session, before, body.BenchId, choices.Viewing, choices.Add, choices.Display, () =>
+                    {
+                        _ = sessions.Content(id, Bearer(context), true);
+                        if (!captured.Matches(CaptureSelection(session))) throw SelectionChanged();
+                    });
+                    break;
+                }
+                finally { session.RepositoryGate.Release(); }
             }
-            finally { session.RepositoryGate.Release(); }
-            await ResolveBenchConnections(panel, session, context.RequestAborted, cachedAdmissionOnly: repositoryId is not null);
             updates.Publish(0);
             await Write(context, new Ack());
         });
@@ -269,6 +295,7 @@ public static partial class NativeBenchHost
             lock (session)
             {
                 session.PopulationContext = opened;
+                session.AdvanceSelectionRevision();
                 if (opened is { } chosen) session.DisplayContexts[chosen.Stamp.Connection] = chosen;
             }
             updates.Publish(0);

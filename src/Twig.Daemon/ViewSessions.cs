@@ -26,7 +26,12 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal Dictionary<string, NativeSourceRecovery> SourceRecovery { get; } = new(PathComparer);
     private Guid? currentBenchId;
     internal long SelectionRevision { get; private set; }
-    internal void AdvanceSelectionRevision() => SelectionRevision++;
+    internal long ExplicitSelectionRevision { get; private set; }
+    internal void AdvanceSelectionRevision()
+    {
+        SelectionRevision++;
+        ExplicitSelectionRevision++;
+    }
     internal bool StartupSelectionResolved { get; set; }
     internal Guid? CurrentBenchId
     {
@@ -394,6 +399,9 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     }
 
     public NativeViewStateInfo SaveState(ViewSession session, NativeViewStateBody body)
+        => SaveState(session, body, null);
+
+    private NativeViewStateInfo SaveState(ViewSession session, NativeViewStateBody body, NativePanelContext[]? exactContexts)
     {
         lock (gate)
         {
@@ -404,7 +412,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             RequireProfile(session, document);
             if (document.Revision != body.ExpectedRevision) throw StateConflict();
             NativePanelContext[] contexts;
-            lock (session) contexts = session.DisplayContexts.Values
+            lock (session) contexts = exactContexts ?? session.DisplayContexts.Values
                 .Concat(new[] { session.NativeContext, session.PopulationContext }.OfType<NativePanelContext>()).ToArray();
             var references = Roots(body.Choices).Select(root =>
             {
@@ -456,56 +464,35 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         }
     }
 
-    internal void RememberRepositoryBench(ViewSession session, Guid? bench, string? repositoryId, long selectionRevision)
-    {
-        lock (gate)
-        {
-            RequireOwner(session);
-            using var lease = ProfileLease(session);
-            RequireProfile(session, ReadDocument(session));
-            lock (session)
-            {
-                if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != bench
-                    || session.RepositoryBindings?.RepositoryId != repositoryId)
-                    throw new HttpFailure(409, "BenchViewChanged", "The selected Bench or repository changed before it could be remembered.");
-                if (repositoryId is null) return;
-                var path = RepositoryBenchPath(session.CatalogId, repositoryId);
-                if (bench is { } selected) WriteAtomic(path, selected.ToString("D"));
-                else File.Delete(path);
-            }
-        }
-    }
-
-    internal long CommitSelection(ViewSession session, long selectionRevision, NativeViewStateInfo before, Guid? bench)
+    internal void CommitSelection(ViewSession session, NativeViewStateInfo before, Guid? bench,
+        NativePanelContext? viewing, NativePanelContext? add, NativePanelContext[] display, Action validate)
     {
         lock (gate)
         lock (session)
         {
             RequireOwner(session);
-            if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != before.CurrentBenchId)
-                throw StateConflict();
-            if (session.RepositoryBindings is not null || session.RuntimeContext is not null)
+            validate();
+            var saved = SaveState(session, new(before.Revision, before.Choices with
             {
-                var saved = SaveState(session, new(before.Revision, before.Choices with
-                {
-                    RepositoryRoot = session.RepositoryRoot, BenchId = bench,
-                    ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null,
-                }));
-                session.AppliedChoices = saved.Choices;
-                session.NativeContext = null;
-                session.DisplayContexts.Clear();
+                RepositoryRoot = session.RepositoryRoot, BenchId = bench,
+                ViewingRoot = viewing?.Root, AddRoot = add?.Root,
+                DisplayRoots = [], GroupSource = null, GroupField = null,
+            }), new[] { viewing, add }.OfType<NativePanelContext>().ToArray());
+            if (session.RepositoryBindings is { } repository)
+            {
+                var path = RepositoryBenchPath(session.CatalogId, repository.RepositoryId);
+                if (bench is { } selected) WriteAtomic(path, selected.ToString("D"));
+                else File.Delete(path);
             }
+            session.AppliedChoices = saved.Choices;
             session.CurrentBenchId = bench;
             session.AdvanceSelectionRevision();
             session.StartupSelectionResolved = true;
             session.ReferencesRestored = true;
-            session.PopulationContext = null;
-            if (bench is null)
-            {
-                session.NativeContext = null;
-                session.DisplayContexts.Clear();
-            }
-            return session.SelectionRevision;
+            session.NativeContext = viewing ?? (display.Length == 1 ? display[0] : null);
+            session.PopulationContext = add;
+            session.DisplayContexts.Clear();
+            foreach (var source in display) session.DisplayContexts[source.Stamp.Connection] = source;
         }
     }
 

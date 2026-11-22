@@ -118,7 +118,16 @@ public sealed partial class NativePublicationConsumerTests
             {
                 ["sourceId"] = sourceId, ["benchId"] = fixture.Bench.ToString("D"), ["type"] = type.Reference,
             };
-            var seedPath = $"/benches/{fixture.Bench:D}/seeds";
+            var seedPath = $"/benches/{fixture.Bench:D}/sources/{sourceId}/seeds";
+            var legacy = await Ok($"/benches/{fixture.Bench:D}/seeds", HttpMethod.Get);
+            var scoped = await Ok(seedPath, HttpMethod.Get);
+            scoped["source"]!["sourceId"]!.GetValue<string>().ShouldBe(sourceId);
+            scoped["storeInstance"]!.GetValue<string>().ShouldBe(legacy["storeInstance"]!.GetValue<string>());
+            JsonNode.DeepEquals(scoped["types"], legacy["types"]).ShouldBeTrue();
+            var unadmitted = Guid.NewGuid().ToString("D");
+            var rejected = await Send($"/benches/{fixture.Bench:D}/sources/{unadmitted}/seeds", HttpMethod.Get);
+            rejected.Status.ShouldBe(HttpStatusCode.Conflict);
+            rejected.Body["code"]!.GetValue<string>().ShouldBe("ContextRequired");
             JsonObject OpenBody(string itemId) => new()
             {
                 ["sourceId"] = sourceId, ["benchId"] = fixture.Bench.ToString("D"),
@@ -183,7 +192,9 @@ public sealed partial class NativePublicationConsumerTests
             var invalid = create.DeepClone();
             invalid["type"] = "Not.A.Connected.Type";
             (await Send("/editor/seed", HttpMethod.Post, invalid)).Status.ShouldBe(HttpStatusCode.BadRequest);
+            var viewingRoot = (await Ok("/benches", HttpMethod.Get))["contextRoot"]!.GetValue<string>();
             var created = await Ok("/editor/seed", HttpMethod.Post, create);
+            (await Ok("/benches", HttpMethod.Get))["contextRoot"]!.GetValue<string>().ShouldBe(viewingRoot);
             created["fields"]!.AsArray().ShouldAllBe(field => field!["value"]!["kind"]!.GetValue<string>() == "Null");
             var change = new JsonObject { ["ticket"] = created["ticket"]!.DeepClone(), ["fields"] = new JsonArray() };
             (await Send("/editor/save", HttpMethod.Post, change)).Status.ShouldBe(HttpStatusCode.BadRequest);
@@ -273,8 +284,9 @@ public sealed partial class NativePublicationConsumerTests
                 var wrongSource = create.DeepClone();
                 wrongSource["sourceId"] = Guid.NewGuid().ToString("D");
                 (await Send("/editor/seed", HttpMethod.Post, wrongSource)).Status.ShouldBe(HttpStatusCode.Conflict);
-                (await Send("/editor/save", HttpMethod.Post, change)).Status.ShouldBe(HttpStatusCode.Conflict,
-                    "Even refused create navigation retires the previous editor ticket.");
+                var stillOpen = await Ok("/editor/evaluate", HttpMethod.Post, change);
+                stillOpen["ticket"]!.GetValue<string>().ShouldBe(reopened["ticket"]!.GetValue<string>(),
+                    "A refused request for another source does not retire the current editor.");
                 reopened = await Ok("/editor", HttpMethod.Post, OpenBody(itemId));
                 var bench = (await store.ReadAsync(ct)).Value.Benches.Single();
                 (await store.SaveAsync(new(bench.Id, "Changed HTTP seed Bench", bench.Selectors),

@@ -131,7 +131,10 @@ public sealed partial class NativePublicationConsumerTests
         using var services = EditorServices(native.Paths.StartDir);
         using var origin = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         foreach (var id in new[] { "42", "43" })
-            (await origin.Workspace.ReadAsync(ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, id), default)).IsSuccess.ShouldBeTrue();
+        {
+            var loaded = await origin.Workspace.ReadAsync(ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, id), default);
+            loaded.IsSuccess.ShouldBeTrue(loaded.IsSuccess ? null : loaded.Error.Message);
+        }
         var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
         var bench = (await user.SaveAsync(new(Guid.NewGuid(), "ADO editor fixture",
             [new(SelectorKind.Pin, ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42"), connection: native.Connection),

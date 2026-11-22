@@ -237,7 +237,7 @@ public sealed partial class UserBenchStore
                 or OpStatus.Partial or OpStatus.Indeterminate))
                 return Result<NativeBenchPlan>.Fail(ErrorCode.Indeterminate,
                     "An unresolved original operation fences reassociation; no intent, identity or outcome was transferred.");
-            if (!snapshot.Value.Drafts.IsEmpty)
+            if (!snapshot.Value.RetainedItems.IsEmpty)
                 return Result<NativeBenchPlan>.Fail(ErrorCode.Conflict,
                     "This scope has protected draft intent. Explicit reviewed transfer is required before reassociation.");
             await using var owners = db.CreateCommand();

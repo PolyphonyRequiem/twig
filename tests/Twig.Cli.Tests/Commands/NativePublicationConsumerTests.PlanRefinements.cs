@@ -42,7 +42,7 @@ public sealed partial class NativePublicationConsumerTests
         var scope = (await user.ReadPlanAsync(host.Bench)).Value.Scopes.Single();
         var store = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
         var snapshot = (await store.ReadAsync(host.Stamp.Connection, default)).Value;
-        snapshot.Drafts.Single().Key.ShouldBe(original.Operations[1].Item);
+        snapshot.RetainedItems.Single().Key.ShouldBe(original.Operations[1].Item);
         (await user.ReadEditorCapturesAsync(default)).Value.Count(capture => capture.Settled).ShouldBe(1);
         var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
         if (uncertain) fresh.IsSuccess.ShouldBeFalse();
@@ -83,16 +83,16 @@ public sealed partial class NativePublicationConsumerTests
         }
         var scope = (await user.ReadPlanAsync(host.Bench)).Value.Scopes.Single();
         var store = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
-        (await store.ReadAsync(host.Stamp.Connection, default)).Value.Drafts.Length.ShouldBe(1);
+        (await store.ReadAsync(host.Stamp.Connection, default)).Value.RetainedItems.Length.ShouldBe(1);
         await using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString()))
         {
             await db.OpenAsync();
             using var command = db.CreateCommand();
-            command.CommandText = "SELECT json_array_length(document,'$.Drafts') FROM core_snapshots;";
+            command.CommandText = "SELECT json_array_length(document,'$.RetainedItems') FROM core_snapshots;";
             Convert.ToInt32(await command.ExecuteScalarAsync()).ShouldBe(1, "The actual persisted Core draft vector must match the cleanup fault condition.");
             command.CommandText = """
                 CREATE TRIGGER fixture_plan_cleanup_refusal BEFORE UPDATE OF document ON core_snapshots
-                WHEN json_array_length(NEW.document,'$.Drafts')=0 AND json_array_length(OLD.document,'$.Drafts')>0
+                WHEN json_array_length(NEW.document,'$.RetainedItems')=0 AND json_array_length(OLD.document,'$.RetainedItems')>0
                 BEGIN SELECT RAISE(ABORT,'Fixture exact local settlement refusal'); END;
                 """;
             await command.ExecuteNonQueryAsync();
@@ -105,14 +105,13 @@ public sealed partial class NativePublicationConsumerTests
         _transport.CommittedWrites.ShouldBe(1);
         var snapshot = (await store.ReadAsync(host.Stamp.Connection, default)).Value;
         snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
-        snapshot.Drafts.Single().Key.ShouldBe(key);
+        snapshot.RetainedItems.Single().Key.ShouldBe(key);
         if (newerIntent)
         {
-            var draft = snapshot.Drafts.Single();
+            var draft = snapshot.RetainedItems.OfType<LocalEdits>().Single();
             (await store.CommitAsync(host.Stamp.Connection, snapshot.Version, new(snapshot.Version + 1,
                 snapshot.Items, snapshot.Relationships,
-                [new(draft.Key, draft.Type, draft.Baseline, draft.Changes.Set("System.Title", FieldValue.String("Newer independent intent")),
-                    draft.Parent, draft.ParentRelation, draft.Resource, draft.Links)],
+                [new LocalEdits(draft.Key, draft.Type, draft.EditBaseline, draft.Fields.Set("System.Title", FieldValue.String("Newer independent intent")))],
                 snapshot.Plans, snapshot.Journal, snapshot.Mappings, snapshot.Benches), default)).IsSuccess.ShouldBeTrue();
         }
         await using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString()))
@@ -127,8 +126,8 @@ public sealed partial class NativePublicationConsumerTests
         delivered.Status.ShouldBe(newerIntent ? "VerifiedDeliveryPending" : "Complete", delivered.Error?.Message);
         _transport.CommittedWrites.ShouldBe(1);
         snapshot = (await store.ReadAsync(host.Stamp.Connection, default)).Value;
-        if (newerIntent) snapshot.Drafts.Single().Changes["System.Title"].Text.ShouldBe("Newer independent intent");
-        else snapshot.Drafts.ShouldBeEmpty();
+        if (newerIntent) snapshot.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("Newer independent intent");
+        else snapshot.RetainedItems.ShouldBeEmpty();
         if (seed) snapshot.Mappings.Single().Local.ShouldBe(key);
         (await reopened.ContinueDeliveryAsync(reopened.Digest)).Value.Status.ShouldBe(newerIntent ? "VerifiedDeliveryPending" : "Complete");
         _transport.CommittedWrites.ShouldBe(1);

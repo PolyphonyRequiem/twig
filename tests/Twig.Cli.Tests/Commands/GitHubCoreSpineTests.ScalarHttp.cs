@@ -168,7 +168,7 @@ public sealed partial class GitHubCoreSpineTests
                 remote["body"]!.GetValue<string>().ShouldBe(markdown, "Literal script text must remain Markdown, not HTML coercion.");
                 remote["state"]!.GetValue<string>().ShouldBe("CLOSED");
                 var snapshot = await native.SnapshotAsync().WaitAsync(ct);
-                snapshot.Drafts.ShouldBeEmpty();
+                snapshot.RetainedItems.ShouldBeEmpty();
                 snapshot.Journal.Single().Status.ShouldBe(OpStatus.Verified);
                 var operation = snapshot.Plans.Single().Operations.Single();
                 operation.Concurrency.ShouldBe(ConcurrencyMode.ObservedNonAtomic);
@@ -185,7 +185,7 @@ public sealed partial class GitHubCoreSpineTests
                 remote["body"]!.GetValue<string>().ShouldBe("");
                 snapshot = await native.SnapshotAsync().WaitAsync(ct);
                 snapshot.Items.Single().Fields["github.body"].ShouldBe(FieldValue.RichText("", FieldKind.Markdown));
-                snapshot.Drafts.ShouldBeEmpty();
+                snapshot.RetainedItems.ShouldBeEmpty();
                 snapshot.Journal.Count().ShouldBe(2);
                 snapshot.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified);
             }
@@ -235,7 +235,7 @@ public sealed partial class GitHubCoreSpineTests
                     native.Writes.ShouldBe(1);
                     (await Send("/plan/apply", HttpMethod.Post, apply)).Status.ShouldBe(HttpStatusCode.Conflict);
                     var delivered = await native.SnapshotAsync().WaitAsync(ct);
-                    delivered.Drafts.ShouldBeEmpty();
+                    delivered.RetainedItems.ShouldBeEmpty();
                     var fieldsAfter = delivered.Items.Single().Fields;
                     fieldsAfter["github.title"].Text.ShouldBe("Planned HTTP title");
                     fieldsAfter["github.body"].ShouldBe(FieldValue.RichText("**planned Markdown**", FieldKind.Markdown));
@@ -258,7 +258,7 @@ public sealed partial class GitHubCoreSpineTests
                     original.Items.Single().Fields["github.title"].Text.ShouldBe("original");
                     original.Items.Single().Fields["github.body"].ShouldBe(FieldValue.RichText("Normal-only body", FieldKind.Markdown));
                     original.Items.Single().Fields["github.state"].Text.ShouldBe("OPEN");
-                    original.Drafts.ShouldBeEmpty();
+                    original.RetainedItems.ShouldBeEmpty();
                     original.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
                     original.Plans.Single().Operations.Single().Fields.Keys.ShouldBe(new[] { "github.body" });
                     native.Writes.ShouldBe(1);

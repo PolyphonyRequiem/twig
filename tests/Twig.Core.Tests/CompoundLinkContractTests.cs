@@ -71,7 +71,7 @@ public sealed class CompoundLinkContractTests
             concurrency: seed ? ConcurrencyMode.ObservedNonAtomic : ConcurrencyMode.ExactRevision);
         var plan = new Plan(Connection, schema.Fingerprint, 0, [op]);
         var snapshot = new StoreSnapshot(0, seed ? [] : [source],
-            drafts: seed ? [new(key, "type", null, changes)] : [], plans: [plan],
+            retainedItems: seed ? [new Seed(key, "type", changes)] : [], plans: [plan],
             journal: [JournalEntry.Planned(plan.Digest, 0)]);
         Model.ValidateEffect(plan, 0, schema, snapshot, new([OpKind.Create, OpKind.Batch], [], [], true, true)).ShouldBeEmpty();
         var evaluated = Model.EvaluateEditorFields(schema, source, changes, true);
@@ -109,14 +109,14 @@ public sealed class CompoundLinkContractTests
     {
         var seed = ItemKey.Local(Guid.NewGuid());
         var delta = new CreationLink(Other, "related", true, true);
-        var draft = new Draft(seed, "type", null, Fields, links: [delta]);
+        var draft = new Seed(seed, "type", Fields, links: [delta]);
         var plan = new Plan(Connection, Schema.Fingerprint, 0,
             [new("create", OpKind.Create, seed, fields: Fields, type: "type",
                 concurrency: ConcurrencyMode.ObservedNonAtomic, links: [delta])]);
         Model.Validate(plan, plan.Digest, Schema,
-            new(0, [new(Other, "type", Fields, new(Other, "1"), true)], drafts: [draft]),
+            new(0, [new(Other, "type", Fields, new(Other, "1"), true)], retainedItems: [draft]),
             new([OpKind.Create], ["related"], [], true, true)).ShouldContain(error => error.Code == ErrorCode.InvalidInput);
-        Should.Throw<ArgumentException>(() => new Draft(Item, "type", new(Item, "type", Fields, new(Item, "1")), Fields, links: [delta]));
+        Should.Throw<ArgumentException>(() => new Seed(Item, "type", Fields, links: [delta]));
     }
 
     [Fact]

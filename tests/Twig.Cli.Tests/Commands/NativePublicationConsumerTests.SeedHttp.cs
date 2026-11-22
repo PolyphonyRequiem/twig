@@ -147,7 +147,7 @@ public sealed partial class NativePublicationConsumerTests
                             .Set(type.StateField, FieldValue.String(state)), ct)).IsSuccess.ShouldBeTrue();
                     var nativeSeed = (await editor.ReadOwnedSeedsAsync(ct)).Value.ShouldHaveSingleItem();
                     nativeSeed.Ready.ShouldBeTrue();
-                    nativeSeed.Draft.ShouldNotBeNull().Baseline.ShouldBeNull();
+                    nativeSeed.Draft.ShouldNotBeNull().Key.IsLocal.ShouldBeTrue();
                     nativeSeed.Item.ShouldBe(key);
                 }
                 var retained = (await View())["sources"]![0]!["items"]!.AsArray()
@@ -329,14 +329,14 @@ public sealed partial class NativePublicationConsumerTests
             if (scenario == "unknown")
             {
                 before.Mappings.ShouldBeEmpty();
-                before.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seedKey);
+                before.RetainedItems.ShouldHaveSingleItem().Key.ShouldBe(seedKey);
                 journal.Receipts.ShouldNotBeEmpty();
                 journal.Receipts.ShouldAllBe(receipt => receipt.Status != OpStatus.Verified);
             }
             else
             {
                 _transport.ReadbacksAfterCommit.ShouldBeGreaterThanOrEqualTo(2);
-                before.Drafts.ShouldNotContain(draft => draft.Key == seedKey);
+                before.RetainedItems.ShouldNotContain(draft => draft.Key == seedKey);
                 var mapping = before.Mappings.ShouldHaveSingleItem();
                 mapping.Local.ShouldBe(seedKey);
                 mapping.PlanDigest.ShouldBe(plan.Digest);
@@ -406,7 +406,7 @@ public sealed partial class NativePublicationConsumerTests
             selectors.ShouldNotContain(selector => selector.Item != null && selector.Item.IsLocal);
             if (scenario == "unknown")
             {
-                final.Drafts.ShouldHaveSingleItem().Key.ShouldBe(seedKey);
+                final.RetainedItems.ShouldHaveSingleItem().Key.ShouldBe(seedKey);
                 selectors.ShouldBeEmpty();
             }
             else
@@ -432,7 +432,7 @@ public sealed partial class NativePublicationConsumerTests
             }
             if (scenario == "ownership")
             {
-                final.Drafts.Select(draft => draft.Key).OrderBy(key => key.LocalId)
+                final.RetainedItems.Select(draft => draft.Key).OrderBy(key => key.LocalId)
                     .ShouldBe(foreign.Take(2).OrderBy(key => key.LocalId));
                 using var editor = (await OpenHumanHostAsync(fixture.Root, fixture.Bench, fixture.Stamp, ct)).Value;
                 (await editor.ReadOwnedSeedsAsync(ct)).Value.ShouldBeEmpty();

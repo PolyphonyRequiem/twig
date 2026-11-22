@@ -48,7 +48,7 @@ public sealed partial class NativePublicationConsumerTests
             evaluated.Value.Evaluation.Errors.ShouldNotBeEmpty();
             var after = (await handle.Workspace.SnapshotAsync(default)).Value;
             after.Version.ShouldBe(before.Version);
-            after.Drafts.ShouldBeEmpty();
+            after.RetainedItems.ShouldBeEmpty();
             after.Plans.ShouldBeEmpty();
             after.Journal.ShouldBeEmpty();
             (await user.ReadEditorCapturesAsync(default)).Value.ShouldBeEmpty();
@@ -57,9 +57,9 @@ public sealed partial class NativePublicationConsumerTests
                 FieldValues.Empty.Set("System.Title", FieldValue.String("Atomic Dependency True")), [add])).IsSuccess.ShouldBeTrue();
             captured = (await user.ReadEditorCapturesAsync(default)).Value.ShouldHaveSingleItem();
             captured.Ready.ShouldBeTrue();
-            var debt = (await handle.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldHaveSingleItem();
-            debt.Changes["System.Title"].Text.ShouldBe("Atomic Dependency True");
-            debt.Links.ShouldBeEmpty();
+            var debt = (await handle.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldHaveSingleItem();
+            debt.Fields["System.Title"].Text.ShouldBe("Atomic Dependency True");
+            debt.ShouldBeOfType<LocalEdits>();
             handle.Workspace.DraftFingerprint(debt).ShouldBe(captured.DraftFingerprint);
             var witness = captured.Endpoints.ShouldHaveSingleItem();
             witness.Revision.ShouldBe(form.Endpoint.Revision!.Token);
@@ -86,7 +86,7 @@ public sealed partial class NativePublicationConsumerTests
         _transport.CommittedWrites.ShouldBe(1);
         _transport.TitleOf(42).ShouldBe("Atomic Dependency True");
         var first = (await handle.Workspace.SnapshotAsync(default)).Value;
-        first.Drafts.ShouldBeEmpty();
+        first.RetainedItems.ShouldBeEmpty();
         var operation = first.Plans.ShouldHaveSingleItem().Operations.ShouldHaveSingleItem();
         operation.Kind.ShouldBe(OpKind.Batch);
         operation.Fields["System.Title"].Text.ShouldBe("Atomic Dependency True");
@@ -102,8 +102,8 @@ public sealed partial class NativePublicationConsumerTests
             captured = (await user.ReadEditorCapturesAsync(default)).Value.Single(capture => !capture.Settled);
             captured.Ready.ShouldBeTrue();
             captured.Endpoints.ShouldHaveSingleItem().Revision.ShouldBe(form.Endpoint.Revision!.Token);
-            var debt = (await handle.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldHaveSingleItem();
-            debt.Changes.Count.ShouldBe(0);
+            var debt = (await handle.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldHaveSingleItem();
+            debt.Fields.Count.ShouldBe(0);
             handle.Workspace.DraftFingerprint(debt).ShouldBe(captured.DraftFingerprint);
         }
         NativeEditorCapture? atDispatch = null;
@@ -131,7 +131,7 @@ public sealed partial class NativePublicationConsumerTests
         _transport.RevisionOf(43).ShouldBe(endpointRevision + 2);
         _transport.TitleOf(42).ShouldBe("Atomic Dependency True");
         var final = (await handle.Workspace.SnapshotAsync(default)).Value;
-        final.Drafts.ShouldBeEmpty();
+        final.RetainedItems.ShouldBeEmpty();
         final.Plans.Length.ShouldBe(2);
         final.Plans.ShouldAllBe(plan => plan.Operations.Length == 1 && plan.Operations[0].Kind == OpKind.Batch);
         final.Journal.Length.ShouldBe(2);

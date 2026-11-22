@@ -7,7 +7,12 @@ Native CLI and panel consumers use the same item, query and Bench model.
 Bench selectors are an additive union of individual pins, subtrees and query
 rules. Workspace-view exclusions remain separate from Bench ownership. Native
 user-wide definitions outlive their originating worktree; context selections
-and local draft evidence remain worktree-local.
+and retained local edits and seeds remain worktree-local.
+
+Local edits carry sparse changes and a revision-bound edit baseline. Refresh
+updates the latest provider observation without rebasing those edits. An omitted
+field is untouched; an explicit null is a clear. A seed has a local identity
+and creation fields but no edit baseline.
 
 Planning rules preserve intent rather than result IDs. `PathEqual` is
 case-insensitive exact path matching; `Under` additionally matches descendants
@@ -22,7 +27,7 @@ refreshed explicitly through the existing provider port.
 Removing the final configured iteration retains an explicitly empty iteration
 union inside that planning rule. Remaining area/ownership configuration is not
 silently promoted into a broader query. Empty resolved scopes acquire no work
-items; independent Bench pins and protected draft debt remain separate.
+items; independent Bench pins, local edits and seeds remain separate.
 
 Saved-query and backlog pins retain the native source ID and canonical team in
 the query model. Explicit acquisition discovers the actual query hierarchy or

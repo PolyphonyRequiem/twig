@@ -221,6 +221,6 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
         => Copy(before, before.Version, items: observations);
     private static StoreSnapshot Copy(StoreSnapshot before, long version, IEnumerable<WorkItem>? items = null,
         IEnumerable<Plan>? plans = null, IEnumerable<JournalEntry>? journal = null, IEnumerable<PublishMapping>? mappings = null)
-        => new(version, items ?? before.Items, before.Relationships, before.Drafts, plans ?? before.Plans,
+        => new(version, items ?? before.Items, before.Relationships, before.RetainedItems, plans ?? before.Plans,
             journal ?? before.Journal, mappings ?? before.Mappings, before.Benches);
 }

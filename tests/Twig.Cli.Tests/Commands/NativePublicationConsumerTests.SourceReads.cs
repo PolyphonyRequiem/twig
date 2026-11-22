@@ -322,7 +322,7 @@ public sealed partial class NativePublicationConsumerTests
         var item = new WorkItem(key, "Fixture.Task", FieldValues.Empty.Set("System.Title", FieldValue.String("Cached")),
             new(key, "1"), relationshipsComplete: true, resourcesComplete: true);
         var edge = new Relationship(key, other, "Native.ParentForward", RelationshipOrigin.Provider);
-        var draft = new Draft(ItemKey.Local(Guid.NewGuid()), item.Type, null, item.Fields);
+        var draft = new Seed(ItemKey.Local(Guid.NewGuid()), item.Type, item.Fields);
         var bench = new Twig.Core.Bench(Guid.NewGuid(), "Copy this scope", [new(SelectorKind.Pin, key)]);
         var plan = new Plan(connection, "retained-schema", 0,
             [new("keep", OpKind.Batch, key, item.Revision, item.Fields)]);
@@ -345,7 +345,7 @@ public sealed partial class NativePublicationConsumerTests
         _transport.SourceHandlesDisposed.ShouldBe(handles + 2);
         local.Value.Snapshot.Items.ShouldBe(before.Items);
         local.Value.Snapshot.Relationships.ShouldBe(before.Relationships);
-        local.Value.Snapshot.Drafts.ShouldBe(before.Drafts);
+        local.Value.Snapshot.RetainedItems.ShouldBe(before.RetainedItems);
         var observedBench = local.Value.Snapshot.Benches.ShouldHaveSingleItem();
         observedBench.Id.ShouldBe(bench.Id);
         observedBench.Name.ShouldBe(bench.Name);

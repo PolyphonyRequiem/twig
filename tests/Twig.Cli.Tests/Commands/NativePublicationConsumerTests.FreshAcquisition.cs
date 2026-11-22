@@ -234,7 +234,7 @@ public sealed partial class NativePublicationConsumerTests
         (saved.IsSuccess && saved.Value.Verified).ShouldBeFalse();
         _transport.PatchAttempts.ShouldBe(0);
         var final = (await handle.Workspace.SnapshotAsync(default)).Value;
-        final.Drafts.ShouldHaveSingleItem();
+        final.RetainedItems.ShouldHaveSingleItem();
         final.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Failed);
         (await UserBenchStore.ForRegistry(host.Registry).ReadEditorCapturesAsync(default)).Value
             .ShouldHaveSingleItem().Settled.ShouldBeFalse();

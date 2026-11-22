@@ -779,7 +779,7 @@ public static partial class NativeBenchHost
         var projected = Require(SourceProjection.Create(definition, selection, observation with { WorkspaceExclusions = [] }));
         var mapped = Mapped(new(definition, capture.Definitions.InstanceId, capture.Definitions.Revision, [projected]), capture).Sources.Single();
         var keys = (selected ?? observation.Snapshot.Items.Select(item => item.Key)
-            .Concat(observation.Snapshot.Drafts.Select(draft => draft.Key)).ToImmutableArray()).Select(Resolve).Distinct().ToArray();
+            .Concat(observation.Snapshot.RetainedItems.Select(draft => draft.Key)).ToImmutableArray()).Select(Resolve).Distinct().ToArray();
         var identities = mapped.Items.Select(item => item.Id).ToHashSet(StringComparer.Ordinal);
         var hierarchy = observation.Schema.Relations.Where(relation => relation.Directed && relation.Shape == RelationShape.Hierarchy).ToArray();
         var pins = keys.Where(key => identities.Contains(ViewMapping.Key(new(source.Id, key))))

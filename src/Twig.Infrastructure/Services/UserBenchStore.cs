@@ -588,7 +588,7 @@ public sealed partial class UserBenchStore
             var shared = await owner.ReadAsync(ct).ConfigureAwait(false);
             if (!shared.IsSuccess) return Result<StoreSnapshot>.Fail(shared.Error);
             var snapshot = read.Value;
-            return Result<StoreSnapshot>.Ok(new(snapshot.Version, snapshot.Items, snapshot.Relationships, snapshot.Drafts,
+            return Result<StoreSnapshot>.Ok(new(snapshot.Version, snapshot.Items, snapshot.Relationships, snapshot.RetainedItems,
                 snapshot.Plans, snapshot.Journal, snapshot.Mappings, shared.Value.Benches.Select(bench =>
                     new Bench(bench.Id, bench.Name, bench.Selectors.Where(s => s.Connection == connection), bench.Revision,
                         bench.Connections.Where(value => value == connection)))));
@@ -601,7 +601,7 @@ public sealed partial class UserBenchStore
             if (current.Value.Version != expectedVersion)
                 return Result<long>.Fail(ErrorCode.Conflict, "Native state changed; no local changes were overwritten.");
             return await native.CommitAsync(connection, expectedVersion, new(next.Version, next.Items, next.Relationships,
-                next.Drafts, next.Plans, next.Journal, next.Mappings, current.Value.Benches), ct).ConfigureAwait(false);
+                next.RetainedItems, next.Plans, next.Journal, next.Mappings, current.Value.Benches), ct).ConfigureAwait(false);
         }
     }
 

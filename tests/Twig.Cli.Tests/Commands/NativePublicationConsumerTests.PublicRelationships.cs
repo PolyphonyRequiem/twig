@@ -57,7 +57,7 @@ public sealed partial class NativePublicationConsumerTests
             capture.Ready.ShouldBeTrue();
             using var services = EditorServices(host.Root);
             using var origin = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
-            (await origin.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldHaveSingleItem().Links.ShouldBeEmpty();
+            (await origin.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldHaveSingleItem().ShouldBeOfType<LocalEdits>();
         }
         using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
         {
@@ -93,7 +93,7 @@ public sealed partial class NativePublicationConsumerTests
         using var root = EditorServices(host.Root);
         using var handle = (await root.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
         var snapshot = (await handle.Workspace.SnapshotAsync(default)).Value;
-        snapshot.Drafts.ShouldBeEmpty();
+        snapshot.RetainedItems.ShouldBeEmpty();
         var plan = snapshot.Plans.ShouldHaveSingleItem();
         var op = plan.Operations.ShouldHaveSingleItem();
         op.Kind.ShouldBe(OpKind.Batch);
@@ -210,7 +210,7 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(0);
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldHaveSingleItem().SameAs(original).ShouldBeTrue("Failed checks must preserve the original capture exactly.");
         if (damage is "draft" or "incident-debt")
-            (await origin.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldContain(draft => draft.Changes.ContainsKey("System.Title") && draft.Changes["System.Title"].Text == "Unowned CLI debt");
+            (await origin.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldContain(draft => draft.Fields.ContainsKey("System.Title") && draft.Fields["System.Title"].Text == "Unowned CLI debt");
     }
 
     [Theory]
@@ -265,7 +265,7 @@ public sealed partial class NativePublicationConsumerTests
         var refused = await editor.SaveRelationshipsAsync(form.Fields.Ticket, FieldValues.Empty, [cycle]);
         refused.IsSuccess.ShouldBeFalse("The real Core policy must evaluate the directed compound graph.");
         HumanPatchAttempts.ShouldBe(0);
-        (await origin.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldBeEmpty();
+        (await origin.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldBeEmpty();
     }
 
     [Theory]
@@ -354,7 +354,7 @@ public sealed partial class NativePublicationConsumerTests
         }
         HumanPatchAttempts.ShouldBe(1);
         _transport.CommittedWrites.ShouldBe(1);
-        retained.Drafts.ShouldHaveSingleItem().Changes["System.Title"].Text.ShouldBe("Original uncertain effect");
+        retained.RetainedItems.ShouldHaveSingleItem().Fields["System.Title"].Text.ShouldBe("Original uncertain effect");
     }
 
     [Fact]
@@ -388,8 +388,8 @@ public sealed partial class NativePublicationConsumerTests
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
             saved.Value.Verified.ShouldBeTrue(saved.Value.Error?.Message);
         }
-        (await plan.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldHaveSingleItem().Changes["System.Title"].Text.ShouldBe("Independent Plan");
-        (await origin.Workspace.SnapshotAsync(default)).Value.Drafts.ShouldHaveSingleItem().Changes["System.Title"].Text.ShouldBe("Independent CLI debt");
+        (await plan.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldHaveSingleItem().Fields["System.Title"].Text.ShouldBe("Independent Plan");
+        (await origin.Workspace.SnapshotAsync(default)).Value.RetainedItems.ShouldHaveSingleItem().Fields["System.Title"].Text.ShouldBe("Independent CLI debt");
         using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
         {
             var seed = (await editor.CreateSeedAsync("Fixture.Task")).Value;

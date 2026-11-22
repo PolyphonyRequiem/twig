@@ -28,9 +28,9 @@ public sealed class NativePlanScopeContractTests
             (await origin.PinWorkspaceAsync(connection)).IsSuccess.ShouldBeTrue();
             var baseline = new WorkItem(key, "Native.Type", new([KeyValuePair.Create("System.Title", FieldValue.String("Baseline"))]),
                 new(key, "ado-rev:1"), true);
-            var normalDraft = new Draft(key, baseline.Type, baseline,
+            var normalDraft = new LocalEdits(key, baseline.Type, baseline,
                 new([KeyValuePair.Create("System.Title", FieldValue.String("Normal"))]));
-            (await origin.CommitAsync(connection, 0, new(1, [baseline], drafts: [normalDraft]), default)).IsSuccess.ShouldBeTrue();
+            (await origin.CommitAsync(connection, 0, new(1, [baseline], retainedItems: [normalDraft]), default)).IsSuccess.ShouldBeTrue();
             var stamp = new NativeSourceStamp(connection, origin.InstanceId, "synthetic-actor", "synthetic-authority");
 
             var mode = await Native(user, "SetPlanModeAsync", library.InstanceId, bench.Id, bench.Revision, 0L, true, default(CancellationToken));
@@ -43,16 +43,16 @@ public sealed class NativePlanScopeContractTests
             var planStore = (SqliteStore)await Native(user, "OpenPlanScopeAsync", library.InstanceId, bench.Id,
                 Property<long>(ready, "Revision"), scopeId, directory, stamp, default(CancellationToken));
             planStore.InstanceId.ShouldNotBe(origin.InstanceId);
-            var planDraft = new Draft(key, baseline.Type, baseline,
+            var planDraft = new LocalEdits(key, baseline.Type, baseline,
                 new([KeyValuePair.Create("System.Title", FieldValue.String("Plan"))]));
-            (await planStore.CommitAsync(connection, 0, new(1, [baseline], drafts: [planDraft]), default)).IsSuccess.ShouldBeTrue();
+            (await planStore.CommitAsync(connection, 0, new(1, [baseline], retainedItems: [planDraft]), default)).IsSuccess.ShouldBeTrue();
             var left = await Native(user, "SetPlanModeAsync", library.InstanceId, bench.Id, bench.Revision,
                 Property<long>(ready, "Revision"), false, default(CancellationToken));
             Property<bool>(left, "PlanMode").ShouldBeFalse();
             var reopened = await Native(new UserBenchStore(userPath), "ReadPlanAsync", bench.Id, default(CancellationToken));
             Property<long>(reopened, "Revision").ShouldBe(Property<long>(left, "Revision"));
-            (await origin.ReadAsync(connection, default)).Value.Drafts.Single().ShouldBe(normalDraft);
-            (await planStore.ReadAsync(connection, default)).Value.Drafts.Single().ShouldBe(planDraft);
+            (await origin.ReadAsync(connection, default)).Value.RetainedItems.Single().ShouldBe(normalDraft);
+            (await planStore.ReadAsync(connection, default)).Value.RetainedItems.Single().ShouldBe(planDraft);
             (await origin.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
             (await planStore.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
         }

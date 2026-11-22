@@ -36,7 +36,7 @@ internal static class NativeLocalRelationshipEvidence
             var item = state.Items.SingleOrDefault(item => CleanCoreAdoAccess.ItemText(item.Key) == endpoint.Key);
             if (item?.RelationshipsComplete != true || item.Revision is null || string.IsNullOrEmpty(endpoint.Revision)
                 || item.Revision.Token != endpoint.Revision
-                || CoreWorkspace.Fingerprint(plan.Connection, state.Drafts.SingleOrDefault(draft => draft.Key == item.Key)) != endpoint.DraftFingerprint
+                || CoreWorkspace.Fingerprint(plan.Connection, state.RetainedItems.SingleOrDefault(draft => draft.Key == item.Key)) != endpoint.DraftFingerprint
                 || endpoint.DraftFingerprint != "none")
                 return Refuse("The exact local pair endpoint observation or independent draft evidence changed.");
         }

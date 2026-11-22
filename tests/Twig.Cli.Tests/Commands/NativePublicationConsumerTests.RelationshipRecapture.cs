@@ -36,7 +36,7 @@ public sealed partial class NativePublicationConsumerTests
             staged.IsSuccess.ShouldBeTrue(staged.IsSuccess ? "" : staged.Error.Message);
         }
         var before = (await origin.Workspace.SnapshotAsync(default)).Value;
-        var beforeDraft = origin.Workspace.DraftFingerprint(before.Drafts.SingleOrDefault(draft => draft.Key == key));
+        var beforeDraft = origin.Workspace.DraftFingerprint(before.RetainedItems.SingleOrDefault(draft => draft.Key == key));
         var beforeCapture = (await user.ReadEditorCapturesAsync(default)).Value.SingleOrDefault();
         if (retained)
         {
@@ -71,7 +71,7 @@ public sealed partial class NativePublicationConsumerTests
         reads.ShouldBe([43, 42, 43]);
         var after = (await origin.Workspace.SnapshotAsync(default)).Value;
         var afterCapture = (await user.ReadEditorCapturesAsync(default)).Value.SingleOrDefault();
-        var afterDraft = origin.Workspace.DraftFingerprint(after.Drafts.SingleOrDefault(draft => draft.Key == key));
+        var afterDraft = origin.Workspace.DraftFingerprint(after.RetainedItems.SingleOrDefault(draft => draft.Key == key));
         var capturePreserved = beforeCapture is null ? afterCapture is null : afterCapture is not null && afterCapture.SameAs(beforeCapture);
         var detail = $"Displayed={displayedRevision.Token}; captured={afterCapture?.Endpoints.Single().Revision}; " +
             $"verified={saved.IsSuccess && saved.Value.Verified}; capturePreserved={capturePreserved}; draftPreserved={beforeDraft == afterDraft}";
@@ -84,6 +84,6 @@ public sealed partial class NativePublicationConsumerTests
         after.Journal.ShouldBeEmpty();
         if (afterCapture is not null) afterCapture.Endpoints.ShouldHaveSingleItem().Revision.ShouldBe(displayedRevision.Token);
         if (localDraft)
-            after.Drafts.Single(draft => draft.Key == other).Changes["System.Title"].Text.ShouldBe("Late independent endpoint debt");
+            after.RetainedItems.Single(draft => draft.Key == other).Fields["System.Title"].Text.ShouldBe("Late independent endpoint debt");
     }
 }

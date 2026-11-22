@@ -98,7 +98,7 @@ public sealed partial class NativePublicationConsumerTests
         var current = (await store.ReadAsync(connection, default)).Value;
         var bench = new CoreModel.Bench(Guid.NewGuid(), "Read scope", [new(CoreModel.SelectorKind.Pin, item.Key)]);
         (await store.CommitAsync(connection, current.Version, new(current.Version + 1, current.Items, current.Relationships,
-            current.Drafts, current.Plans, current.Journal, current.Mappings, [bench]), default)).IsSuccess.ShouldBeTrue();
+            current.RetainedItems, current.Plans, current.Journal, current.Mappings, [bench]), default)).IsSuccess.ShouldBeTrue();
         var capture = (await store.ReadAsync(connection, default)).Value;
         _transport.ItemReadIds.Clear();
         var beforeOut = Console.Out;
@@ -134,14 +134,14 @@ public sealed partial class NativePublicationConsumerTests
         var attempt = Guid.NewGuid();
         var applying = planned.Begin(attempt).Value;
         (await store.CommitAsync(connection, initial.Version, new(initial.Version + 1, initial.Items,
-            initial.Relationships, initial.Drafts, initial.Plans, [applying], initial.Mappings, initial.Benches),
+            initial.Relationships, initial.RetainedItems, initial.Plans, [applying], initial.Mappings, initial.Benches),
             default)).IsSuccess.ShouldBeTrue();
         initial = (await store.ReadAsync(connection, default)).Value;
         var unknown = applying.Record(new(planned.Digest, planned.Operation, attempt,
             CoreModel.OpStatus.Indeterminate, ["Fixture retained uncertain acknowledgement"],
             error: new(CoreModel.ErrorCode.Unavailable, "Uncertain fixture write; must not replay"))).Value;
         (await store.CommitAsync(connection, initial.Version, new(initial.Version + 1, initial.Items,
-            initial.Relationships, initial.Drafts, initial.Plans, [unknown], initial.Mappings, initial.Benches),
+            initial.Relationships, initial.RetainedItems, initial.Plans, [unknown], initial.Mappings, initial.Benches),
             default)).IsSuccess.ShouldBeTrue();
         var before = (await store.ReadAsync(connection, default)).Value;
         before.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Indeterminate);
@@ -155,7 +155,7 @@ public sealed partial class NativePublicationConsumerTests
         var expectedIds = new[] { 41, 42, 43, 44, 45, CoreHostContext.LocalAlias(seed) }.Order().ToArray();
         before.Benches.Single(value => value.Id == bench).Selectors.Select(value => value.Kind)
             .ShouldBe([CoreModel.SelectorKind.Pin, CoreModel.SelectorKind.Subtree, CoreModel.SelectorKind.Query]);
-        before.Drafts.ShouldContain(value => value.Key == seed && value.Baseline == null);
+        before.RetainedItems.OfType<CoreModel.Seed>().ShouldContain(value => value.Key == seed);
         foreach (var format in new[] { "human", "json", "json-full", "json-compact", "minimal", "ids" })
         {
             var result = WorkspaceInvoke(paths,
@@ -201,8 +201,8 @@ public sealed partial class NativePublicationConsumerTests
         _transport.PostCount.ShouldBe(0);
         var after = (await store.ReadAsync(connection, default)).Value;
         after.Version.ShouldBe(before.Version);
-        after.Drafts.Select(value => value.Key).ShouldBe(before.Drafts.Select(value => value.Key));
-        after.Drafts.Single(value => !value.Key.IsLocal).Baseline!.Fields.ShouldBe(before.Drafts.Single(value => !value.Key.IsLocal).Baseline!.Fields);
+        after.RetainedItems.Select(value => value.Key).ShouldBe(before.RetainedItems.Select(value => value.Key));
+        after.RetainedItems.OfType<CoreModel.LocalEdits>().Single().EditBaseline.Fields.ShouldBe(before.RetainedItems.OfType<CoreModel.LocalEdits>().Single().EditBaseline.Fields);
         CoreModel.Core.PlanBytes(after.Plans.Single()).ShouldBe(CoreModel.Core.PlanBytes(before.Plans.Single()));
         after.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Indeterminate);
         after.Journal.Single().Attempt.ShouldBe(attempt);
@@ -294,7 +294,7 @@ public sealed partial class NativePublicationConsumerTests
             var scoped = selected.Selectors.Select(selector => new CoreModel.Selector(selector.Kind, selector.Item,
                 selector.Query, selector.HierarchyRelation, connection));
             (await library.SaveAsync(new(selected.Id, selected.Name, scoped), retained.Revision)).IsSuccess.ShouldBeTrue();
-            (await store.CommitAsync(connection, current.Version, new(current.Version + 1, items, edges, initial.Drafts,
+            (await store.CommitAsync(connection, current.Version, new(current.Version + 1, items, edges, initial.RetainedItems,
                 initial.Plans, initial.Journal, initial.Mappings, initial.Benches), default)).IsSuccess.ShouldBeTrue();
             var result = WorkspaceInvoke(paths, failure == "no-selection"
                 ? ["workspace", "-o", "json"] : ["workspace", "--bench", "Read scope", "-o", "json"]);
@@ -315,11 +315,11 @@ public sealed partial class NativePublicationConsumerTests
             query: new(CoreModel.QueryKind.GreaterOrEqual, "Custom.Score", CoreModel.FieldValue.Integer(5)), connection: connection)]),
             numericBefore.Revision)).IsSuccess.ShouldBeTrue();
         (await store.CommitAsync(connection, state.Version, new(state.Version + 1, numericItems, initial.Relationships,
-            initial.Drafts, initial.Plans, initial.Journal, initial.Mappings, initial.Benches), default)).IsSuccess.ShouldBeTrue();
+            initial.RetainedItems, initial.Plans, initial.Journal, initial.Mappings, initial.Benches), default)).IsSuccess.ShouldBeTrue();
         var typed = WorkspaceInvoke(paths, ["workspace", "--bench", bench.ToString("D"), "-o", "ids"]);
         typed.Exit.ShouldBe(0, typed.Error);
         typed.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(int.Parse).Order().ShouldBe(new[] { 43, 45, CoreHostContext.LocalAlias(initial.Drafts.Single(value => value.Key.IsLocal).Key) }.Order());
+            .Select(int.Parse).Order().ShouldBe(new[] { 43, 45, CoreHostContext.LocalAlias(initial.RetainedItems.Single(value => value.Key.IsLocal).Key) }.Order());
         _transport.ItemReadIds.ShouldBeEmpty();
     }
 
@@ -330,7 +330,7 @@ public sealed partial class NativePublicationConsumerTests
         var initial = (await store.ReadAsync(connection, default)).Value;
         var scope = initial.Benches.Single(value => value.Id == bench);
         (await store.CommitAsync(connection, initial.Version, new(initial.Version + 1, initial.Items, initial.Relationships,
-            initial.Drafts, initial.Plans, initial.Journal, initial.Mappings,
+            initial.RetainedItems, initial.Plans, initial.Journal, initial.Mappings,
             initial.Benches.Select(value => value.Id == bench
                 ? new CoreModel.Bench(value.Id, value.Name, scope.Selectors.Where(selector => selector.Kind != CoreModel.SelectorKind.Query))
                 : value)), default)).IsSuccess.ShouldBeTrue();
@@ -349,9 +349,9 @@ public sealed partial class NativePublicationConsumerTests
         _transport.CommittedWrites.ShouldBe(0);
         var after = (await store.ReadAsync(connection, default)).Value;
         after.Items.Single(item => item.Key.NativeId == "45").Fields["System.Title"].Text.ShouldBe("Fresh remote debt");
-        after.Drafts.Single(value => !value.Key.IsLocal).Baseline!.Fields.ShouldBe(before.Drafts.Single(value => !value.Key.IsLocal).Baseline!.Fields);
-        after.Drafts.Single(value => !value.Key.IsLocal).Changes.ShouldBe(before.Drafts.Single(value => !value.Key.IsLocal).Changes);
-        after.Drafts.Single(value => value.Key == seed).ShouldBe(before.Drafts.Single(value => value.Key == seed));
+        after.RetainedItems.OfType<CoreModel.LocalEdits>().Single().EditBaseline.Fields.ShouldBe(before.RetainedItems.OfType<CoreModel.LocalEdits>().Single().EditBaseline.Fields);
+        after.RetainedItems.Single(value => !value.Key.IsLocal).Fields.ShouldBe(before.RetainedItems.Single(value => !value.Key.IsLocal).Fields);
+        after.RetainedItems.Single(value => value.Key == seed).ShouldBe(before.RetainedItems.Single(value => value.Key == seed));
         after.Journal.ShouldBe(before.Journal);
         CoreModel.Core.PlanBytes(after.Plans.Single()).ShouldBe(CoreModel.Core.PlanBytes(before.Plans.Single()));
         after.Benches.Single(value => value.Id == bench).Selectors.ShouldBe(before.Benches.Single(value => value.Id == bench).Selectors);
@@ -393,7 +393,7 @@ public sealed partial class NativePublicationConsumerTests
             }
         }
         (await store.CommitAsync(connection, retained.Version, new(retained.Version + 1, retained.Items,
-            retained.Relationships, retained.Drafts.Add(before.Drafts.Single(value => value.Key == seed)),
+            retained.Relationships, retained.RetainedItems.Add(before.RetainedItems.Single(value => value.Key == seed)),
             retained.Plans, retained.Journal, retained.Mappings, retained.Benches), default)).IsSuccess.ShouldBeTrue();
         var debtCapture = (await store.ReadAsync(connection, default)).Value;
         var mappedDebt = WorkspaceInvoke(paths, ["workspace", "--bench", "Read scope", "-o", "json"]);
@@ -436,13 +436,13 @@ public sealed partial class NativePublicationConsumerTests
             [new("retained", CoreModel.OpKind.Batch, debt.Key, debt.Revision,
                     new([KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Retained plan"))]))]);
         (await store.CommitAsync(connection, snapshot.Version, new(snapshot.Version + 1, snapshot.Items, snapshot.Relationships,
-            [new(debt.Key, debt.Type, debt, new([
+            [new CoreModel.LocalEdits(debt.Key, debt.Type, debt, new([
                     KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Proposed debt")),
                     KeyValuePair.Create("Custom.Amount", CoreModel.FieldValue.Decimal(1.5m)),
                     KeyValuePair.Create("Custom.Clear", CoreModel.FieldValue.Null),
                     KeyValuePair.Create("id", CoreModel.FieldValue.Integer(123456)),
                 ])),
-                new(seed, debt.Type, null, new([
+                new CoreModel.Seed(seed, debt.Type, new([
                     KeyValuePair.Create("System.Title", CoreModel.FieldValue.String("Unpublished debt")),
                     KeyValuePair.Create("System.State", CoreModel.FieldValue.String("To Do")),
                 ]))], [plan], [CoreModel.JournalEntry.Planned(plan.Digest, 0)], snapshot.Mappings,

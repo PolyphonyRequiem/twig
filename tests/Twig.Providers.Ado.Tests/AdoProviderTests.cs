@@ -384,7 +384,7 @@ public sealed partial class AdoProviderTests
             new(dependency.Key, "Native.DependencyForward", false)];
         var stored = await f.Stored();
         (await f.Store.CommitAsync(f.Connection, stored.Version,
-            new(stored.Version + 1, [target, dependency], drafts: [new(seed, f.Http.Type, null, fields, links: links)]),
+            new(stored.Version + 1, [target, dependency], retainedItems: [new Seed(seed, f.Http.Type, fields, links: links)]),
             default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic, links: links));
@@ -410,7 +410,7 @@ public sealed partial class AdoProviderTests
         var retained = await f.Stored();
         retained.Journal.Single().Status.ShouldBe(missingReadback ? OpStatus.Partial : OpStatus.Verified);
         retained.Mappings.Single().Local.ShouldBe(seed);
-        retained.Drafts.Single().Links.ShouldBe(links);
+        retained.RetainedItems.Single().ShouldBeOfType<Seed>().Links.ShouldBe(links);
         retained.Plans.Single().Operations.Single().Links.ShouldBe(links);
         f.Http.Writes.ShouldBe(1);
     }
@@ -737,7 +737,7 @@ public sealed partial class AdoProviderTests
         using var f = await Fixture.Create();
         f.Http.IncludeClassification = true;
         var (schema, draft) = await ClassificationSeed(f, false);
-        var fields = draft.Changes;
+        var fields = draft.Fields;
         fields = defect switch
         {
             "missing-path" => new FieldValues(fields.Where(field => field.Key != "System.IterationPath")),
@@ -813,7 +813,7 @@ public sealed partial class AdoProviderTests
         var snapshot = await f.Stored();
         snapshot.Journal.Single().Status.ShouldBe(OpStatus.Partial);
         snapshot.Mappings.Single().Remote.ShouldBe(applied.PublishedKey);
-        snapshot.Drafts.Single().Key.ShouldBe(draft.Key);
+        snapshot.RetainedItems.Single().Key.ShouldBe(draft.Key);
         (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Partial);
         (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         var replacement = new Plan(f.Connection, schema.Fingerprint, snapshot.Version,
@@ -822,10 +822,10 @@ public sealed partial class AdoProviderTests
         f.Http.Writes.ShouldBe(1);
     }
 
-    private static Op CreateOperation(Draft draft) => new("create", OpKind.Create, draft.Key, fields: draft.Changes,
+    private static Op CreateOperation(Seed draft) => new("create", OpKind.Create, draft.Key, fields: draft.Fields,
         type: draft.Type, concurrency: ConcurrencyMode.ObservedNonAtomic);
 
-    private static async Task<(ProcessSchema Schema, Draft Draft)> ClassificationSeed(Fixture f, bool explicitAssertions)
+    private static async Task<(ProcessSchema Schema, Seed Draft)> ClassificationSeed(Fixture f, bool explicitAssertions)
     {
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
             ("System.AreaPath", FieldValue.String(@"Native Project\Area")),
@@ -833,9 +833,9 @@ public sealed partial class AdoProviderTests
         if (explicitAssertions)
             fields = fields.Set("System.WorkItemType", FieldValue.String(f.Http.Type))
                 .Set("System.AreaId", FieldValue.Integer(18)).Set("System.IterationId", FieldValue.Integer(15));
-        var draft = new Draft(ItemKey.Local(Guid.NewGuid()), f.Http.Type, null, fields);
+        var draft = new Seed(ItemKey.Local(Guid.NewGuid()), f.Http.Type, fields);
         var stored = await f.Stored();
-        (await f.Store.CommitAsync(f.Connection, stored.Version, new(stored.Version + 1, drafts: [draft]), default))
+        (await f.Store.CommitAsync(f.Connection, stored.Version, new(stored.Version + 1, retainedItems: [draft]), default))
             .IsSuccess.ShouldBeTrue();
         return (await f.Schema(), draft);
     }
@@ -852,7 +852,7 @@ public sealed partial class AdoProviderTests
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
         var stored = await f.Stored();
         (await f.Store.CommitAsync(f.Connection, stored.Version,
-            new(stored.Version + 1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
+            new(stored.Version + 1, retainedItems: [new Seed(seed, f.Http.Type, fields)]), default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
@@ -870,7 +870,7 @@ public sealed partial class AdoProviderTests
         (await provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
         f.Http.Writes.ShouldBe(1);
         snapshot.Mappings.ShouldBeEmpty();
-        snapshot.Drafts.Single().Key.ShouldBe(seed);
+        snapshot.RetainedItems.Single().Key.ShouldBe(seed);
     }
 
     [Theory]
@@ -884,9 +884,9 @@ public sealed partial class AdoProviderTests
         var child = ItemKey.Local(Guid.CreateVersion7());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
         CreationLink[] links = [new(parent, "Native.DependencyForward", false)];
-        var drafts = new[] { new Draft(parent, f.Http.Type, null, fields),
-            new Draft(child, f.Http.Type, null, fields, parent, "Native.ParentForward", links: links) };
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: drafts), default)).IsSuccess.ShouldBeTrue();
+        var drafts = new[] { new Seed(parent, f.Http.Type, fields),
+            new Seed(child, f.Http.Type, fields, parent, "Native.ParentForward", links: links) };
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: drafts), default)).IsSuccess.ShouldBeTrue();
         var schema = await f.Schema();
         var plan = new Plan(f.Connection, schema.Fingerprint, 1, [
             new("parent", OpKind.Create, parent, fields: fields, type: f.Http.Type, concurrency: ConcurrencyMode.ObservedNonAtomic),
@@ -906,7 +906,7 @@ public sealed partial class AdoProviderTests
             f.Http.Writes.ShouldBe(1);
             var fenced = await f.Stored();
             fenced.Mappings.ShouldBeEmpty();
-            fenced.Drafts.ShouldContain(draft => draft.Key == child && draft.Links.SequenceEqual(links));
+            fenced.RetainedItems.OfType<Seed>().ShouldContain(seed => seed.Key == child && seed.Links.SequenceEqual(links));
             (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
             (await f.Provider.ApplyAsync(plan, 1, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
             f.Http.Writes.ShouldBe(1);
@@ -938,7 +938,7 @@ public sealed partial class AdoProviderTests
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
             ("System.Description", FieldValue.RichText(description, FieldKind.Html)));
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default))
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [new Seed(seed, f.Http.Type, fields)]), default))
             .IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
@@ -962,12 +962,12 @@ public sealed partial class AdoProviderTests
         var parent = f.Key(1);
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("parented seed")));
         var resource = new ResourceLink("Hyperlink", "https://example.test/creation-evidence", comment: "reviewed during creation");
-        var draft = new Draft(seed, f.Http.Type, null, fields, parent, "Native.ParentForward", resource);
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [draft]), default)).IsSuccess.ShouldBeTrue();
+        var draft = new Seed(seed, f.Http.Type, fields, parent, "Native.ParentForward", resource);
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [draft]), default)).IsSuccess.ShouldBeTrue();
         var reopened = (await SqliteStore.OpenAsync(f.Path)).Value;
-        var retained = (await reopened.ReadAsync(f.Connection, default)).Value.Drafts.Single();
-        retained.Parent.ShouldBe(parent);
-        retained.Resource.ShouldBe(resource);
+        var retained = (await reopened.ReadAsync(f.Connection, default)).Value.RetainedItems.Single();
+        retained.ShouldBeOfType<Seed>().Parent.ShouldBe(parent);
+        retained.ShouldBeOfType<Seed>().Resource.ShouldBe(resource);
         var omitted = await f.Plan(new("omitted", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(omitted, omitted.Digest)).IsSuccess.ShouldBeFalse();
@@ -997,7 +997,7 @@ public sealed partial class AdoProviderTests
         using var f = await Fixture.Create();
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [new Seed(seed, f.Http.Type, fields)]), default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
@@ -1007,7 +1007,7 @@ public sealed partial class AdoProviderTests
         var snapshot = (await reopened.ReadAsync(f.Connection, default)).Value;
         snapshot.Mappings.Single().ShouldBe(new PublishMapping(seed, ack.PublishedKey!, plan.Digest, 0));
         snapshot.Items.ShouldContain(i => i.Key == ack.PublishedKey);
-        snapshot.Drafts.Single().Key.ShouldBe(seed);
+        snapshot.RetainedItems.Single().Key.ShouldBe(seed);
         using var provider = new AdoProvider(f.Connection, f.Access, reopened, f.Http.NewHandle());
         (await provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Verified);
         f.Http.Writes.ShouldBe(1);
@@ -1023,7 +1023,7 @@ public sealed partial class AdoProviderTests
         var stored = await f.Stored();
         var applying = stored.Journal.Single().Begin(Guid.NewGuid()).Value;
         (await f.Store.CommitAsync(f.Connection, stored.Version,
-            new(stored.Version + 1, stored.Items, stored.Relationships, stored.Drafts, stored.Plans, [applying]), default)).IsSuccess.ShouldBeTrue();
+            new(stored.Version + 1, stored.Items, stored.Relationships, stored.RetainedItems, stored.Plans, [applying]), default)).IsSuccess.ShouldBeTrue();
         (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Indeterminate);
         var replacement = await f.Plan(new("different-digest", OpKind.Comment, item.Key, item.Revision, body: FieldValue.String("changed")));
         (await f.Provider.ImportAsync(replacement, replacement.Digest)).IsSuccess.ShouldBeFalse();
@@ -1083,7 +1083,7 @@ public sealed partial class AdoProviderTests
         // A separate real SQLite writer can commit while admission/transport are paused.
         var current = await f.Stored();
         (await f.Store.CommitAsync(f.Connection, current.Version, new(current.Version + 1, current.Items,
-            current.Relationships, current.Drafts, current.Plans, current.Journal, current.Mappings, current.Benches), default)).IsSuccess.ShouldBeTrue();
+            current.Relationships, current.RetainedItems, current.Plans, current.Journal, current.Mappings, current.Benches), default)).IsSuccess.ShouldBeTrue();
         release.SetResult();
         (await first).Value.Status.ShouldBe(OpStatus.Applied);
         f.Http.Writes.ShouldBe(1);
@@ -1121,7 +1121,7 @@ public sealed partial class AdoProviderTests
         using var f = await Fixture.Create();
         var read = await f.Read(1, 2);
         var edge = new Relationship(f.Key(1), f.Key(2), "Native.ParentForward", RelationshipOrigin.Local, 1, true);
-        var draft = new Draft(ItemKey.Local(Guid.NewGuid()), f.Http.Type, null, Fields(("System.State", FieldValue.String(f.Http.Initial))));
+        var draft = new Seed(ItemKey.Local(Guid.NewGuid()), f.Http.Type, Fields(("System.State", FieldValue.String(f.Http.Initial))));
         var bench = new Bench(Guid.NewGuid(), "Retained", [new(SelectorKind.Pin, f.Key(1))]);
         (await f.Store.CommitAsync(f.Connection, 0, new(1, read.Items, [edge], [draft], benches: [bench]), default)).IsSuccess.ShouldBeTrue();
         var op = new Op("link", OpKind.Relate, f.Key(1), read.Items[0].Revision, other: f.Key(2), relation: "Native.ParentForward");
@@ -1132,7 +1132,7 @@ public sealed partial class AdoProviderTests
         var mirrored = await f.Stored();
         mirrored.Relationships.ShouldContain(edge);
         mirrored.Relationships.ShouldContain(edge with { Origin = RelationshipOrigin.Provider, LocalVersion = 0, Deleted = false });
-        mirrored.Drafts.Single().ShouldBe(draft);
+        mirrored.RetainedItems.Single().ShouldBe(draft);
         mirrored.Benches.Single().Id.ShouldBe(bench.Id);
         var item = (await f.Read(1)).Items.Single();
         var unlink = await f.Plan(new("unlink", OpKind.Unrelate, f.Key(1), item.Revision, other: f.Key(2), relation: op.Relation));
@@ -1240,7 +1240,7 @@ public sealed partial class AdoProviderTests
         schema.Types.Single().Rules.ShouldContain(r => r.Disabled && r.Action == RuleAction.Unknown);
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Completed)), ("Custom.Closure", FieldValue.String("explicit")));
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [new Seed(seed, f.Http.Type, fields)]), default)).IsSuccess.ShouldBeTrue();
         var invalid = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(invalid, invalid.Digest)).IsSuccess.ShouldBeFalse();
@@ -1261,7 +1261,7 @@ public sealed partial class AdoProviderTests
         using var f = await Fixture.Create();
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)), ("Custom.Empty", FieldValue.String("seed")));
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(seed, f.Http.Type, null, fields)]), default)).IsSuccess.ShouldBeTrue();
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [new Seed(seed, f.Http.Type, fields)]), default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, seed, fields: fields, type: f.Http.Type,
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();

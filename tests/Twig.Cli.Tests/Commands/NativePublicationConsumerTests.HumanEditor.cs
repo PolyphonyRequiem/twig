@@ -75,8 +75,8 @@ public sealed partial class NativePublicationConsumerTests
         (await editor.SaveAsync(selected.Value.Ticket,
             FieldValues.Empty.Set("System.Title", FieldValue.String("Must not publish")))).IsSuccess.ShouldBeFalse();
         HumanPatchAttempts.ShouldBe(0);
-        (await origin.Workspace.SnapshotAsync(default)).Value.Drafts.Single()
-            .Changes["System.Title"].Text.ShouldBe("Independent normal intent");
+        (await origin.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single()
+            .Fields["System.Title"].Text.ShouldBe("Independent normal intent");
     }
 
     [Fact]
@@ -120,7 +120,7 @@ public sealed partial class NativePublicationConsumerTests
         using var reopened = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value;
         var drafts = (await reopened.ReadPlanDraftsAsync()).Value;
         drafts.Length.ShouldBe(3);
-        drafts.Single(value => value.Key.IsLocal && value.Key.LocalId == seedId).Changes["System.Title"].Text.ShouldBe("Planned local seed");
+        drafts.Single(value => value.Key.IsLocal && value.Key.LocalId == seedId).Fields["System.Title"].Text.ShouldBe("Planned local seed");
         HumanPatchAttempts.ShouldBe(0);
     }
 
@@ -258,6 +258,6 @@ public sealed partial class NativePublicationConsumerTests
         var saved = await normal.SaveAsync(form.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Normal-only title")));
         saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         saved.Value.Verified.ShouldBeTrue();
-        (await plan.Workspace.SnapshotAsync(default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("Plan-only title");
+        (await plan.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("Plan-only title");
     }
 }

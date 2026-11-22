@@ -519,7 +519,7 @@ internal static partial class NativePanelTests
                     return new WorkItem(current.Key, observedType.Reference, observedFields, current.Revision, true);
                 }).ToList();
             }
-            var drafts = DiagnosticFixture ? [] : new[] { new Draft(key, type.Reference, item, fields), new Draft(local, type.Reference, null, fields) };
+            RetainedItem[] drafts = DiagnosticFixture ? [] : [new LocalEdits(key, type.Reference, item, fields), new Seed(local, type.Reference, fields)];
             var relationships = DiagnosticFixture ? Array.Empty<Relationship>()
                 : new[] { new Relationship(key, local, "Synthetic.Hierarchy", RelationshipOrigin.Local) };
             return Task.FromResult(Result<NativeSourceObservation>.Ok(new(stamp, new(1, items, relationships, drafts),

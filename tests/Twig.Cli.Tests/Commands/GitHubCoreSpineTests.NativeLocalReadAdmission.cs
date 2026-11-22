@@ -20,7 +20,7 @@ public sealed partial class GitHubCoreSpineTests
         var pair = (await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
         var created = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, true)).Value;
         var before = await fixture.SnapshotAsync();
-        before.Drafts.ShouldBeEmpty();
+        before.RetainedItems.ShouldBeEmpty();
         before.Plans.ShouldHaveSingleItem().Digest.ShouldBe(created.Plan.Digest);
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Planned);
         var proof = await LocalCaptureProof(fixture);
@@ -83,7 +83,7 @@ public sealed partial class GitHubCoreSpineTests
         var pair = (await editor.SelectRelationshipsAsync(fixture.Key, LocalPairOther(fixture))).Value;
         var created = (await editor.ReviewLocalRelationshipAsync(pair.Fields.Ticket, true)).Value;
         var before = await fixture.SnapshotAsync();
-        before.Drafts.ShouldBeEmpty();
+        before.RetainedItems.ShouldBeEmpty();
         before.Plans.ShouldHaveSingleItem().Digest.ShouldBe(created.Plan.Digest);
         before.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Planned);
         var proof = await LocalCaptureProof(fixture);

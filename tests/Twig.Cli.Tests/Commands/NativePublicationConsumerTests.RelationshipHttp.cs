@@ -94,7 +94,7 @@ public sealed partial class NativePublicationConsumerTests
                 {
                     var after = await Snapshot();
                     if (includeVersion) after.Version.ShouldBe(snapshot.Version);
-                    after.Drafts.ShouldBe(snapshot.Drafts);
+                    after.RetainedItems.ShouldBe(snapshot.RetainedItems);
                     after.Plans.Select(p => Convert.ToHexString(Twig.Core.Core.PlanBytes(p)))
                         .ShouldBe(snapshot.Plans.Select(p => Convert.ToHexString(Twig.Core.Core.PlanBytes(p))));
                     LinkHttpJournal(after).ShouldBe(LinkHttpJournal(snapshot));
@@ -160,7 +160,7 @@ public sealed partial class NativePublicationConsumerTests
                 item.RelationshipsComplete.ShouldBeTrue();
                 other.RelationshipsComplete.ShouldBeTrue();
                 if (title is not null) item.Fields["System.Title"].Text.ShouldBe(title);
-                snapshot.Drafts.ShouldBeEmpty();
+                snapshot.RetainedItems.ShouldBeEmpty();
                 snapshot.Plans.Length.ShouldBe(effects);
                 snapshot.Journal.Length.ShouldBe(effects);
                 snapshot.Journal.ShouldAllBe(row => row.Status == OpStatus.Verified && row.Attempt != Guid.Empty);
@@ -194,8 +194,8 @@ public sealed partial class NativePublicationConsumerTests
                 var other = before.Items.Single(item => item.Key.NativeId == "43");
                 operation.Item.ShouldBe(item.Key);
                 operation.Links.ShouldBe([new(other.Key, relation, false, true)]);
-                before.Drafts.ShouldHaveSingleItem().Changes.Count.ShouldBe(0);
-                before.Drafts.Single().Links.ShouldBeEmpty();
+                before.RetainedItems.ShouldHaveSingleItem().Fields.Count.ShouldBe(0);
+                before.RetainedItems.Single().ShouldBeOfType<LocalEdits>();
                 before.Plans.ShouldBeEmpty();
                 before.Journal.ShouldBeEmpty();
                 before.Relationships.ShouldContain(new Relationship(other.Key, item.Key, relation, RelationshipOrigin.Provider));

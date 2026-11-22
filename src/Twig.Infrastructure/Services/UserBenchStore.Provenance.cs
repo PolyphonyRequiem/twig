@@ -242,7 +242,7 @@ public sealed partial class UserBenchStore
                 }
                 var key = ParseIntent(capture.IntentJson).Operations.Single().Item;
                 if (stored.Value.Version < capture.StoreVersion
-                    || CoreWorkspace.Fingerprint(source.Connection, stored.Value.Drafts.SingleOrDefault(value => value.Key == key)) != capture.DraftFingerprint)
+                    || CoreWorkspace.Fingerprint(source.Connection, stored.Value.RetainedItems.SingleOrDefault(value => value.Key == key)) != capture.DraftFingerprint)
                     return Result<bool>.Fail(ErrorCode.Conflict, "Protected native draft/version differs from its capture; review is required before publication.");
             }
             return Result<bool>.Ok(true);

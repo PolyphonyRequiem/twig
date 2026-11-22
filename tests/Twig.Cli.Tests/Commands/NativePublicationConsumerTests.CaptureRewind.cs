@@ -33,7 +33,7 @@ public sealed partial class NativePublicationConsumerTests
         var userIdentity = (await user.ReadAsync()).Value.InstanceId;
         await CopyDatabase(backup, metadata);
         (await user.ReadAsync()).Value.InstanceId.ShouldBe(userIdentity);
-        (await native.Store.ReadAsync(native.Connection, default)).Value.Drafts.Single().Changes["System.Title"].Text.ShouldBe("surviving intent");
+        (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("surviving intent");
         var reopenedUser = UserBenchStore.ForRegistry(_bindings.RegistryPath);
         using var reopened = (await NativeEditor.OpenAsync(factory, reopenedUser, bench.Id, origin.Source, default)).Value;
         var selected = await reopened.SelectAsync(key, default);

@@ -7,7 +7,7 @@ using Model = Twig.Core.Core;
 
 namespace Twig.Infrastructure.Services;
 
-internal sealed record CoreDraftPreview(Draft Draft, Plan? Plan);
+internal sealed record CoreDraftPreview(RetainedItem Draft, Plan? Plan);
 internal sealed record CoreBenchPull(Bench Bench, int ItemCount, int MemberCount, int ContextCount, int ProtectedCount);
 internal sealed record CoreExecution(ImmutableArray<Receipt> Receipts, Error? Error = null,
     bool AlreadyVerified = false, bool DraftRetained = false)
@@ -308,7 +308,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         schema = Result<ProcessSchema>.Ok(schema.Value with { PlanningCalendars = planning.Value, Memberships = memberships.Value });
         var fetched = new HashSet<ItemKey>();
         var members = new HashSet<ItemKey>();
-        var targets = initial.Value.Drafts.Select(draft => Resolve(initial.Value, draft.Key)).ToHashSet();
+        var targets = initial.Value.RetainedItems.Select(draft => Resolve(initial.Value, draft.Key)).ToHashSet();
         foreach (var selector in bench.Selectors)
         {
             if (selector.Connection is { } owner && owner != connection) continue;
@@ -379,7 +379,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var retained = final.Value.Benches.SingleOrDefault(value => value.Id == bench.Id);
         if (retained is null || !SameBench(bench, retained))
             return Result<CoreBenchPull>.Fail(ErrorCode.Conflict, "The specified Bench changed during pull; newer scope and cached observations were preserved.");
-        members.UnionWith(final.Value.Drafts.Select(draft => Resolve(final.Value, draft.Key)));
+        members.UnionWith(final.Value.RetainedItems.Select(draft => Resolve(final.Value, draft.Key)));
         foreach (var selector in bench.Selectors.Where(value => value.Kind == SelectorKind.Query
             && (value.Connection is null || value.Connection == connection)))
             foreach (var item in final.Value.Items)
@@ -390,7 +390,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             }
         var memberCount = fetched.Count(members.Contains);
         return Result<CoreBenchPull>.Ok(new(bench, fetched.Count, memberCount, fetched.Count - memberCount,
-            final.Value.Drafts.Count(draft => draft.Key.IsLocal || fetched.Contains(Resolve(final.Value, draft.Key)))));
+            final.Value.RetainedItems.Count(draft => draft.Key.IsLocal || fetched.Contains(Resolve(final.Value, draft.Key)))));
 
         async Task<Result<bool>> Fetch(ItemKey key)
         {
@@ -398,7 +398,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             if (!state.IsSuccess) return Result<bool>.Fail(state.Error);
             key = Resolve(state.Value, key);
             if (key.IsLocal)
-                return state.Value.Drafts.Any(draft => draft.Key == key) ? Result<bool>.Ok(true)
+                return state.Value.RetainedItems.Any(draft => draft.Key == key) ? Result<bool>.Ok(true)
                     : Result<bool>.Fail(ErrorCode.Unavailable, "An explicitly scoped local item is unavailable.");
             if (fetched.Contains(key)) return Result<bool>.Ok(true);
             var read = await ReadAsync(key, ct).ConfigureAwait(false);
@@ -435,13 +435,13 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
 
     private static IEnumerable<ItemKey> ChildKeys(StoreSnapshot state, ItemKey parent, string hierarchy)
         => state.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy && Resolve(state, edge.From) == parent)
-            .Select(edge => Resolve(state, edge.To)).Concat(state.Drafts.Where(draft => draft.Key.IsLocal
+            .Select(edge => Resolve(state, edge.To)).Concat(state.RetainedItems.OfType<Seed>().Where(draft => true
                 && !state.Mappings.Any(mapping => mapping.Local == draft.Key) && draft.Parent is not null
                 && draft.ParentRelation == hierarchy && Resolve(state, draft.Parent) == parent).Select(draft => draft.Key)).Distinct();
 
     private static IEnumerable<ItemKey> ParentKeys(StoreSnapshot state, ItemKey child, string hierarchy)
         => state.Relationships.Where(edge => !edge.Deleted && edge.Kind == hierarchy && Resolve(state, edge.To) == child)
-            .Select(edge => Resolve(state, edge.From)).Concat(state.Drafts.Where(draft => draft.Key == child
+            .Select(edge => Resolve(state, edge.From)).Concat(state.RetainedItems.OfType<Seed>().Where(draft => draft.Key == child
                 && draft.Parent is not null && draft.ParentRelation == hierarchy).Select(draft => Resolve(state, draft.Parent!))).Distinct();
 
     internal static bool SameBench(Bench left, Bench right) => left.Id == right.Id && left.Name == right.Name && left.Revision == right.Revision
@@ -530,7 +530,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (current.Value.Version != plan.ExpectedStoreVersion)
             return Result<bool>.Fail(ErrorCode.Conflict, "Local state changed before review retention.");
         var next = new StoreSnapshot(current.Value.Version + 1, current.Value.Items, current.Value.Relationships,
-            current.Value.Drafts, current.Value.Plans.Append(plan),
+            current.Value.RetainedItems, current.Value.Plans.Append(plan),
             current.Value.Journal.Concat(plan.Operations.Select((_, ordinal) => JournalEntry.Planned(plan.Digest, ordinal))),
             current.Value.Mappings, current.Value.Benches);
         var committed = await store.CommitAsync(connection, current.Value.Version, next, ct).ConfigureAwait(false);
@@ -574,7 +574,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var stored = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!stored.IsSuccess) return Result<WorkItem>.Fail(stored.Error);
         key = Resolve(stored.Value, key);
-        if (key.IsLocal) return Result<WorkItem>.Fail(ErrorCode.InvalidInput, "A local draft is not a native item observation.");
+        if (key.IsLocal) return Result<WorkItem>.Fail(ErrorCode.InvalidInput, "A seed is not a provider work item observation.");
         if (editor is not null && editor.Schema.Connection != connection)
             return Result<WorkItem>.Fail(ErrorCode.Conflict, "Editor metadata belongs to another native connection.");
         var read = await ObserveContentAsync(() => editor is null
@@ -606,29 +606,29 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
-    internal async Task<Result<Draft>> StageSeedAsync(string type, FieldValues fields, CancellationToken ct, Guid? id = null,
+    internal async Task<Result<Seed>> StageSeedAsync(string type, FieldValues fields, CancellationToken ct, Guid? id = null,
         ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null,
         IEnumerable<CreationLink>? links = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
-        if (!read.IsSuccess) return Result<Draft>.Fail(read.Error);
+        if (!read.IsSuccess) return Result<Seed>.Fail(read.Error);
         var snapshot = read.Value;
         var key = ItemKey.Local(id ?? Guid.CreateVersion7());
         if (snapshot.Mappings.Any(m => m.Local == key))
-            return Result<Draft>.Fail(ErrorCode.Conflict, "This local identity is already published; edit its mapped native draft.");
-        var previous = snapshot.Drafts.FirstOrDefault(d => d.Key == key);
+            return Result<Seed>.Fail(ErrorCode.Conflict, "This seed is already published; edit its mapped work item.");
+        var previous = snapshot.RetainedItems.OfType<Seed>().FirstOrDefault(d => d.Key == key);
         if (previous is not null && previous.Type != type)
-            return Result<Draft>.Fail(ErrorCode.Conflict, "The retained seed type differs; no existing intent was replaced.");
-        var draft = new Draft(key, type, null, previous?.Changes.Overlay(fields) ?? fields,
+            return Result<Seed>.Fail(ErrorCode.Conflict, "The retained seed type differs; no existing intent was replaced.");
+        var draft = new Seed(key, type, previous?.Fields.Overlay(fields) ?? fields,
             parent ?? previous?.Parent, parentRelation ?? previous?.ParentRelation, resource ?? previous?.Resource,
             links ?? previous?.Links);
         var committed = await store.CommitAsync(connection, snapshot.Version,
-            Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(d => d.Key != key).Append(draft)), ct).ConfigureAwait(false);
-        return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
+            Copy(snapshot, snapshot.Version + 1, retainedItems: snapshot.RetainedItems.Where(d => d.Key != key).Append(draft)), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<Seed>.Ok(draft) : Result<Seed>.Fail(committed.Error);
     }
 
-    internal async Task<Result<bool>> CaptureSeedResourceAsync(IEnumerable<Draft> captures, long expectedVersion,
+    internal async Task<Result<bool>> CaptureSeedResourceAsync(IEnumerable<Seed> captures, long expectedVersion,
         ResourceLink resource, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
@@ -636,7 +636,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         if (current.Value.Version != expectedVersion || drafts.Any(capture => !capture.Key.IsLocal
-                || !current.Value.Drafts.Any(draft => SameDraft(draft, capture))
+                || !current.Value.RetainedItems.Any(draft => SameDraft(draft, capture))
                 || capture.Resource is not null && capture.Resource != resource))
             return Result<bool>.Fail(ErrorCode.Conflict, "Seed or artifact intent changed before branch capture; no replacement was inferred.");
         if (drafts.Any(draft => current.Value.Journal.Any(row => row.Status != OpStatus.Planned
@@ -644,60 +644,59 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; branch intent cannot replace its unresolved creation.");
         if (drafts.All(draft => draft.Resource == resource)) return Result<bool>.Ok(true);
         var keys = drafts.Select(draft => draft.Key).ToHashSet();
-        var next = current.Value.Drafts.Select(draft => keys.Contains(draft.Key)
-            ? new Draft(draft.Key, draft.Type, null, draft.Changes, draft.Parent, draft.ParentRelation, resource, draft.Links) : draft);
+        var next = current.Value.RetainedItems.Select(item => item is Seed seed && keys.Contains(seed.Key)
+            ? new Seed(seed.Key, seed.Type, seed.Fields, seed.Parent, seed.ParentRelation, resource, seed.Links) : item);
         var committed = await store.CommitAsync(connection, expectedVersion,
-            Copy(current.Value, expectedVersion + 1, drafts: next), ct).ConfigureAwait(false);
+            Copy(current.Value, expectedVersion + 1, retainedItems: next), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
-    internal async Task<Result<bool>> CaptureSeedLinksAsync(Draft capture, long expectedVersion,
+    internal async Task<Result<bool>> CaptureSeedLinksAsync(Seed capture, long expectedVersion,
         ItemKey? parent, string? parentRelation, IEnumerable<CreationLink> links, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         if (current.Value.Version != expectedVersion || !capture.Key.IsLocal
-            || !current.Value.Drafts.Any(draft => SameDraft(draft, capture)))
+            || !current.Value.RetainedItems.Any(draft => SameDraft(draft, capture)))
             return Result<bool>.Fail(ErrorCode.Conflict, "The exact seed changed before link capture.");
         if (current.Value.Mappings.Any(mapping => mapping.Local == capture.Key)
             || current.Value.Journal.Any(row => row.Status != OpStatus.Planned && current.Value.Plans
                 .Single(plan => plan.Digest == row.Digest).Operations[row.Operation].Item == capture.Key))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "An attempted creation UUID owns this seed; link intent cannot replace its fenced creation.");
-        var changed = new Draft(capture.Key, capture.Type, null, capture.Changes, parent, parentRelation, capture.Resource, links);
-        var drafts = current.Value.Drafts.Select(draft => draft.Key == capture.Key ? changed : draft).ToArray();
-        var remaining = drafts.Where(draft => draft.Key.IsLocal
-            && !current.Value.Mappings.Any(mapping => mapping.Local == draft.Key)).ToList();
+        var changed = new Seed(capture.Key, capture.Type, capture.Fields, parent, parentRelation, capture.Resource, links);
+        var drafts = current.Value.RetainedItems.Select(draft => draft.Key == capture.Key ? changed : draft).ToArray();
+        var remaining = drafts.OfType<Seed>().Where(draft => !current.Value.Mappings.Any(mapping => mapping.Local == draft.Key)).ToList();
         while (remaining.Count != 0)
         {
             var ready = remaining.FirstOrDefault(draft => !remaining.Any(endpoint => endpoint.Key == draft.Parent
                 || draft.Links.Any(link => link.Other == endpoint.Key)));
-            if (ready is null) return Result<bool>.Fail(ErrorCode.Conflict, "Creation-bound links contain a cycle; no draft was changed.");
+            if (ready is null) return Result<bool>.Fail(ErrorCode.Conflict, "Creation-bound links contain a cycle; no seed was changed.");
             remaining.Remove(ready);
         }
         var committed = await store.CommitAsync(connection, expectedVersion,
-            Copy(current.Value, expectedVersion + 1, drafts: drafts), ct).ConfigureAwait(false);
+            Copy(current.Value, expectedVersion + 1, retainedItems: drafts), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
 
-    internal async Task<Result<Draft>> CaptureSeedFieldsAsync(Draft capture, long expectedVersion,
+    internal async Task<Result<Seed>> CaptureSeedFieldsAsync(Seed capture, long expectedVersion,
         FieldValues fields, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
-        if (!current.IsSuccess) return Result<Draft>.Fail(current.Error);
+        if (!current.IsSuccess) return Result<Seed>.Fail(current.Error);
         if (current.Value.Version != expectedVersion || !capture.Key.IsLocal
-            || !current.Value.Drafts.Any(draft => SameDraft(draft, capture)))
-            return Result<Draft>.Fail(ErrorCode.Conflict, "The captured seed changed during editing; neither draft was overwritten.");
+            || !current.Value.RetainedItems.Any(draft => SameDraft(draft, capture)))
+            return Result<Seed>.Fail(ErrorCode.Conflict, "The captured seed changed during editing; neither version was overwritten.");
         if (current.Value.Mappings.Any(mapping => mapping.Local == capture.Key)
             || current.Value.Journal.Any(row => row.Status != OpStatus.Planned && current.Value.Plans
                 .Single(plan => plan.Digest == row.Digest).Operations[row.Operation].Item == capture.Key))
-            return Result<Draft>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; edits cannot replace its fenced creation.");
-        var changed = new Draft(capture.Key, capture.Type, null, capture.Changes.Overlay(fields),
+            return Result<Seed>.Fail(ErrorCode.Indeterminate, "An attempted UUID owns this seed; edits cannot replace its fenced creation.");
+        var changed = new Seed(capture.Key, capture.Type, capture.Fields.Overlay(fields),
             capture.Parent, capture.ParentRelation, capture.Resource, capture.Links);
         var committed = await store.CommitAsync(connection, expectedVersion,
-            Copy(current.Value, expectedVersion + 1, drafts: current.Value.Drafts.Where(draft => draft.Key != capture.Key).Append(changed)), ct).ConfigureAwait(false);
-        return committed.IsSuccess ? Result<Draft>.Ok(changed) : Result<Draft>.Fail(committed.Error);
+            Copy(current.Value, expectedVersion + 1, retainedItems: current.Value.RetainedItems.Where(draft => draft.Key != capture.Key).Append(changed)), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<Seed>.Ok(changed) : Result<Seed>.Fail(committed.Error);
     }
 
     internal async Task<Result<int>> ReconcileSeedsAsync(CancellationToken ct)
@@ -723,13 +722,13 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<int>.Fail(current.Error);
         var settled = new HashSet<ItemKey>();
-        foreach (var draft in current.Value.Drafts.Where(draft => draft.Key.IsLocal))
+        foreach (var draft in current.Value.RetainedItems.OfType<Seed>())
         {
             var mapping = current.Value.Mappings.SingleOrDefault(mapping => mapping.Local == draft.Key);
             if (mapping is null) continue;
             var row = current.Value.Journal.Single(entry => entry.Digest == mapping.PlanDigest && entry.Operation == mapping.Operation);
             var op = current.Value.Plans.Single(plan => plan.Digest == row.Digest).Operations[row.Operation];
-            if (row.Status != OpStatus.Verified || op.Item != draft.Key || op.Type != draft.Type || !op.Fields.Equals(draft.Changes)
+            if (row.Status != OpStatus.Verified || op.Item != draft.Key || op.Type != draft.Type || !op.Fields.Equals(draft.Fields)
                 || op.Other != draft.Parent || op.Relation != draft.ParentRelation || op.Resource != draft.Resource
                 || !op.Links.SequenceEqual(draft.Links))
                 return Result<int>.Fail(ErrorCode.Conflict, "A published seed has later or unverified intent; the original UUID, draft and receipt were preserved.");
@@ -737,29 +736,29 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         }
         if (settled.Count == 0) return Result<int>.Ok(0);
         var committed = await store.CommitAsync(connection, current.Value.Version,
-            Copy(current.Value, current.Value.Version + 1, drafts: current.Value.Drafts.Where(draft => !settled.Contains(draft.Key))), ct).ConfigureAwait(false);
+            Copy(current.Value, current.Value.Version + 1, retainedItems: current.Value.RetainedItems.Where(draft => !settled.Contains(draft.Key))), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<int>.Ok(settled.Count) : Result<int>.Fail(committed.Error);
     }
 
-    internal async Task<Result<Draft>> StageEditAsync(ItemKey key, FieldValues fields, CancellationToken ct, string? typeOverride = null,
+    internal async Task<Result<LocalEdits>> StageEditAsync(ItemKey key, FieldValues fields, CancellationToken ct, string? typeOverride = null,
         WorkItem? capturedBaseline = null, long? expectedVersion = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var remote = capturedBaseline is null ? await ReadAsync(key, ct).ConfigureAwait(false) : Result<WorkItem>.Ok(capturedBaseline);
-        if (!remote.IsSuccess) return Result<Draft>.Fail(remote.Error);
-        if (remote.Value.Key != key || remote.Value.Revision is null)
-            return Result<Draft>.Fail(ErrorCode.Conflict, "The captured edit baseline does not belong to the exact native target.");
+        if (!remote.IsSuccess) return Result<LocalEdits>.Fail(remote.Error);
+        if (key.IsLocal || remote.Value.Key != key || remote.Value.Revision is null)
+            return Result<LocalEdits>.Fail(ErrorCode.Conflict, "The captured edit baseline does not belong to the exact native target.");
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
-        if (!read.IsSuccess) return Result<Draft>.Fail(read.Error);
+        if (!read.IsSuccess) return Result<LocalEdits>.Fail(read.Error);
         var snapshot = read.Value;
         if (expectedVersion is not null && snapshot.Version != expectedVersion)
-            return Result<Draft>.Fail(ErrorCode.Conflict, "The local workspace changed during editing; the newer draft was preserved.");
-        var previous = snapshot.Drafts.FirstOrDefault(d => d.Key == remote.Value.Key);
-        var draft = new Draft(remote.Value.Key, typeOverride ?? previous?.Type ?? remote.Value.Type,
-            previous?.Baseline ?? remote.Value, previous?.Changes.Overlay(fields) ?? fields);
+            return Result<LocalEdits>.Fail(ErrorCode.Conflict, "The local workspace changed during editing; the newer local edits were preserved.");
+        var previous = snapshot.RetainedItems.OfType<LocalEdits>().FirstOrDefault(d => d.Key == remote.Value.Key);
+        var draft = new LocalEdits(remote.Value.Key, typeOverride ?? previous?.Type ?? remote.Value.Type,
+            previous?.EditBaseline ?? remote.Value, previous?.Changes.Overlay(fields) ?? fields);
         var committed = await store.CommitAsync(connection, snapshot.Version,
-            Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(d => d.Key != draft.Key).Append(draft)), ct).ConfigureAwait(false);
-        return committed.IsSuccess ? Result<Draft>.Ok(draft) : Result<Draft>.Fail(committed.Error);
+            Copy(snapshot, snapshot.Version + 1, retainedItems: snapshot.RetainedItems.Where(d => d.Key != draft.Key).Append(draft)), ct).ConfigureAwait(false);
+        return committed.IsSuccess ? Result<LocalEdits>.Ok(draft) : Result<LocalEdits>.Fail(committed.Error);
     }
 
     internal async Task<Result<CoreDraftPreview>> PreviewDraftAsync(ItemKey key, CancellationToken ct,
@@ -768,8 +767,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var read = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!read.IsSuccess) return Result<CoreDraftPreview>.Fail(read.Error);
-        var draft = read.Value.Drafts.FirstOrDefault(d => d.Key == Resolve(read.Value, key));
-        if (draft is null) return Result<CoreDraftPreview>.Fail(ErrorCode.NotFound, "No retained draft exists for the exact target.");
+        var draft = read.Value.RetainedItems.FirstOrDefault(d => d.Key == Resolve(read.Value, key));
+        if (draft is null) return Result<CoreDraftPreview>.Fail(ErrorCode.NotFound, "No local edits or seed exist for the exact target.");
         if (review is not null && !OwnsPlanReview(review))
             return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The operation-local review capture belongs to another exact scope.");
         var discovery = review is null ? await provider.DiscoverSchemaAsync(connection, ct).ConfigureAwait(false)
@@ -777,9 +776,9 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!discovery.IsSuccess) return Result<CoreDraftPreview>.Fail(discovery.Error);
         var schema = discovery.Value;
         Op op;
-        if (draft.Key.IsLocal)
+        if (draft is Seed seed)
         {
-            foreach (var endpoint in draft.Links.Select(link => link.Other))
+            foreach (var endpoint in seed.Links.Select(link => link.Other))
             {
                 var target = Resolve(read.Value, endpoint);
                 if (!target.IsLocal)
@@ -787,10 +786,10 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                     var observed = await ReadAsync(target, ct, review?.Metadata, skipUnchanged: seedPublication).ConfigureAwait(false);
                     if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
                 }
-                else if (!read.Value.Drafts.Any(value => value.Key == target))
-                    return Result<CoreDraftPreview>.Fail(ErrorCode.Unavailable, "The exact local creation-link draft is missing.");
+                else if (!read.Value.RetainedItems.Any(value => value.Key == target))
+                    return Result<CoreDraftPreview>.Fail(ErrorCode.Unavailable, "The exact creation-link seed is missing.");
             }
-            if (draft.Parent is { } parent)
+            if (seed.Parent is { } parent)
             {
                 var parentKey = Resolve(read.Value, parent);
                 if (!parentKey.IsLocal)
@@ -798,49 +797,50 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                     var observed = await ReadAsync(parentKey, ct, review?.Metadata, skipUnchanged: seedPublication).ConfigureAwait(false);
                     if (!observed.IsSuccess) return Result<CoreDraftPreview>.Fail(observed.Error);
                 }
-                else if (!read.Value.Drafts.Any(value => value.Key == parentKey))
-                    return Result<CoreDraftPreview>.Fail(ErrorCode.Unavailable, "The exact local parent draft is missing.");
+                else if (!read.Value.RetainedItems.Any(value => value.Key == parentKey))
+                    return Result<CoreDraftPreview>.Fail(ErrorCode.Unavailable, "The exact parent seed is missing.");
             }
-            op = new("create", OpKind.Create, draft.Key, fields: draft.Changes, type: draft.Type,
-                other: draft.Parent, relation: draft.ParentRelation, resource: draft.Resource,
-                concurrency: ConcurrencyMode.ObservedNonAtomic, links: draft.Links);
+            op = new("create", OpKind.Create, seed.Key, fields: seed.Fields, type: seed.Type,
+                other: seed.Parent, relation: seed.ParentRelation, resource: seed.Resource,
+                concurrency: ConcurrencyMode.ObservedNonAtomic, links: seed.Links);
             var resolved = await ResolveCreateFieldsAsync(schema, op, ct).ConfigureAwait(false);
             if (!resolved.IsSuccess) return Result<CoreDraftPreview>.Fail(resolved.Error);
             op = resolved.Value;
         }
 
-        else
+        else if (draft is LocalEdits edits)
         {
-            var remote = await ReadAsync(draft.Key, ct, review?.Metadata).ConfigureAwait(false);
+            var remote = await ReadAsync(edits.Key, ct, review?.Metadata).ConfigureAwait(false);
             if (!remote.IsSuccess) return Result<CoreDraftPreview>.Fail(remote.Error);
-            var merge = Model.Merge(draft, remote.Value);
+            var merge = Model.Merge(edits, remote.Value);
             if (!merge.IsSuccess) return Result<CoreDraftPreview>.Fail(merge.Error);
             if (!merge.Value.Conflicts.IsEmpty)
-                return Result<CoreDraftPreview>.Fail(new(ErrorCode.Conflict, "The retained draft has genuine concurrent field conflicts.")
+                return Result<CoreDraftPreview>.Fail(new(ErrorCode.Conflict, "The local edits conflict with newer provider field values.")
                 { Evidence = merge.Value.Conflicts });
-            var explicitType = draft.Type != draft.Baseline!.Type;
-            if (explicitType && remote.Value.Type != draft.Baseline.Type && remote.Value.Type != draft.Type)
+            var explicitType = edits.Type != edits.EditBaseline.Type;
+            if (explicitType && remote.Value.Type != edits.EditBaseline.Type && remote.Value.Type != edits.Type)
                 return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The native type changed differently from the authored type intent.");
-            var type = explicitType && remote.Value.Type != draft.Type ? draft.Type : null;
+            var type = explicitType && remote.Value.Type != edits.Type ? edits.Type : null;
             var gates = Model.CloseGates(schema, remote.Value, merge.Value.Fields, type);
             if (!gates.IsSuccess) return Result<CoreDraftPreview>.Fail(gates.Error);
-            if (gates.Value.Any(g => draft.Changes.TryGetValue(g, out var authored)
+            if (gates.Value.Any(g => edits.Changes.TryGetValue(g, out var authored)
                 && merge.Value.Fields.TryGetValue(g, out var merged) && !authored.Equals(merged)))
                 return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "An authored close-gate value changed remotely; no replacement judgment was inferred.");
-            var fields = new FieldValues(draft.Changes.Where(f => merge.Value.Fields.TryGetValue(f.Key, out var value)
+            var fields = new FieldValues(edits.Changes.Where(f => merge.Value.Fields.TryGetValue(f.Key, out var value)
                 && (gates.Value.Contains(f.Key) || !remote.Value.Fields.TryGetValue(f.Key, out var current) || !value.Equals(current)))
                 .Select(f => KeyValuePair.Create(f.Key, merge.Value.Fields[f.Key])));
             if (fields.Count == 0 && type is null) return Result<CoreDraftPreview>.Ok(new(draft, null));
-            op = new("edit", OpKind.Batch, draft.Key, remote.Value.Revision, fields, type,
+            op = new("edit", OpKind.Batch, edits.Key, remote.Value.Revision, fields, type,
                 concurrency: provider.Capabilities.ExactRevisions ? ConcurrencyMode.ExactRevision : ConcurrencyMode.ObservedNonAtomic);
         }
+        else throw new InvalidOperationException("Unknown retained item kind.");
         var policy = review is null ? await policies.CaptureAsync(connection, nativeActor, schema, ct).ConfigureAwait(false)
             : Result<CapturedDeclaredPolicy>.Ok(review.Policy);
         if (!policy.IsSuccess) return Result<CoreDraftPreview>.Fail(policy.Error);
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<CoreDraftPreview>.Fail(current.Error);
-        if (!current.Value.Drafts.Any(d => SameDraft(d, draft)))
-            return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The local draft changed during preview; no intent was silently rebased.");
+        if (!current.Value.RetainedItems.Any(d => SameDraft(d, draft)))
+            return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "Retained intent changed during preview; no intent was silently rebased.");
         var operations = (precedingCreates ?? []).Append(op).ToImmutableArray();
         var plan = new Plan(connection, schema.Fingerprint, current.Value.Version, operations,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
@@ -848,8 +848,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!checkedPolicy.IsSuccess) return Result<CoreDraftPreview>.Fail(checkedPolicy.Error);
         current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<CoreDraftPreview>.Fail(current.Error);
-        if (!current.Value.Drafts.Any(d => SameDraft(d, draft)))
-            return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The retained draft changed during policy acquisition.");
+        if (!current.Value.RetainedItems.Any(d => SameDraft(d, draft)))
+            return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "Retained intent changed during policy acquisition.");
         plan = new(connection, schema.Fingerprint, current.Value.Version, operations,
             policy.Value.Document.Identity, policy.Value.Document.Revision);
         var errors = Model.Validate(plan, plan.Digest, schema, current.Value, provider.Capabilities);
@@ -887,15 +887,15 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Retained(current.Error);
         var snapshot = current.Value;
-        var draft = snapshot.Drafts.FirstOrDefault(d => d.Key == preview.Draft.Key);
+        var draft = snapshot.RetainedItems.FirstOrDefault(d => d.Key == preview.Draft.Key);
         if (draft is null) return Result<CoreExecution>.Ok(execution);
-        var drafts = snapshot.Drafts.Where(d => d.Key != draft.Key);
+        var drafts = snapshot.RetainedItems.Where(d => d.Key != draft.Key);
         var changed = !SameDraft(draft, preview.Draft);
         if (changed)
         {
-            if (draft.Key.IsLocal && (draft.Parent != preview.Draft.Parent
-                || draft.ParentRelation != preview.Draft.ParentRelation || draft.Resource != preview.Draft.Resource
-                || !draft.Links.SequenceEqual(preview.Draft.Links)))
+            if (draft is Seed seed && preview.Draft is Seed capturedSeed && (seed.Parent != capturedSeed.Parent
+                || seed.ParentRelation != capturedSeed.ParentRelation || seed.Resource != capturedSeed.Resource
+                || !seed.Links.SequenceEqual(capturedSeed.Links)))
                 return Retained(new(ErrorCode.Conflict, "Creation verified; later creation-bound link intent remains in the original local draft for explicit reconciliation."));
             var receipt = execution.Receipts.LastOrDefault(r => r.Status == OpStatus.Verified);
             var remoteKey = Resolve(snapshot, draft.Key);
@@ -904,13 +904,13 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             var baseline = snapshot.Items.FirstOrDefault(i => i.Key == remoteKey && i.Revision == receipt.Revision)
                 ?? new WorkItem(remoteKey, preview.Plan!.Operations[0].Type ?? preview.Draft.Type,
                     preview.Plan.Operations[0].Fields, receipt.Revision);
-            var type = draft.Baseline is not null && draft.Type != draft.Baseline.Type ? draft.Type : baseline.Type;
-            if (snapshot.Drafts.Any(d => d.Key == remoteKey && d.Key != draft.Key))
+            var type = draft is LocalEdits edits && edits.Type != edits.EditBaseline.Type ? edits.Type : baseline.Type;
+            if (snapshot.RetainedItems.Any(d => d.Key == remoteKey && d.Key != draft.Key))
                 return Retained(new(ErrorCode.Conflict, "A distinct mapped native draft already exists; neither intent was replaced."));
-            drafts = drafts.Append(new(remoteKey, type, baseline, draft.Changes));
+            drafts = drafts.Append(new LocalEdits(remoteKey, type, baseline, draft.Fields));
         }
         var committed = await store.CommitAsync(connection, snapshot.Version,
-            Copy(snapshot, snapshot.Version + 1, drafts: drafts), ct).ConfigureAwait(false);
+            Copy(snapshot, snapshot.Version + 1, retainedItems: drafts), ct).ConfigureAwait(false);
         if (!committed.IsSuccess) return Retained(committed.Error);
         return changed ? Retained(new(ErrorCode.Conflict, "Remote effects verified; later local edits remain as a separate draft."))
             : Result<CoreExecution>.Ok(execution);
@@ -931,7 +931,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!before.IsSuccess) return Result<CoreExecution>.Fail(before.Error);
         if (expectedStoreVersion is not null && before.Value.Version != expectedStoreVersion)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Local state changed after seed publication review.");
-        if (captures.Any(capture => !before.Value.Drafts.Any(draft => SameDraft(draft, capture.Draft))))
+        if (captures.Any(capture => !before.Value.RetainedItems.Any(draft => SameDraft(draft, capture.Draft))))
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "A captured draft changed before save; no replacement intent was dispatched.");
         if (plan is null && captures.Any(capture => capture.Plan is not null))
             return Result<CoreExecution>.Fail(ErrorCode.InvalidInput, "Authored effects require their exact reviewed plan before settlement.");
@@ -958,19 +958,19 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         if (!applied.IsSuccess || !applied.Value.EffectsVerified) return applied;
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Retained(current.Error);
-        if (captures.Any(capture => current.Value.Drafts.Any(draft => draft.Key == capture.Draft.Key
+        if (captures.Any(capture => current.Value.RetainedItems.Any(draft => draft.Key == capture.Draft.Key
                 && !SameDraft(draft, capture.Draft))))
             return Retained(new(ErrorCode.Conflict, "Remote effects verified; later local edits and their captured drafts were retained."));
         var keys = captures.Select(capture => capture.Draft.Key).ToHashSet();
         var committed = await store.CommitAsync(connection, current.Value.Version,
-            Copy(current.Value, current.Value.Version + 1, drafts: current.Value.Drafts.Where(draft => !keys.Contains(draft.Key))),
+            Copy(current.Value, current.Value.Version + 1, retainedItems: current.Value.RetainedItems.Where(draft => !keys.Contains(draft.Key))),
             ct).ConfigureAwait(false);
         return committed.IsSuccess ? applied : Retained(committed.Error);
 
         Result<CoreExecution> Retained(Error error) => Result<CoreExecution>.Ok(applied.Value with { Error = error, DraftRetained = true });
     }
 
-    internal async Task<Result<int>> DiscardDraftsAsync(IEnumerable<Draft> captures, long expectedVersion, CancellationToken ct)
+    internal async Task<Result<int>> DiscardDraftsAsync(IEnumerable<RetainedItem> captures, long expectedVersion, CancellationToken ct)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var drafts = captures.ToImmutableArray();
@@ -979,16 +979,16 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<int>.Fail(current.Error);
         if (current.Value.Version != expectedVersion
-            || drafts.Any(capture => !current.Value.Drafts.Any(draft => SameDraft(draft, capture))))
+            || drafts.Any(capture => !current.Value.RetainedItems.Any(draft => SameDraft(draft, capture))))
             return Result<int>.Fail(ErrorCode.Conflict, "Local intent changed after discard confirmation; no draft was removed.");
         var keys = drafts.Select(draft => draft.Key).ToHashSet();
         var committed = await store.CommitAsync(connection, expectedVersion,
-            Copy(current.Value, expectedVersion + 1, drafts: current.Value.Drafts.Where(draft => !keys.Contains(draft.Key))),
+            Copy(current.Value, expectedVersion + 1, retainedItems: current.Value.RetainedItems.Where(draft => !keys.Contains(draft.Key))),
             ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<int>.Ok(keys.Count) : Result<int>.Fail(committed.Error);
     }
 
-    internal async Task<Result<bool>> DiscardSeedAsync(Draft capture, long expectedVersion, CancellationToken ct)
+    internal async Task<Result<bool>> DiscardSeedAsync(Seed capture, long expectedVersion, CancellationToken ct)
     {
         if (!capture.Key.IsLocal)
             return Result<bool>.Fail(ErrorCode.InvalidInput, "Seed discard requires the exact retained local UUID.");
@@ -996,7 +996,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<bool>.Fail(current.Error);
         var snapshot = current.Value;
-        if (snapshot.Version != expectedVersion || !snapshot.Drafts.Any(draft => SameDraft(draft, capture)))
+        if (snapshot.Version != expectedVersion || !snapshot.RetainedItems.Any(draft => SameDraft(draft, capture)))
             return Result<bool>.Fail(ErrorCode.Conflict, "Seed intent changed after confirmation; nothing was discarded.");
         if (snapshot.Mappings.Any(mapping => mapping.Local == capture.Key)
             || snapshot.Journal.Any(row => row.Status != OpStatus.Planned
@@ -1007,7 +1007,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 && !edge.Deleted && (edge.From == capture.Key || edge.To == capture.Key)
             ? edge with { Deleted = true, LocalVersion = edge.LocalVersion + 1 } : edge);
         var committed = await store.CommitAsync(connection, snapshot.Version,
-            Copy(snapshot, snapshot.Version + 1, drafts: snapshot.Drafts.Where(draft => draft.Key != capture.Key),
+            Copy(snapshot, snapshot.Version + 1, retainedItems: snapshot.RetainedItems.Where(draft => draft.Key != capture.Key),
                 relationships: relationships), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
@@ -1117,9 +1117,9 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             if (items.Count >= bound) return Result<bool>.Fail(ErrorCode.Unavailable, "Mechanical policy acquisition exceeded its declared evidence bound.");
             if (key.IsLocal)
             {
-                var local = captured.Value.Drafts.FirstOrDefault(d => d.Key == key);
+                var local = captured.Value.RetainedItems.FirstOrDefault(d => d.Key == key);
                 if (local is null) return Result<bool>.Fail(ErrorCode.Unavailable, "A local policy endpoint was not observed.");
-                items.Add(key, new(key, local.Type, local.Changes, null, true));
+                items.Add(key, new(key, local.Type, local.Fields, null, true));
             }
             else
             {
@@ -1180,12 +1180,17 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
 
     private static ItemKey Resolve(StoreSnapshot snapshot, ItemKey key)
         => snapshot.Mappings.FirstOrDefault(m => m.Local == key)?.Remote ?? key;
-    private static bool SameDraft(Draft left, Draft right) => left.Key == right.Key && left.Type == right.Type
-        && left.Baseline?.Revision == right.Baseline?.Revision && left.Changes.Equals(right.Changes)
-        && left.Parent == right.Parent && left.ParentRelation == right.ParentRelation && left.Resource == right.Resource
-        && left.Links.SequenceEqual(right.Links);
+    private static bool SameDraft(RetainedItem left, RetainedItem right) => left.Key == right.Key && left.Type == right.Type
+        && left.Fields.Equals(right.Fields) && (left, right) switch
+        {
+            (LocalEdits a, LocalEdits b) => a.EditBaseline.Revision == b.EditBaseline.Revision,
+            (Seed a, Seed b) => a.Parent == b.Parent && a.ParentRelation == b.ParentRelation
+                && a.Resource == b.Resource && a.Links.SequenceEqual(b.Links),
+            _ => false,
+        };
+
     private static StoreSnapshot Copy(StoreSnapshot snapshot, long version, IEnumerable<WorkItem>? items = null,
-        IEnumerable<Relationship>? relationships = null, IEnumerable<Draft>? drafts = null, IEnumerable<Bench>? benches = null)
-        => new(version, items ?? snapshot.Items, relationships ?? snapshot.Relationships, drafts ?? snapshot.Drafts,
+        IEnumerable<Relationship>? relationships = null, IEnumerable<RetainedItem>? retainedItems = null, IEnumerable<Bench>? benches = null)
+        => new(version, items ?? snapshot.Items, relationships ?? snapshot.Relationships, retainedItems ?? snapshot.RetainedItems,
             snapshot.Plans, snapshot.Journal, snapshot.Mappings, benches ?? snapshot.Benches);
 }

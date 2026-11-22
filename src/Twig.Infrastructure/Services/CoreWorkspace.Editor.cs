@@ -44,12 +44,18 @@ internal sealed partial class CoreWorkspace
         return Result<NativeEditorMetadata>.Fail(ErrorCode.Unsupported, "The selected provider has no native editor capture.");
     }
 
-    internal string DraftFingerprint(Draft? draft) => Fingerprint(connection, draft);
-    internal static string Fingerprint(Connection connection, Draft? draft) => draft is null ? "none" : new Plan(connection, "native-draft", 0,
-        new[] { new Op("draft", draft.Key.IsLocal ? OpKind.Create : OpKind.Batch, draft.Key, draft.Baseline?.Revision,
-            draft.Changes, draft.Type, draft.Parent, draft.ParentRelation, resource: draft.Resource, links: draft.Links) }
-        .Concat(draft.Baseline is { } baseline ? [new Op("baseline", OpKind.Batch, baseline.Key, baseline.Revision,
-            baseline.Fields, baseline.Type)] : [])).Digest;
+    internal string DraftFingerprint(RetainedItem? draft) => Fingerprint(connection, draft);
+    internal static string Fingerprint(Connection connection, RetainedItem? item) => item switch
+    {
+        null => "none",
+        Seed seed => new Plan(connection, "native-draft", 0,
+            [new("draft", OpKind.Create, seed.Key, fields: seed.Fields, type: seed.Type,
+                other: seed.Parent, relation: seed.ParentRelation, resource: seed.Resource, links: seed.Links)]).Digest,
+        LocalEdits { EditBaseline: var baseline } edits => new Plan(connection, "native-draft", 0,
+            [new("draft", OpKind.Batch, edits.Key, baseline.Revision, edits.Changes, edits.Type),
+             new("baseline", OpKind.Batch, baseline.Key, baseline.Revision, baseline.Fields, baseline.Type)]).Digest,
+        _ => throw new ArgumentException("Unknown retained item kind.", nameof(item)),
+    };
 
     internal async Task<Result<CoreDraftPreview>> PreviewEditorDraftAsync(ItemKey key, ImmutableArray<CreationLink> links,
         Revision? relationshipBaseline, CancellationToken ct, ImmutableArray<NativeEditorEndpoint> endpoints = default,
@@ -71,7 +77,7 @@ internal sealed partial class CoreWorkspace
             if (!state.IsSuccess) return Result<CoreDraftPreview>.Fail(state.Error);
             if (endpoints.IsDefault || !endpoints.Any(proof => proof.Key == CleanCoreAdoAccess.ItemText(endpoint)
                 && proof.Revision == read.Value.Revision?.Token
-                && proof.DraftFingerprint == DraftFingerprint(state.Value.Drafts.SingleOrDefault(draft => draft.Key == endpoint))))
+                && proof.DraftFingerprint == DraftFingerprint(state.Value.RetainedItems.SingleOrDefault(draft => draft.Key == endpoint))))
                 return Result<CoreDraftPreview>.Fail(ErrorCode.Conflict, "The exact captured native endpoint revision changed; no relationship was published.");
         }
         var effect = preview.Value.Plan?.Operations.Single(value => value.Item == key);

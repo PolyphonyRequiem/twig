@@ -36,7 +36,7 @@ public sealed class CreationLinkInvariantTests
         => new(Connection, Schema.Fingerprint, 0, [operation]);
 
     private static StoreSnapshot Store(IEnumerable<CreationLink>? links = null, IEnumerable<WorkItem>? items = null)
-        => new(0, items ?? [Item(Target)], drafts: [new(Seed, "record", null, Fields, links: links)]);
+        => new(0, items ?? [Item(Target)], retainedItems: [new Seed(Seed, "record", Fields, links: links)]);
 
     [Fact]
     public void CreationLinkRequiresAnEndpointAndCanonicalRelation()
@@ -54,7 +54,7 @@ public sealed class CreationLinkInvariantTests
         var store = Store(links);
         links.Add(new(ItemKey.Remote(Connection.Provider, Connection.ResourceScope, "2"), "dependency", true));
         operation.Links.Length.ShouldBe(1);
-        store.Drafts[0].Links.Length.ShouldBe(1);
+        store.RetainedItems[0].ShouldBeOfType<Seed>().Links.Length.ShouldBe(1);
         var plan = Plan(operation);
         using var json = JsonDocument.Parse(Rules.PlanBytes(plan));
         json.RootElement.GetProperty("operations")[0].GetProperty("links").GetArrayLength().ShouldBe(1);
@@ -133,9 +133,9 @@ public sealed class CreationLinkInvariantTests
     {
         var parent = ItemKey.Local(Guid.Parse("01900000-0000-7000-8000-000000000002"));
         CreationLink[] links = [new(parent, "dependency", true)];
-        var parentDraft = new Draft(parent, "record", null, Fields);
-        var childDraft = new Draft(Seed, "record", null, Fields, links: links);
-        var store = new StoreSnapshot(0, drafts: [parentDraft, childDraft]);
+        var parentDraft = new Seed(parent, "record", Fields);
+        var childDraft = new Seed(Seed, "record", Fields, links: links);
+        var store = new StoreSnapshot(0, retainedItems: [parentDraft, childDraft]);
         var parentCreate = new Op("parent", OpKind.Create, parent, fields: Fields, type: "record",
             concurrency: ConcurrencyMode.ObservedNonAtomic);
         var ordered = new Plan(Connection, Schema.Fingerprint, 0, [parentCreate, Create(links)]);

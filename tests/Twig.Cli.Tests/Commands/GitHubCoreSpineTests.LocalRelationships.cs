@@ -25,7 +25,7 @@ public sealed partial class GitHubCoreSpineTests
         var uuid = seed.Key.LocalId.ToString("D");
         var initial = await f.Snapshot();
         initial.Items.Single().Key.NativeId.ShouldBe("I_opaque");
-        initial.Drafts.Single().Key.ShouldBe(seed.Key);
+        initial.RetainedItems.Single().Key.ShouldBe(seed.Key);
         initial.Relationships.ShouldBeEmpty();
         initial.Journal.ShouldBeEmpty();
         Dictionary<string, string>? telemetry = null;
@@ -128,7 +128,7 @@ public sealed partial class GitHubCoreSpineTests
         var published = await f.Snapshot();
         published.Mappings.Single().Local.ShouldBe(source.Key);
         published.Items.Single().Fields[GitHubProvider.Number].ShouldBe(FieldValue.Integer(42));
-        published.Drafts.ShouldHaveSingleItem().Key.ShouldBe(target.Key);
+        published.RetainedItems.ShouldHaveSingleItem().Key.ShouldBe(target.Key);
         published.Relationships.Single().ShouldBe(original);
         foreach (var locator in new[] { uuid, "42" })
         {
@@ -176,7 +176,7 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("seed", "publish", CoreHostContext.LocalAlias(source.Key).ToString(CultureInfo.InvariantCulture)).ShouldBe(1);
         var before = await f.Snapshot();
         before.Journal.Single().Status.ShouldBe(OpStatus.Indeterminate);
-        before.Drafts.ShouldContain(draft => draft.Key == source.Key);
+        before.RetainedItems.ShouldContain(draft => draft.Key == source.Key);
         before.Mappings.ShouldBeEmpty();
         f.Run("link", "local", "related", target.Key.LocalId.ToString("D"),
             "--id", source.Key.LocalId.ToString("D"), "-o", "json").ShouldBe(1);
@@ -224,11 +224,11 @@ public sealed partial class GitHubCoreSpineTests
         f.Http.Writes.ShouldBe(0);
     }
 
-    private static async Task<Draft> LocalSeed(Fixture f, string title)
+    private static async Task<Seed> LocalSeed(Fixture f, string title)
     {
         var before = await f.Snapshot();
         f.Run("seed", "new", "--title", title, "--type", GitHubProvider.Untyped, "--no-parent", "-o", "json").ShouldBe(0, f.Error);
-        return (await f.Snapshot()).Drafts.Single(draft => !before.Drafts.Any(old => old.Key == draft.Key));
+        return (await f.Snapshot()).RetainedItems.OfType<Seed>().Single(draft => !before.RetainedItems.Any(old => old.Key == draft.Key));
     }
 
     private static void AssertLocalRelationship(JsonElement relationship, Relationship stored)

@@ -71,34 +71,55 @@ public sealed record ResourceLink
     public string? Comment { get; }
 }
 
-public sealed record Draft
+public abstract record RetainedItem
 {
-    public Draft(ItemKey key, string type, WorkItem? baseline, FieldValues changes,
-        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null,
-        IEnumerable<CreationLink>? links = null)
+    private protected RetainedItem(ItemKey key, string type, FieldValues fields)
     {
         Key = key ?? throw new ArgumentNullException(nameof(key));
         Type = Contract.Text(type, nameof(type));
-        if (key.IsLocal != (baseline is null) || baseline is not null && (baseline.Key != key || baseline.Revision is null))
-            throw new ArgumentException("A remote draft requires its revision-bound base; a seed has no remote base.", nameof(baseline));
-        Baseline = baseline;
-        Changes = changes ?? throw new ArgumentNullException(nameof(changes));
-        if ((parent is null) != (parentRelation is null) || parent == key
-            || !key.IsLocal && (parent is not null || resource is not null))
+        Fields = fields ?? throw new ArgumentNullException(nameof(fields));
+    }
+
+    public ItemKey Key { get; }
+    public string Type { get; }
+    public FieldValues Fields { get; }
+}
+
+public sealed record LocalEdits : RetainedItem
+{
+    public LocalEdits(ItemKey key, string type, WorkItem editBaseline, FieldValues changes)
+        : base(key, type, changes)
+    {
+        ArgumentNullException.ThrowIfNull(editBaseline);
+        if (key.IsLocal || editBaseline.Key != key || editBaseline.Revision is null)
+            throw new ArgumentException("Local edits require a revision-bound edit baseline for the exact work item.", nameof(editBaseline));
+        EditBaseline = editBaseline;
+    }
+
+    public WorkItem EditBaseline { get; }
+    public FieldValues Changes => Fields;
+}
+
+public sealed record Seed : RetainedItem
+{
+    public Seed(ItemKey key, string type, FieldValues fields,
+        ItemKey? parent = null, string? parentRelation = null, ResourceLink? resource = null,
+        IEnumerable<CreationLink>? links = null)
+        : base(key, type, fields)
+    {
+        if (!key.IsLocal)
+            throw new ArgumentException("A seed requires a local identity.", nameof(key));
+        if ((parent is null) != (parentRelation is null) || parent == key)
             throw new ArgumentException("Creation-bound parent/resource intent belongs to a seed and requires a distinct parent with its relation.");
         Parent = parent;
         ParentRelation = parentRelation is null ? null : Contract.Text(parentRelation, nameof(parentRelation));
         Resource = resource;
         Links = Contract.Copy(links ?? []);
-        if (!key.IsLocal && !Links.IsEmpty || Links.Any(link => link.Other == key || string.IsNullOrWhiteSpace(link.Relation))
+        if (Links.Any(link => link.Other == key || string.IsNullOrWhiteSpace(link.Relation))
             || Links.Distinct().Count() != Links.Length)
             throw new ArgumentException("Creation links require a seed, distinct endpoints and explicit unique relations.", nameof(links));
     }
 
-    public ItemKey Key { get; }
-    public string Type { get; }
-    public WorkItem? Baseline { get; }
-    public FieldValues Changes { get; }
     public ItemKey? Parent { get; }
     public string? ParentRelation { get; }
     public ResourceLink? Resource { get; }

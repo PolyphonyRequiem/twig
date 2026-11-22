@@ -80,3 +80,9 @@ _Avoid_: Work item draft.
 **Edit baseline**:
 The provider observation retained as the basis for local edits. It can differ from the latest provider observation.
 _Avoid_: Draft baseline.
+
+## Plans
+
+**Plan**:
+A defined set of intended work-item changes.
+_Avoid_: Proposal.

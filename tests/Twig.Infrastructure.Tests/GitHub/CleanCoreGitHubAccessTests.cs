@@ -60,7 +60,7 @@ public sealed class CleanCoreGitHubAccessTests
         saved.Value.EffectsVerified.ShouldBeTrue(saved.Value.Error?.Message);
         network.Writes.ShouldBe(1);
         var complete = (await store.ReadAsync(connection, default)).Value;
-        complete.Drafts.ShouldBeEmpty();
+        complete.RetainedItems.ShouldBeEmpty();
         complete.Journal.Single().Status.ShouldBe(OpStatus.Verified);
         complete.Items.Single().Fields[GitHubProvider.Title].Text.ShouldBe("host edit");
         var row = complete.Journal.Single();

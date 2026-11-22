@@ -125,13 +125,13 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("show", "42", "--refresh", "-o", "json").ShouldBe(0, f.Error);
         await f.Stage(GitHubProvider.Title, FieldValue.String("must not save to old node"));
         var captured = await f.Snapshot();
-        captured.Drafts.ShouldHaveSingleItem();
+        captured.RetainedItems.ShouldHaveSingleItem();
         f.Http.Defect = "number-reassigned";
         f.Run("save", "42", "--output", "json").ShouldBe(1);
         f.Http.Writes.ShouldBe(0);
         var after = await f.Snapshot();
         after.Version.ShouldBe(captured.Version);
-        after.Drafts.Single().ShouldBe(captured.Drafts.Single());
+        after.RetainedItems.Single().ShouldBe(captured.RetainedItems.Single());
         after.Plans.ShouldBeEmpty();
     }
 
@@ -236,11 +236,11 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("process", "GITHUB.ISSUE", "-o", "json").ShouldBe(1, "native type references are case-sensitive, not display-name aliases");
         f.Run("seed", "new", "--title", "Native seed", "--type", GitHubProvider.Untyped,
             "--no-parent", "--description", "**native**\n\nbody", "-o", "json").ShouldBe(0, f.Error);
-        var seed = (await f.Snapshot()).Drafts.Single();
+        var seed = (await f.Snapshot()).RetainedItems.Single();
         seed.Key.IsLocal.ShouldBeTrue();
-        seed.Changes[GitHubProvider.Assignees].ShouldBe(FieldValue.Strings(["U_actor"]));
-        seed.Changes[GitHubProvider.StateField].Text.ShouldBe("OPEN");
-        seed.Changes[GitHubProvider.Body].Kind.ShouldBe(FieldKind.Markdown);
+        seed.Fields[GitHubProvider.Assignees].ShouldBe(FieldValue.Strings(["U_actor"]));
+        seed.Fields[GitHubProvider.StateField].Text.ShouldBe("OPEN");
+        seed.Fields[GitHubProvider.Body].Kind.ShouldBe(FieldKind.Markdown);
         using var authored = JsonDocument.Parse(f.Output);
         var alias = authored.RootElement.GetProperty("id").GetInt32().ToString(CultureInfo.InvariantCulture);
         f.Run("seed", "publish", alias).ShouldBe(0, f.Error);
@@ -298,14 +298,14 @@ public sealed partial class GitHubCoreSpineTests
         f.Run("patch", "--id", "42", "--json", """{"github.title":"patched","github.assigneeIds":["U_actor"]}""",
             "-o", "json").ShouldBe(0, f.Error);
         await f.Stage(GitHubProvider.Body, FieldValue.RichText("**saved draft**", FieldKind.Markdown));
-        (await f.Snapshot()).Drafts.ShouldHaveSingleItem();
+        (await f.Snapshot()).RetainedItems.ShouldHaveSingleItem();
         f.Run("save", "42", "--output", "json").ShouldBe(0, f.Error);
         f.Http.Issue["body"]!.GetValue<string>().ShouldBe("**saved draft**");
-        (await f.Snapshot()).Drafts.ShouldBeEmpty();
+        (await f.Snapshot()).RetainedItems.ShouldBeEmpty();
         await f.Stage(GitHubProvider.Title, FieldValue.String("discarded edit"));
         var beforeDiscard = f.Http.Writes;
         f.Run("discard", "42", "--yes", "-o", "json").ShouldBe(0, f.Error);
-        (await f.Snapshot()).Drafts.ShouldBeEmpty();
+        (await f.Snapshot()).RetainedItems.ShouldBeEmpty();
         f.Http.Writes.ShouldBe(beforeDiscard);
         f.Run("query", "--title", "patched", "-o", "json").ShouldBe(0, f.Error);
         await f.CreatePinnedBench("Native");
@@ -336,20 +336,20 @@ public sealed partial class GitHubCoreSpineTests
         await f.Initialize();
         f.Run("seed", "new", "--title", "Unknown", "--type", GitHubProvider.Untyped, "--no-parent", "-o", "json")
             .ShouldBe(0, f.Error);
-        var original = (await f.Snapshot()).Drafts.Single();
+        var original = (await f.Snapshot()).RetainedItems.Single();
         using var authored = JsonDocument.Parse(f.Output);
         var alias = authored.RootElement.GetProperty("id").GetInt32().ToString(CultureInfo.InvariantCulture);
         f.Http.LoseAcknowledgement = true;
         f.Run("seed", "publish", alias).ShouldBe(1);
         var fenced = await f.Snapshot();
-        fenced.Drafts.Single().Key.ShouldBe(original.Key);
+        fenced.RetainedItems.Single().Key.ShouldBe(original.Key);
         fenced.Mappings.ShouldBeEmpty();
         fenced.Journal.Single().Status.ShouldBe(OpStatus.Indeterminate);
         f.Http.Creates.ShouldBe(1);
         f.Run("seed", "publish", alias).ShouldBe(1, "each invocation builds a new production DI root");
         f.Http.Creates.ShouldBe(1);
         var reopened = await f.Snapshot();
-        reopened.Drafts.Single().Key.ShouldBe(original.Key);
+        reopened.RetainedItems.Single().Key.ShouldBe(original.Key);
         reopened.Journal.Single().Attempt.ShouldBe(fenced.Journal.Single().Attempt);
         reopened.Mappings.ShouldBeEmpty();
     }
@@ -492,7 +492,7 @@ public sealed partial class GitHubCoreSpineTests
             var store = (await SqliteStore.OpenAsync(Database, expectedInstance: _document.DatabaseInstance)).Value;
             var capture = await Snapshot();
             var saved = await store.CommitAsync(_document.Connection, capture.Version, new(capture.Version + 1, items,
-                relationships ?? capture.Relationships, capture.Drafts, capture.Plans, capture.Journal, capture.Mappings, capture.Benches), default);
+                relationships ?? capture.Relationships, capture.RetainedItems, capture.Plans, capture.Journal, capture.Mappings, capture.Benches), default);
             saved.IsSuccess.ShouldBeTrue(saved.IsSuccess ? "" : saved.Error.Message);
         }
         internal async Task CreatePinnedBench(string name)

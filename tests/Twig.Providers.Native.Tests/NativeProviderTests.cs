@@ -84,7 +84,7 @@ public sealed class NativeProviderTests : IDisposable
         var before = (await mirror.ReadAsync(plan.Connection, default)).Value;
         var attempt = Guid.NewGuid();
         var began = before.Journal.Single().Begin(attempt).Value;
-        var next = new StoreSnapshot(before.Version + 1, before.Items, before.Relationships, before.Drafts,
+        var next = new StoreSnapshot(before.Version + 1, before.Items, before.Relationships, before.RetainedItems,
             before.Plans, [began], before.Mappings, before.Benches);
         (await mirror.CommitAsync(plan.Connection, before.Version, next, default)).IsSuccess.ShouldBeTrue();
         (await provider.RecoverAsync(plan, 0, default)).Value.Status.ShouldBe(OpStatus.Indeterminate);
@@ -166,7 +166,7 @@ public sealed class NativeProviderTests : IDisposable
             .Set(NativeProvider.Description, FieldValue.RichText("Details", FieldKind.Markdown))
             .Set(NativeProvider.StateField, FieldValue.String("Open"));
         var connection = provider.Connection;
-        (await mirror.CommitAsync(connection, 0, new(1, drafts: [new(key, NativeProvider.ItemType, null, fields)]), default))
+        (await mirror.CommitAsync(connection, 0, new(1, retainedItems: [new Seed(key, NativeProvider.ItemType, fields)]), default))
             .IsSuccess.ShouldBeTrue();
         var schema = (await provider.DiscoverSchemaAsync(connection, default)).Value;
         return (new(connection, schema.Fingerprint, 1,

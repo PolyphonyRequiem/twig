@@ -504,7 +504,7 @@ public sealed partial class GitHubProviderTests
         (await f.Item("I2")).Key.ShouldBe(f.Key("I2"));
         var before = await f.Stored();
         var bench = new Bench(Guid.NewGuid(), "retained", [new(SelectorKind.Pin, item.Key)]);
-        var draft = new Draft(item.Key, item.Type, item, Fields((Provider.Title, FieldValue.String("local intent"))));
+        var draft = new LocalEdits(item.Key, item.Type, item, Fields((Provider.Title, FieldValue.String("local intent"))));
         (await f.Store.CommitAsync(f.Connection, before.Version, new(before.Version + 1, before.Items, before.Relationships,
             [draft], benches: [bench]), default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("local", OpKind.Relate, item.Key, other: f.Key("I2"), relation: kind,
@@ -522,7 +522,7 @@ public sealed partial class GitHubProviderTests
         await f.Item();
         var stored = await f.Stored();
         stored.Relationships.Single().ShouldBe(new Relationship(item.Key, f.Key("I2"), kind, RelationshipOrigin.Local, 2, true));
-        stored.Drafts.Single().Changes.ShouldBe(draft.Changes);
+        stored.RetainedItems.Single().Fields.ShouldBe(draft.Fields);
         stored.Benches.Single().Name.ShouldBe("retained");
         f.Http.Writes.ShouldBe(0);
         var stale = await f.Plan(new("stale", OpKind.Relate, item.Key, other: f.Key("I2"), relation: kind,
@@ -561,8 +561,8 @@ public sealed partial class GitHubProviderTests
         using var f = await Fixture.Create();
         var local = ItemKey.Local(Guid.NewGuid());
         var fields = Fields((Provider.Title, FieldValue.String("seed")), (Provider.StateField, FieldValue.String("OPEN")));
-        var draft = new Draft(local, "T1", null, fields);
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [draft]), default)).IsSuccess.ShouldBeTrue();
+        var draft = new Seed(local, "T1", fields);
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [draft]), default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, local, fields: fields, type: "T1",
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         await f.Import(plan);
@@ -589,7 +589,7 @@ public sealed partial class GitHubProviderTests
         using var f = await Fixture.Create();
         var local = ItemKey.Local(Guid.NewGuid());
         var fields = Fields((Provider.Title, FieldValue.String("seed")), (Provider.StateField, FieldValue.String("OPEN")));
-        (await f.Store.CommitAsync(f.Connection, 0, new(1, drafts: [new(local, "T1", null, fields)]), default)).IsSuccess.ShouldBeTrue();
+        (await f.Store.CommitAsync(f.Connection, 0, new(1, retainedItems: [new Seed(local, "T1", fields)]), default)).IsSuccess.ShouldBeTrue();
         var plan = await f.Plan(new("create", OpKind.Create, local, fields: fields, type: "T1",
             concurrency: ConcurrencyMode.ObservedNonAtomic));
         await f.Import(plan);

@@ -6,7 +6,7 @@ using Twig.Infrastructure.Persistence;
 namespace Twig.Infrastructure.Services;
 
 public sealed record NativeSeedPublication(Guid CaptureId, ItemKey Item, string Digest, string Status, Error? Error);
-public sealed record NativeOwnedSeed(ItemKey Item, Draft? Draft, Guid CaptureId, bool Ready, NativeSeedPublication? Publication);
+public sealed record NativeOwnedSeed(ItemKey Item, Seed? Draft, Guid CaptureId, bool Ready, NativeSeedPublication? Publication);
 
 internal sealed partial class NativeEditor
 {
@@ -32,7 +32,7 @@ internal sealed partial class NativeEditor
         foreach (var capture in captures.Value.Where(OwnsNormalSeed))
         {
             var key = UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Item;
-            var draft = snapshot.Value.Drafts.SingleOrDefault(value => value.Key == key);
+            var draft = snapshot.Value.RetainedItems.OfType<Seed>().SingleOrDefault(value => value.Key == key);
             var publication = capture.SeedPlan is null ? null : Publication(capture, snapshot.Value, null);
             if (capture.Settled && draft is null) continue;
             seeds.Add(new(key, draft, capture.Id, capture.Ready, publication));

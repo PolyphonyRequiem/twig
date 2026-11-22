@@ -101,7 +101,7 @@ public sealed partial class NativePublicationConsumerTests
         _transport.TotalRequests.ShouldBe(requests);
     }
 
-    private string HistoricalEvidenceDirectory => Path.Combine(Home, "DaemonData", "native-evidence");
+    private string HistoricalEvidenceDirectory => Path.Combine(Home, "ServerData", "native-evidence");
 
     private (int Exit, string Output, string Error) HistoricalInvoke(Twig.Infrastructure.Config.TwigPaths paths, string[] args)
         => WorkspaceInvoke(paths, args, configure: services =>

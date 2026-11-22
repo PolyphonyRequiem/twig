@@ -48,7 +48,7 @@ twig init <org> <project> --core-store <new-absolute-file>
 
 ## Native authority
 
-Connections are registered through the local daemon by portable provider dimensions,
+Connections are registered through the local server by portable provider dimensions,
 separately from user-scoped credentials. For an existing `twig.json`, `twig init`
 resolves those dimensions to this device's registration and user binding. A different
 user on a different device enrolls and binds their own credential without changing
@@ -159,7 +159,7 @@ See [getting started](../../getting-started.md) for a complete first read and Be
 ## Second-device acceptance check
 
 On a different device, a different contributor should clone the same commit, start
-their installed daemon, and leave the repository's `twig.json` untouched. Register
+their installed server, and leave the repository's `twig.json` untouched. Register
 the provider dimensions from that manifest with `connection add`, authenticate as
 their own principal, and use `connection bind` with their own identity/account.
 `connection list` should show the registration even outside the checkout.

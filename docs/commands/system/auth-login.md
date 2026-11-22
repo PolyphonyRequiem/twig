@@ -26,7 +26,7 @@ attached identity; no Azure CLI, machine-cache, or last-login fallback exists.
 requires explicit identity/organization. There is no secret argument.
 Native principal attestation, not the alias/display name, establishes identity.
 
-`connection add` registers provider dimensions through the local daemon without
+`connection add` registers provider dimensions through the local server without
 selecting credentials. `connection bind` associates your credential with an
 already registered connection. Both require explicit provider dimensions and work
 outside a repository; neither reads or modifies `twig.json`. Binding a different

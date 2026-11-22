@@ -80,7 +80,7 @@ typed intent as well as `canApply` and blockers. The retired
 `--interactive`, `--include-rendering`, draft envelopes and old OMP presentation
 recipes are not current CLI routes.
 
-The daemon has a separate native Plan/review path: humans perform Save/Apply
+The server has a separate native Plan/review path: humans perform Save/Apply
 against the exact retained capture and digest. Agent reads, local staging, and
 SDK view acknowledgements do not grant publication authority.
-See [daemon security](../daemon.md#security-and-data-ownership).
+See [server security](../server.md#security-and-data-ownership).

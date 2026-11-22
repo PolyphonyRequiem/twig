@@ -10,7 +10,7 @@ mutates: local
 
 Control the separately installed local Twig server on Windows x64 or Linux x64.
 No initialized workspace or provider sign-in is required for these commands.
-See the [server guide](../../daemon.md) for installation and platform prerequisites.
+See the [server guide](../../server.md) for installation and platform prerequisites.
 
 ## Usage
 
@@ -51,7 +51,7 @@ trailing newline, with these required members:
   "origin": "https://localhost:7341",
   "certificateThumbprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
   "selectionId": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB",
-  "daemonId": null
+  "serverId": null
 }
 ```
 
@@ -68,7 +68,7 @@ selected installation record, including runtime, data, port, certificate and
 Canvas-root selection. Compare it for equality; do not derive paths or versions
 from it. A changed record (even formatting) may change the token. Switching away
 and back may restore it; it is not a monotonic revision or a process identity.
-`daemonId` is the durable GUID already recorded by the selected daemon. It is
+`serverId` is the durable GUID already recorded by the selected server. It is
 `null` only if that identity file is absent, normally before first startup.
 An empty, malformed, oversized, unreadable or linked identity is an error, never
 an absent identity. Discovery does not create identity, locks or application data.
@@ -86,23 +86,23 @@ read failure, cancellation, timeout or operator exit terminates residual discove
 children; abrupt CLI termination closes a kill-on-close job. The selected launcher
 cannot execute until assigned to that job. Cleanup has a two-second confirmation
 budget and reports an error if termination cannot be confirmed. This ownership
-applies only to read-only endpoint discovery, not the shared daemon's lifecycle.
+applies only to read-only endpoint discovery, not the shared server's lifecycle.
 
 Consumers should discover before launching their presentation host, use
 `twig server start` for authenticated readiness, and discover again afterward
 and when revalidating their selection. Require unchanged origin, certificate pin
 and selection ID; discard stale bootstrap state if any changes. After startup,
 require a non-null durable ID and compare it with the same-owner authenticated
-`/api/v1/owner-status` response's `daemonId`. If a durable ID was already known,
+`/api/v1/owner-status` response's `serverId`. If a durable ID was already known,
 it must not change unnoticed. Keep trusted/pinned TLS, Windows owner verification,
 `protocol: "twig-bench-service-v1"` and `canvasDefaultDeny: true` checks.
-The `X-Twig-Daemon-Instance` response header is a separate **per-process** GUID,
-not the durable `daemonId`; the launcher uses it to address graceful stop to one
+The `X-Twig-Server-Instance` response header is a separate **per-process** GUID,
+not the durable `serverId`; the launcher uses it to address graceful stop to one
 process. CLI bootstrap is not domain authority or proof of a write's outcome.
 
-The command family is `twig server`, not `twig daemon`; the old spelling is not
-an alias. Package names, `daemon-v*` release tags, installation paths,
-`daemon-launch.ps1`, and `TWIG_DAEMON_INSTALL_ROOT` retain their existing names.
+Twig Server is distributed separately from the CLI under `server-v*` release
+tags. See the [installation guide](../../server.md#install-the-release-package)
+for the package names and installation settings.
 
 ## Effects
 
@@ -123,7 +123,7 @@ written to stderr as `{"error":"..."}`; they are not reported as a successful
 stopped result. Invalid subcommands, arguments, or output formats exit with
 code `2`. Success and help exit with code `0`.
 
-Use the [installation and troubleshooting guide](../../daemon.md) to resolve
+Use the [installation and troubleshooting guide](../../server.md) to resolve
 installation or readiness failures. Do not treat restarting the server as proof
 that an interrupted work-item write succeeded or failed; inspect the original
 proposal journal before another change.

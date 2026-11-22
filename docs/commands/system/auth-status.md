@@ -23,7 +23,7 @@ Status reports selected or pinned **recorded** native identity/target evidence,
 not fresh authenticated work access. `auth identities` and `connection list`
 inspect registered metadata without changing selection. `connection list` lists
 all device-local provider connections and this user's credential bindings through
-the daemon, including unbound registrations. It does not infer a filter from the
+the server, including unbound registrations. It does not infer a filter from the
 workspace and does not read repository configuration. You may filter by provider
 alone; dimension filters require complete explicit provider dimensions. An empty
 inventory emits an empty JSON array.

@@ -24,7 +24,7 @@ identify each Bench and its revision and selector count; `ids` emits only
 canonical Bench GUIDs, one per line. An empty store produces an empty listing.
 
 Metadata listing does not require an initialized workspace. No Bench is
-designated current, even when a daemon view has selected one.
+designated current, even when a server view has selected one.
 Previously saved native definitions are preserved once per native store instance;
 conflicting names or intent refuse rather than overwrite existing definitions.
 

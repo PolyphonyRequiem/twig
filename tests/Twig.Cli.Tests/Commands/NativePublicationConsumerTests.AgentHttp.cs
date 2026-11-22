@@ -4,7 +4,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Bench.Application;
 using Bench.Infrastructure;
-using Bench.Server;
+using Twig.Server;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
 using Microsoft.Extensions.DependencyInjection;
@@ -730,7 +730,7 @@ public sealed partial class NativePublicationConsumerTests
                 Check(initialized.Status == HttpStatusCode.OK
                     && initialized.Body["result"]?["protocolVersion"]?.GetValue<string>() == "2025-11-25"
                     && initialized.Body["result"]?["serverInfo"]?["name"]?.GetValue<string>() == "twig",
-                    "The production daemon must expose an MCP initialize response. " + initialized.Body);
+                    "The production server must expose an MCP initialize response. " + initialized.Body);
                 var tools = (await Rpc("tools/list")).Body["result"]!["tools"]!.AsArray();
                 Check(tools.Count == 2 && tools.All(tool => tool!["annotations"]!["readOnlyHint"]!.GetValue<bool>())
                     && tools.Single(tool => tool!["name"]!.GetValue<string>() == "show_work_item_details")!["_meta"]!["ui"]!["resourceUri"]!
@@ -739,7 +739,7 @@ public sealed partial class NativePublicationConsumerTests
                 var html = (await Rpc("resources/read", new JsonObject { ["uri"] = "ui://twig/work-item-details" })).Body["result"]!["contents"]![0]!;
                 Check(html["mimeType"]!.GetValue<string>() == "text/html;profile=mcp-app"
                     && html["_meta"]!["ui"]!["csp"]!["connectDomains"]!.AsArray().Count == 0,
-                    "The actual daemon resource-serving route preserves MIME and network isolation.");
+                    "The actual server resource-serving route preserves MIME and network isolation.");
                 Encoding.UTF8.GetBytes(html["text"]!.GetValue<string>()).ShouldBe(fixtureBytes,
                     "Exact owned file bytes are served; this is NOT assembled consumer HTML/vendor qualification.");
                 // Three build facts stay in consumer tests/mcp-details-browser.mjs at d81feac9ca21aef2ea5606c592695943a04bb3dc.
@@ -770,7 +770,7 @@ public sealed partial class NativePublicationConsumerTests
                     && data["itemId"]!.GetValue<string>() == item["id"]!.GetValue<string>()
                     && data["readOnly"]!.GetValue<bool>() && data["revision"]!.GetValue<string>().Length > 0
                     && data["fields"]!.AsArray().Count == 1 && data["cacheReadAt"] is not null,
-                    "Details are daemon-observed values, exact revision and provenance, with only requested fields.");
+                    "Details are server-observed values, exact revision and provenance, with only requested fields.");
                 data["revision"]!.GetValue<string>().ShouldBe(
                     "ado-rev:" + _transport.RevisionOf(42).ToString(System.Globalization.CultureInfo.InvariantCulture));
                 data["snapshotId"]!.GetValue<Guid>().ShouldBe(members["snapshotId"]!.GetValue<Guid>());

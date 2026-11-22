@@ -12,12 +12,12 @@ differ; use its `twig --version` and targeted `--help` to identify its contract.
 | [Getting started](getting-started.md) | Provider setup, first reads, provider differences |
 | [Command reference](commands/README.md) | Current routes, side effects, retired commands |
 | [Authentication](features/authentication.md) | Named ADO identities and exact GitHub account selection |
-| [Connections, Benches, and context](features/workspace-bench-context.md) | Explicit CLI targets versus a daemon view's saved selection |
+| [Connections, Benches, and context](features/workspace-bench-context.md) | Explicit CLI targets versus a server view's saved selection |
 | [Seeds and publishing](features/seeds-and-publishing.md) | Local drafts, durable identity, publication and uncertain outcomes |
 | [Change proposals](features/proposals.md) | Validate, preview, confirm, apply, and inspect |
 | [Process description](features/process-description.md) | Discovered schema, requirements, and known gaps |
 | [Installed help and skills](features/skills.md) | Offline guidance and explicit agent-skill installation |
-| [Local server](daemon.md) | Windows/Linux installation, `twig server` lifecycle commands, canvas boundary, read-only MCP |
+| [Local server](server.md) | Windows/Linux installation, `twig server` lifecycle commands, canvas boundary, read-only MCP |
 
 ## Contributors
 

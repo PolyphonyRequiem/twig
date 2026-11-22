@@ -13,7 +13,7 @@ mutates: none
 ## Behavior
 
 Offline version discovery without a workspace, sign-in or update check.
-It does not describe the separately versioned daemon/canvas runtime.
+It does not describe the separately versioned server/canvas runtime.
 
 ## Effects
 

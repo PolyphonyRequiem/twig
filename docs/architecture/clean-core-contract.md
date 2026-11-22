@@ -87,7 +87,7 @@ Native Bench definitions now live in `benches.db` beside the native user registr
 hosts use the public `UserBenchStore`; a viewer must not maintain an independent
 authoritative copy. A repository/worktree does not own a Bench, and opening a
 workspace creates no default Bench. The CLI has no selected Bench. The native
-daemon/Canvas can retain selection within a presentation session or view.
+server/Canvas can retain selection within a presentation session or view.
 
 Selectors retain item, subtree and typed query semantics and now carry their exact
 connection. Area/iteration predicates stay rules, not frozen result lists.
@@ -861,7 +861,7 @@ The executable keeps its existing NativeAOT, full-trimming and invariant-globali
 | Application/command orchestration (later) | Explicit targeting, acquire current schema/items, draft-to-proposal construction, exact-digest confirmation, ordered execution, durable attempts, cancellation/recovery, policy evidence acquisition |
 | Provider adapters (phases 3 and 4) | Normalize native identities and field references, discover schema/capabilities, implement query translation and one-effect transport, classify dispatch/outcomes, authoritative readback |
 | Store adapter (phase 2) | SQLite/WAL, one local CAS/transaction boundary, append-preserving evidence, immutable publish mappings, local relationship tombstones, source-generated persistence DTOs |
-| Hosts/rendering | Human versus machine behavior, daemon/Canvas session and view selection, form layout and presentation hints, markup conversion/sanitization, colors, credentials and telemetry |
+| Hosts/rendering | Human versus machine behavior, server/Canvas session and view selection, form layout and presentation hints, markup conversion/sanitization, colors, credentials and telemetry |
 
 `ProcessSchema` is a model returned by discovery, **not another port**. There are exactly
 two ports: `IProvider` and `IStore`. Optional clock/identity services are unnecessary here:

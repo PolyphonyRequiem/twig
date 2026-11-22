@@ -21,7 +21,7 @@ class SmokeTrace:
     PHASES = {'supervisor', 'worker', 'version', 'help', 'auth-help', 'connection-help',
               'configure', 'fixture', 'identity', 'preview', 'wrong-account', 'journal',
               'git-init', 'git-common', 'git-dir', 'git-root', 'fixture-identities',
-              'daemon', 'disconnected'}
+              'server', 'disconnected'}
     EVENTS = {'start', 'end', 'error', 'timeout'}
 
     def __init__(self, path):
@@ -96,7 +96,7 @@ def worker(binary, directory, trace):
     root = directory / 'installation'
     data = directory / 'private-data'
     root.mkdir(mode=0o700)
-    env['TWIG_DAEMON_INSTALL_ROOT'] = str(root)
+    env['TWIG_SERVER_INSTALL_ROOT'] = str(root)
     (root / 'current.json').write_text(json.dumps({'privateDataDir': str(data)}))
     for key in ('LOCALAPPDATA', 'SystemRoot'):
         if os.name == 'nt' and key in os.environ:
@@ -112,26 +112,26 @@ def worker(binary, directory, trace):
     for label, arguments in (('help', ('--help',)), ('auth-help', ('auth', '--help')),
                              ('connection-help', ('connection', 'status', '--help'))):
         run(label, *arguments)
-    with headless_daemon(data, env, trace):
+    with headless_server(data, env, trace):
         check_operations(command, workspace, home, env, trace, run)
     refused = run('disconnected', 'proposal', 'preview', '--file', 'smoke.json', '-o', 'json', expected=1)
-    if 'daemon' not in json.loads(refused.stderr)['error'].lower():
-        raise RuntimeError('Disconnected CLI did not report daemon unavailability')
+    if 'server' not in json.loads(refused.stderr)['error'].lower():
+        raise RuntimeError('Disconnected CLI did not report server unavailability')
     trace.write('worker', 'end', 0)
-    print('SMOKE PASSED: offline help; daemon-backed binding, proposal preview and wrong-account refusal; no direct fallback or apply')
+    print('SMOKE PASSED: offline help; server-backed binding, proposal preview and wrong-account refusal; no direct fallback or apply')
     return 0
 
 
 @contextlib.contextmanager
-def headless_daemon(data, env, trace):
-    executable = ROOT / 'src/Twig.Daemon/bin/Debug/net11.0/Bench.Server.dll'
-    trace.write('daemon', 'start')
+def headless_server(data, env, trace):
+    executable = ROOT / 'src/Twig.Server/bin/Debug/net11.0/Twig.Server.dll'
+    trace.write('server', 'start')
     with subprocess.Popen(['dotnet', str(executable), '--commands-only', '--data-dir', str(data)],
                           cwd=data.parent, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                           text=True) as host:
         try:
             if host.stdout.readline().strip() != 'COMMANDS_READY':
-                raise RuntimeError('Fixture daemon exited before readiness')
+                raise RuntimeError('Fixture server exited before readiness')
             yield
         finally:
             if host.poll() is None:
@@ -140,10 +140,10 @@ def headless_daemon(data, env, trace):
                 except subprocess.TimeoutExpired:
                     host.kill()
                     host.wait()
-                    raise RuntimeError('Fixture daemon did not stop gracefully')
-            trace.write('daemon', 'end', host.returncode)
+                    raise RuntimeError('Fixture server did not stop gracefully')
+            trace.write('server', 'end', host.returncode)
             if host.returncode:
-                raise RuntimeError(f'Fixture daemon exited with {host.returncode}')
+                raise RuntimeError(f'Fixture server exited with {host.returncode}')
 
 
 def check_operations(command, workspace, home, env, trace, run):

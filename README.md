@@ -6,7 +6,7 @@ named **Benches**, draft new items locally, and apply changes through a
 digest-bound proposal journal.
 
 The CLI ships as a NativeAOT binary for **Windows x64 and Linux x64**. macOS
-support is suspended. The optional **Windows daemon** is also owned and released
+support is suspended. The optional **Windows server** is also owned and released
 by this repository; its canvas presentation package is separate.
 
 ## Install
@@ -30,9 +30,9 @@ for manual downloads and checksum verification.
 
 ## Get started
 
-Select an installed [server](docs/daemon.md) and run `twig server start` before
+Select an installed [server](docs/server.md) and run `twig server start` before
 working with a provider. `twig server status -o json` checks readiness without
-starting anything. Help and version are available without a daemon.
+starting anything. Help and version are available without a server.
 
 Run initialization at a **fresh Git worktree root**, without an existing `.twig`
 directory. Choose one provider; a Git remote does not select your tracker.
@@ -71,7 +71,7 @@ See [provider differences](docs/getting-started.md#provider-differences).
 For a repository that already has `twig.json`, run just `twig init` after registering
 and binding the matching connection on your device. Keep the manifest unchanged:
 it declares provider dimensions, not a contributor's credential or a device-local ID.
-`twig connection list` lists all registrations through the daemon, regardless of
+`twig connection list` lists all registrations through the server, regardless of
 the current directory. Credentials and bindings remain private to the local user.
 
 ### Twig-native
@@ -121,27 +121,26 @@ Unknown write outcomes must be inspected, never blindly retried.
 
 ## Server and integrations
 
-The [Twig daemon](src/Twig.Daemon) owns work-item operations for the CLI and
+The [Twig server](src/Twig.Server) owns work-item operations for the CLI and
 Bench Canvas. It runs as the current user. Use `twig server start` to start or
 reuse it and `twig server stop` for an explicit shutdown. Clients do not switch
-to direct database or provider access if the daemon is unavailable.
+to direct database or provider access if the server is unavailable.
 
 The separate [twig-bench-canvas](https://github.com/PolyphonyRequiem/twig-bench-canvas)
-package owns presentation assets. Closing a Canvas view does not stop the daemon.
+package owns presentation assets. Closing a Canvas view does not stop the server.
 Herdr panes and the interactive terminal browser have been removed; static CLI
-output is unchanged. The daemon can run without Canvas assets and
+output is unchanged. The server can run without Canvas assets and
 provides a **read-only MCP bridge**. This is not the retired `twig mcp` server.
 See the [server command reference](docs/commands/system/server.md) for lifecycle
-syntax and output formats, and the [server guide](docs/daemon.md) for
-prerequisites, installation, and MCP setup. The old `twig daemon` command family
-is not an alias; daemon package names and installation settings are unchanged.
+syntax and output formats, and the [server guide](docs/server.md) for
+prerequisites, installation, and MCP setup.
 
 ### Native Agent HTTP regression ownership
 
 `python eng/ci-checks.py native-agent-http` runs ten individually isolated,
 60-second TRX-verified scenarios: diagnostics, access, membership, rules,
 rule-guards, draft, connections, connection-guards, owner-automatic and MCP.
-`NativePublicationConsumerTests.AgentHttp.cs` composes the production daemon
+`NativePublicationConsumerTests.AgentHttp.cs` composes the production server
 with real native bindings, SQLite, captures and the owned synthetic provider
 transport; every scenario requires zero provider PATCH attempts. Owner APIs
 are synthetic admission, **not** Windows Negotiate, hosted trust or live-provider
@@ -169,7 +168,7 @@ are not adopted by this Agent-only gate.
 | Setup and first commands | [Getting started](docs/getting-started.md) |
 | Supported commands and limitations | [Command reference](docs/commands/README.md) |
 | Benches, drafts, and proposals | [User guides](docs/README.md#user-guides) |
-| Local server | [Server installation and operations](docs/daemon.md) |
+| Local server | [Server installation and operations](docs/server.md) |
 | Agent help | `twig --skill` and [installed skills](docs/features/skills.md) |
 | Build and contribute | [Build and release](docs/architecture/build-and-release.md) |
 | Implementation | [Architecture](docs/architecture/overview.md) |

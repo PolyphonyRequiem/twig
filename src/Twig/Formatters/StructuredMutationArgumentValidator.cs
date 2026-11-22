@@ -1,7 +1,7 @@
 namespace Twig.Formatters;
 
 /// <summary>
-/// Checks explicit invocation scope before workspace discovery or daemon dispatch.
+/// Checks explicit invocation scope before workspace discovery or server dispatch.
 /// </summary>
 public static class StructuredMutationArgumentValidator
 {

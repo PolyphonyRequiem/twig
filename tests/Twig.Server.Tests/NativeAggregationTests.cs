@@ -310,11 +310,12 @@ internal static class NativeAggregationTests
             using var response = await client.SendAsync(request);
             return (response.StatusCode, JsonNode.Parse(await response.Content.ReadAsStringAsync())!);
         }
-        var metadata = await Request("/session");
-        Check(metadata.Status == System.Net.HttpStatusCode.OK, "Runtime repository selection must initialize owner state: " + metadata.Body);
+        var restored = await Request("/view-state/restore", HttpMethod.Post, new());
+        Check(restored.Status == System.Net.HttpStatusCode.OK, "Runtime repository selection must initialize owner state: " + restored.Body);
         var state = await Request("/view-state");
-        Check(state.Body["currentBenchId"]!.GetValue<Guid>() == benchId
-            && state.Body["runtimeContext"]!["sessionId"]!.GetValue<string>() == "session-one",
+        Check(state.Status == System.Net.HttpStatusCode.OK
+            && state.Body["currentBenchId"]?.GetValue<Guid>() == benchId
+            && state.Body["runtimeContext"]?["sessionId"]?.GetValue<string>() == "session-one",
             "The actual SDK session repository must select its user-local default Bench, not another session's choice.");
         Check(sessions.ResolveOwnerProfile(instance, new(null, null)).ProfileId == globalProfile.ProfileId,
             "A contextual session must not overwrite the retained global owner profile.");

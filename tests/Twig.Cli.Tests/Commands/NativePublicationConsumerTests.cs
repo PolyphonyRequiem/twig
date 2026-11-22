@@ -2376,11 +2376,12 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
     }
 
-    private async Task<ServiceProvider> AttachAsync()
+    private async Task<ServiceProvider> AttachAsync(bool canonicalRoot = false)
     {
         var root = Path.Combine(_temp, "checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
+        if (canonicalRoot) root = WorktreeAnchorDetector.Detect(root)!.Value.WorktreeRoot;
         var config = new TwigConfiguration { Organization = "fixture", Project = "Project" };
         config.Display.Hints = false;
         var defaults = TwigPaths.BuildPaths(Path.Combine(root, ".twig"), config, root);

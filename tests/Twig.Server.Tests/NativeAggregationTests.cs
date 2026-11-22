@@ -277,7 +277,7 @@ internal static class NativeAggregationTests
             await git.WaitForExitAsync();
             Check(git.ExitCode == 0, "The repository-context fixture must initialize successfully.");
         }
-        var bindings = Required(await panel.SaveRepositoryAsync(repo, 0, [a], benchId, default));
+        var bindings = Required(await panel.SaveRepositoryAsync(repo, 0, [a], benchId, default, [benchId]));
         var sessions = new ViewSessions(Path.Combine(root, "session-profiles"));
         var instance = Required(await panel.ListAsync(default)).InstanceId;
         var globalProfile = sessions.ResolveOwnerProfile(instance, new(null, null));

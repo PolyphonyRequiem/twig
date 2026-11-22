@@ -231,11 +231,26 @@ public static partial class NativeBenchHost
             var shared = Require(await panel.ListAsync(context.RequestAborted));
             if (body.BenchId is { } selected && !shared.Benches.Any(value => value.Id == selected))
                 throw new HttpFailure(404, "NotFound", "The selected Bench was deleted.");
+            if (body.BenchId is { } candidate && session.RepositoryBindings is { } repository
+                && !repository.AttachedBenches.Contains(candidate))
+                throw new HttpFailure(403, "BenchNotAttached", "Choose an eligible Bench attached to this repository.");
             var committed = sessions.CommitViewChoice(session, Bearer(context), revision, () =>
             {
                 if (session.CurrentBenchId != body.ExpectedBenchId)
                     throw new HttpFailure(409, "Conflict", "The selected Bench changed. Refresh first.");
+                if (session.RepositoryBindings is not null)
+                {
+                    var retained = sessions.ReadState(session);
+                    _ = sessions.SaveState(session, new(retained.Revision, retained.Choices with
+                    {
+                        BenchId = body.BenchId, ViewingRoot = null, AddRoot = null, DisplayRoots = [],
+                        GroupSource = null, GroupField = null,
+                    }));
+                    session.NativeContext = null;
+                    session.DisplayContexts.Clear();
+                }
                 session.CurrentBenchId = body.BenchId;
+                session.RepositorySelectionReason = body.BenchId is null ? null : "Explicit";
                 session.ReferencesRestored = true;
                 session.PopulationContext = null;
                 if (body.BenchId is null)
@@ -245,8 +260,8 @@ public static partial class NativeBenchHost
                 }
                 return (session.SelectionRevision, RepositoryId: session.RepositoryBindings?.RepositoryId);
             });
-            await ResolveBenchConnections(panel, session, context.RequestAborted);
             sessions.RememberRepositoryBench(session, body.BenchId, committed.SelectionRevision, committed.RepositoryId);
+            await ResolveBenchConnections(panel, session, context.RequestAborted, cachedAdmissionOnly: session.RepositoryBindings is not null);
             updates.Publish(0);
             await Write(context, new Ack());
         });
@@ -544,7 +559,7 @@ public static partial class NativeBenchHost
         MapPlan(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapAgent(app, panel, sessions, updates, (context, id) => Authorize(context, id, true), options);
         MapSetup(app, connectionSetup, panel, sessions, updates, (context, id) => Authorize(context, id, true));
-        MapRepositories(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
+        MapRepositories(app, panel, sessions, updates, connectionSetup, (context, id) => Authorize(context, id, true));
         var root = options.WebRoot ?? Path.Combine(AppContext.BaseDirectory, "wwwroot");
         foreach (var route in new[] { "/", "/canvas", "/app.js", "/style.css", "/view-model.js", "/item-detail.js", "/assignee-profiles.js", "/item-editor.js", "/editor-drafts.js", "/connection-setup.js",
             "/vendor/purify.es.mjs", "/vendor/marked.esm.js", "/icons.css" })

@@ -109,7 +109,8 @@ public static partial class NativeBenchHost
         var shared = Require(await panel.ListAsync(ct));
         if (shared.InstanceId != state.StoreId)
             throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed during workspace loading.");
-        var selectionExists = state.CurrentBenchId is { } selected && shared.Benches.Any(value => value.Id == selected);
+        var selectionExists = state.CurrentBenchId is { } selected && shared.Benches.Any(value => value.Id == selected)
+            && (session.RepositoryBindings is not { } bound || bound.AttachedBenches.Contains(selected));
         if (selectionExists) await ResolveBenchConnections(panel, session, ct, cachedAdmissionOnly: true);
         NativePanelContext? anchor;
         NativePanelContext? population;
@@ -142,10 +143,12 @@ public static partial class NativeBenchHost
             labels.ToArray(),
             anchor?.Root, population?.Root, ConnectionSummary(anchor), ConnectionSummary(population))
             { RepositoryRoot = repositoryRoot, RepositoryBindings = repository,
+                RepositorySetup = repository is null ? null : DescribeRepository(repository, shared, state.CurrentBenchId,
+                    session.RepositorySelectionReason, chosen, registry),
                 RuntimeContext = session.RuntimeContext };
         NativeBenchViewDto? view = null;
         NativePanelView? captured = null;
-        if (state.CurrentBenchId is { } bench && shared.Benches.Any(value => value.Id == bench))
+        if (selectionExists && state.CurrentBenchId is { } bench)
         {
             captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations,
                 repository?.Connections.ToHashSet()));
@@ -203,7 +206,7 @@ public static partial class NativeBenchHost
         {
             await SynchronizeRepository(panel, sessions, session, ct);
             var before = sessions.ReadState(session);
-            if (onlyIfNeeded && session.ReferencesRestored && session.AppliedChoices is { } applied
+            if (onlyIfNeeded && session.RepositoryBindings is null && session.ReferencesRestored && session.AppliedChoices is { } applied
                 && applied.BenchId == before.Choices.BenchId
                 && ViewSession.PathComparer.Equals(applied.ViewingRoot, before.Choices.ViewingRoot)
                 && ViewSession.PathComparer.Equals(applied.AddRoot, before.Choices.AddRoot)
@@ -246,7 +249,8 @@ public static partial class NativeBenchHost
                         timeout.CancelAfter(TimeSpan.FromSeconds(5));
                         try
                         {
-                            var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations);
+                            var result = await panel.OpenAsync(reference.Root, timeout.Token, reference.Binding, observations,
+                                cachedAdmissionOnly: cachedAdmissionOnly || available is not null);
                             if (cachedAdmissionOnly && !result.IsSuccess && result.Error.Code == Twig.Core.ErrorCode.Conflict)
                                 throw new HttpFailure(409, "SourceChanged", "A retained source binding changed. Choose the exact intended connection explicitly.");
                             if (!result.IsSuccess) state = new(reference.Root, "unavailable", result.Error.Code.ToString());
@@ -274,17 +278,27 @@ public static partial class NativeBenchHost
                 }
             }
             var shared = Require(await panel.ListAsync(ct));
-            var currentBench = before.Choices.BenchId
-                ?? (session.RepositoryBindings is { } bindings
-                    ? await RepositoryBench(panel, sessions, session, bindings, ct) : null)
-                ?? (session.RuntimeContext is null && session.RepositoryBindings is null && shared.Benches.Length == 1
-                    ? shared.Benches[0].Id : (Guid?)null);
+            var repository = session.RepositoryBindings;
+            var selection = repository is null
+                ? (BenchId: before.Choices.BenchId
+                    ?? (session.RuntimeContext is null && shared.Benches.Length == 1 ? shared.Benches[0].Id : (Guid?)null),
+                    Reason: (string?)null)
+                : ResolveRepositoryBench(sessions, session, repository, shared,
+                    session.CurrentBenchId ?? (ViewSession.PathComparer.Equals(before.Choices.RepositoryRoot, session.RepositoryRoot)
+                        ? before.Choices.BenchId : null));
+            var currentBench = selection.BenchId;
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
-                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cachedAdmissionOnly)).ToArray()
+                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cachedAdmissionOnly || repository is not null)).ToArray()
                 : [];
             var instance = shared.InstanceId;
             if (instance != session.CatalogId)
                 throw new HttpFailure(409, "StoreReplaced", "The native Bench store changed during restoration. Connect explicitly.");
+            if (session.CurrentBenchId != currentBench)
+            {
+                session.Agent.Invalidate();
+                session.Plan.Invalidate();
+                session.Setup.Invalidate();
+            }
             return sessions.CommitRestoration(session, before.Revision, () =>
             {
                 lock (session)
@@ -308,6 +322,8 @@ public static partial class NativeBenchHost
                     session.SourceRecovery.Clear();
                     foreach (var source in recovery) session.SourceRecovery.Add(source.Key, source.Value);
                     session.CurrentBenchId = currentBench;
+                    if (session.RepositorySelectionReason is null || selection.Reason != "Retained")
+                        session.RepositorySelectionReason = selection.Reason;
                     session.ReferencesRestored = true;
                     session.AppliedChoices = before.Choices;
                 }

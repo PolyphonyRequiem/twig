@@ -26,6 +26,9 @@ public sealed class ViewSession(Guid id, Guid catalogId, bool canvas, string pre
     internal Dictionary<string, NativeSourceRecovery> SourceRecovery { get; } = new(PathComparer);
     private Guid? currentBenchId;
     internal long SelectionRevision { get; private set; }
+    internal string? RepositorySelectionReason { get; set; }
+    internal string? RuntimeRepositoryRoot { get; set; }
+    internal bool RepositoryContextOverridden { get; set; }
     internal Guid? CurrentBenchId
     {
         get => currentBenchId;
@@ -474,18 +477,30 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         }
     }
 
-    internal Guid? ReadRepositoryBench(ViewSession session, string repositoryId)
+    internal Guid[] ReadRepositoryBenches(ViewSession session, string repositoryId)
     {
         lock (gate)
         {
             RequireOwner(session);
             var path = RepositoryBenchPath(session.CatalogId, repositoryId);
-            if (!File.Exists(path)) return null;
-            if (new FileInfo(path).Length != 36 || !Guid.TryParseExact(File.ReadAllText(path), "D", out var bench)
-                || bench == Guid.Empty)
-                throw new InvalidDataException("The retained repository Bench selection is invalid.");
-            return bench;
+            return ReadRepositoryBenches(path);
         }
+    }
+
+    private static Guid[] ReadRepositoryBenches(string path)
+    {
+        if (!File.Exists(path)) return [];
+        if (new FileInfo(path).Length > 1024 * 1024)
+            throw new InvalidDataException("The retained repository Bench history exceeds its bound.");
+        var seen = new HashSet<Guid>();
+        var ordered = new List<Guid>();
+        foreach (var line in File.ReadLines(path))
+        {
+            if (!Guid.TryParseExact(line, "D", out var id) || id == Guid.Empty || !seen.Add(id))
+                throw new InvalidDataException("The retained repository Bench history is invalid.");
+            ordered.Add(id);
+        }
+        return ordered.ToArray();
     }
 
     internal void RememberRepositoryBench(ViewSession session, Guid? bench, long selectionRevision, string? repositoryId)
@@ -499,10 +514,12 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             {
                 if (session.SelectionRevision != selectionRevision || session.CurrentBenchId != bench || session.RepositoryBindings?.RepositoryId != repositoryId)
                     throw new HttpFailure(409, "BenchViewChanged", "The selected Bench or repository changed before it could be remembered.");
-                if (repositoryId is null) return;
+                if (repositoryId is null || bench is not { } selected) return;
                 var path = RepositoryBenchPath(session.CatalogId, repositoryId);
-                if (bench is { } selected) WriteAtomic(path, selected.ToString("D"));
-                else File.Delete(path);
+                using var repositoryLease = AcquireProfileLease(path);
+                var history = ReadRepositoryBenches(path);
+                WriteAtomic(path, string.Join('\n', history.Where(value => value != selected).Prepend(selected)
+                    .Take(16384).Select(value => value.ToString("D"))));
             }
         }
     }
@@ -535,7 +552,12 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             recovery = document.Sources.Select(reference => session.SourceRecovery.GetValueOrDefault(reference.Root)
                 ?? new(reference.Root, retained.Contains(reference.Root) ? "retained" : "not-opened", null)).ToArray();
         }
-        return new(session.CatalogId, session.ProfileId, document.Revision, document.Choices, recovery,
+        var choices = document.Choices;
+        if (session.RuntimeRepositoryApplied && session.RuntimeContext is not null && !session.RepositoryContextOverridden
+            && !ViewSession.PathComparer.Equals(choices.RepositoryRoot, session.RuntimeRepositoryRoot))
+            choices = choices with { RepositoryRoot = session.RuntimeRepositoryRoot, BenchId = null,
+                ViewingRoot = null, AddRoot = null, DisplayRoots = [], GroupSource = null, GroupField = null };
+        return new(session.CatalogId, session.ProfileId, document.Revision, choices, recovery,
             session.CurrentBenchId, session.Expires, session.Expires - OwnerRenewalLead) { RuntimeContext = session.RuntimeContext };
     }
     internal static string[] Roots(NativeViewChoices choices) => new[] { choices.ViewingRoot, choices.AddRoot }

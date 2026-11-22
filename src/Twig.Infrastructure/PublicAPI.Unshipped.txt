@@ -91,9 +91,18 @@ override Twig.Infrastructure.Services.UserRepositoryBindings.ToString() -> strin
 static Twig.Infrastructure.Services.UserRepositoryBindings.operator !=(Twig.Infrastructure.Services.UserRepositoryBindings? left, Twig.Infrastructure.Services.UserRepositoryBindings? right) -> bool
 static Twig.Infrastructure.Services.UserRepositoryBindings.operator ==(Twig.Infrastructure.Services.UserRepositoryBindings? left, Twig.Infrastructure.Services.UserRepositoryBindings? right) -> bool
 Twig.Infrastructure.Services.UserBenchStore.ReadRepositoryAsync(string! root, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.UserRepositoryBindings!>!>!
-Twig.Infrastructure.Services.UserBenchStore.SaveRepositoryAsync(string! root, long expectedRevision, System.Collections.Generic.IEnumerable<Twig.Core.Connection!>! connections, System.Guid? defaultBench, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.UserRepositoryBindings!>!>!
+Twig.Infrastructure.Services.UserBenchStore.SaveRepositoryAsync(string! root, long expectedRevision, System.Collections.Generic.IEnumerable<Twig.Core.Connection!>! connections, System.Guid? defaultBench, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken), System.Guid[]? attachedBenches = null, Twig.Core.Connection![]? excludedConnections = null, System.Guid? expectedBenchId = null, long? expectedBenchRevision = null, Twig.Infrastructure.Services.UserBenchWorkspace? expectedWorkspace = null, System.Guid? operationId = null, string? operationDigest = null) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.UserRepositoryBindings!>!>!
+Twig.Infrastructure.Services.UserRepositoryBindings.SetupReceipts.get -> System.Collections.Immutable.ImmutableDictionary<System.Guid, string!>!
+Twig.Infrastructure.Services.UserRepositoryBindings.SetupReceipts.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.AttachmentsConfigured.get -> bool
+Twig.Infrastructure.Services.UserRepositoryBindings.AttachmentsConfigured.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.AttachedBenches.get -> System.Collections.Immutable.ImmutableArray<System.Guid>
+Twig.Infrastructure.Services.UserRepositoryBindings.AttachedBenches.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.ExcludedConnections.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!>
+Twig.Infrastructure.Services.UserRepositoryBindings.ExcludedConnections.init -> void
 Twig.Infrastructure.Services.NativeSetupEffectKind.ManagedWorkspace = 21 -> Twig.Infrastructure.Services.NativeSetupEffectKind
 Twig.Infrastructure.Services.NativeConnectionSetup.InitializeManagedAsync(Twig.Infrastructure.Services.NativeSetupTarget! target, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeManagedSetupResult!>!>!
+Twig.Infrastructure.Services.NativeConnectionSetup.InitializeRepositoryPrivateAsync(string! database, Twig.Core.Connection! expected, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeManagedSetupResult!>!>!
 Twig.Infrastructure.Services.NativeManagedSetupResult
 Twig.Infrastructure.Services.NativeManagedSetupResult.NativeManagedSetupResult(string! WorkspaceRoot, Twig.Infrastructure.Services.NativeSourceObservation! Observation) -> void
 Twig.Infrastructure.Services.NativeManagedSetupResult.WorkspaceRoot.get -> string!

@@ -135,14 +135,18 @@ internal static class WorktreeAnchorDetector
 
         try
         {
-            var info = new DirectoryInfo(absolute);
-            if (info.Exists && info.LinkTarget is not null)
-                return Path.GetFullPath(info.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? absolute);
-            return Path.GetFullPath(absolute);
+            return Resolve(new DirectoryInfo(Path.GetFullPath(absolute)));
         }
         catch
         {
             return Path.GetFullPath(absolute);
+        }
+
+        static string Resolve(DirectoryInfo info)
+        {
+            if (info.Parent is not { } parent) return info.FullName;
+            var resolved = new DirectoryInfo(Path.Combine(Resolve(parent), info.Name));
+            return resolved.ResolveLinkTarget(returnFinalTarget: true)?.FullName ?? resolved.FullName;
         }
     }
 
@@ -164,6 +168,8 @@ internal static class WorktreeAnchorDetector
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
+            foreach (var key in new[] { "GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE", "GIT_CEILING_DIRECTORIES" })
+                psi.Environment.Remove(key);
             using var process = Process.Start(psi);
             if (process is null)
                 return false;

@@ -64,6 +64,7 @@ public sealed record NativePanelSummary(Guid StoreId, long Revision, NativeBench
 {
     public string? RepositoryRoot { get; init; }
     public UserRepositoryBindings? RepositoryBindings { get; init; }
+    public RepositorySetupDto? RepositorySetup { get; init; }
     public CanvasRuntimeContext? RuntimeContext { get; init; }
 }
 public sealed record NativeSessionInfo(Guid StoreId, bool NativeContentBlocked, ViewPreferences Preferences);
@@ -75,6 +76,9 @@ public sealed record ContextBody(string Root);
 public sealed record IdentityProfilesBody(Guid SourceId, string[] Identities);
 public sealed record PopulationContextBody(string? Root);
 public sealed record SelectionBody(Guid? ExpectedBenchId, Guid? BenchId);
+public sealed record RepositorySetupDto(string State, NativeBenchDto[] Attached, Guid? DefaultBench,
+    Guid? SelectedBench, string? SelectionReason, RepositoryConnectionDto[] Connections);
+public sealed record RepositoryConnectionDto(Connection Connection, string State);
 public sealed record AgentPermissionsBody(Guid BenchId, bool Read, bool Draft, bool Membership, bool Rules = false);
 public sealed record AgentPermissionsDto(bool Read, bool Draft, bool Membership, Guid? BenchId, DateTimeOffset? ExpiresAt, bool Rules = false);
 public sealed record AgentSelectionBody(Guid BenchId, Guid? SourceId, string? ItemId);

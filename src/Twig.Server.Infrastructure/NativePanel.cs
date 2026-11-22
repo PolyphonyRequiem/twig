@@ -87,8 +87,12 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
     public Task<Result<UserRepositoryBindings>> ReadRepositoryAsync(string root, CancellationToken ct)
         => definitions.ReadRepositoryAsync(root, ct);
     public Task<Result<UserRepositoryBindings>> SaveRepositoryAsync(string root, long revision,
-        IEnumerable<Connection> connections, Guid? defaultBench, CancellationToken ct)
-        => definitions.SaveRepositoryAsync(root, revision, connections, defaultBench, ct);
+        IEnumerable<Connection> connections, Guid? defaultBench, CancellationToken ct,
+        Guid[]? attachedBenches = null, Connection[]? excludedConnections = null,
+        Guid? expectedBenchId = null, long? expectedBenchRevision = null, UserBenchWorkspace? expectedWorkspace = null,
+        Guid? operationId = null, string? operationDigest = null)
+        => definitions.SaveRepositoryAsync(root, revision, connections, defaultBench, ct, attachedBenches, excludedConnections,
+            expectedBenchId, expectedBenchRevision, expectedWorkspace, operationId, operationDigest);
     public async Task<Result<ImmutableArray<NativePanelContext>>> ResolveConnectionsAsync(Guid benchId,
         IEnumerable<NativePanelContext> retained, CancellationToken ct, IReadOnlySet<Connection>? available = null,
         bool cachedAdmissionOnly = false)
@@ -150,7 +154,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
 
     public async Task<Result<NativePanelContext>> OpenAsync(string root, CancellationToken ct, string? expectedBinding = null,
         IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false,
-        NativeSourceStamp? expectedSource = null)
+        NativeSourceStamp? expectedSource = null, UserBenchWorkspace? expectedWorkspace = null)
     {
         if (string.IsNullOrWhiteSpace(root) || !Path.IsPathFullyQualified(root))
             return Result<NativePanelContext>.Fail(ErrorCode.InvalidInput, "Choose an existing native connection or an initialized workspace in Advanced.");
@@ -159,6 +163,9 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (!local.IsSuccess) return Result<NativePanelContext>.Fail(local.Error);
         if (expectedSource is not null && local.Value.Source != expectedSource)
             return Result<NativePanelContext>.Fail(ErrorCode.Conflict, "The prepared source or principal changed. Choose it again.");
+        if (expectedWorkspace is not null && (local.Value.Source.Connection != expectedWorkspace.Connection
+            || local.Value.Source.StoreInstance != expectedWorkspace.StoreInstance))
+            return Result<NativePanelContext>.Fail(ErrorCode.Conflict, "The exact workspace registration changed before admission.");
         if (cachedAdmissionOnly)
             expectedBinding ??= CatalogFingerprint.Binding(NativeSourceAdapter.Binding(local.Value.Source));
         var observed = expectedBinding is null

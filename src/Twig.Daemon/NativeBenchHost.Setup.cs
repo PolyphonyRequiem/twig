@@ -351,6 +351,27 @@ public static partial class NativeBenchHost
             await Initialize(http, session, body.Epoch, new(body.WorkspaceRoot,
                 new NativeAdoSetupTarget(body.Organization, body.Project, body.BindingId, body.Team, body.GitProject)));
         });
+        app.MapGet("/api/v1/views/{id:guid}/setup/github-accounts", async (HttpContext http, Guid id) =>
+        {
+            _ = await authorize(http, id);
+            await Write(http, Require(await Gateway().ListGitHubAccountsAsync(http.RequestAborted)));
+        });
+        app.MapPost("/api/v1/views/{id:guid}/setup/initialize-managed-github", async (HttpContext http, Guid id) =>
+        {
+            var session = await authorize(http, id);
+            var body = await Body<SetupManagedGitHubBody>(http);
+            RequiredText(body.Repository, "Supply the explicit owner/repository.", 140);
+            RequiredText(body.Account, "Choose a named GitHub account.", 39);
+            if (!NativeConnectionSetup.IsGitHubLogin(body.Account))
+                throw new HttpFailure(400, "InvalidInput", "Choose a valid GitHub login.");
+            await Start(http, session, body.Epoch, "Initialization", async (operation, ct) =>
+            {
+                var result = await Gateway().InitializeManagedAsync(new NativeGitHubSetupTarget(
+                    "github.com", body.Repository, body.Account), ct);
+                if (!result.IsSuccess) return Failed(operation.Current, result.Error);
+                return Initialized(operation.Current, result.Value.WorkspaceRoot, result.Value.Observation);
+            });
+        });
         app.MapPost("/api/v1/views/{id:guid}/setup/initialize-github", async (HttpContext http, Guid id) =>
         {
             var session = await authorize(http, id);

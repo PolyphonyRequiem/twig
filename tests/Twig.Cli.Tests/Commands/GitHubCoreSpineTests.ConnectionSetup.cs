@@ -9,6 +9,30 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class GitHubCoreSpineTests
 {
+    [Fact]
+    public async Task NativeManagedGitHubRegistersTheNamedAccountWithoutAUserCheckout()
+    {
+        using var fixture = new Fixture();
+        var managedRoot = Path.Combine(fixture.Root, "managed-sources");
+        var setup = new NativeConnectionSetup(_ => fixture._bindings,
+            transport: new CoreTransportOverride(fixture.Http.NewHandle), processes: fixture._processes,
+            managedRoot: managedRoot);
+        var result = await setup.InitializeManagedAsync(new NativeGitHubSetupTarget("github.com", "original/repo", "fixture"));
+
+        result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
+        var root = result.Value.WorkspaceRoot;
+        Path.GetDirectoryName(root).ShouldBe(managedRoot);
+        File.Exists(Path.Combine(fixture.Root, ".twig", "core-workspace.json")).ShouldBeFalse();
+        result.Value.Observation.Source.PrincipalId.ShouldBe("U_actor");
+        var schema = result.Value.Observation.Schema.ShouldNotBeNull();
+        schema.Value.Connection.ShouldBe(result.Value.Observation.Source.Connection);
+        var workspaces = (await UserBenchStore.ForRegistry(fixture._bindings.RegistryPath).WorkspacesAsync()).Value;
+        var registered = workspaces.Single();
+        registered.Root.ShouldBe(root);
+        registered.Connection.ShouldBe(result.Value.Observation.Source.Connection);
+        fixture.Http.Writes.ShouldBe(0);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

@@ -47,6 +47,7 @@ internal static class ConnectionSetupTests
                 ["project"] = "synthetic-project", ["bindingId"] = "exact-binding", ["team"] = "explicit-team", ["gitProject"] = null };
             JsonObject GitHub() => new() { ["workspaceRoot"] = root, ["host"] = "github.com",
                 ["repository"] = "synthetic/repository", ["account"] = "named-account" };
+            JsonObject ManagedGitHub() => new() { ["repository"] = "synthetic/repository", ["account"] = "named-account" };
             var enrollment = new JsonObject { ["alias"] = "named-identity", ["tenant"] = "synthetic-tenant" };
             var binding = new JsonObject { ["organization"] = "synthetic-org", ["project"] = "synthetic-project", ["identityAlias"] = "named-identity" };
             async Task<(HttpStatusCode Status, JsonNode Body)> Send(string path, HttpMethod method, JsonNode? body = null,
@@ -88,7 +89,8 @@ internal static class ConnectionSetupTests
                 foreach (var (path, valid, missing) in new[]
                 {
                     ("enroll-aad", enrollment, "alias"), ("ado-binding", binding, "identityAlias"),
-                    ("initialize-ado", Ado(), "bindingId"), ("initialize-github", GitHub(), "account")
+                    ("initialize-ado", Ado(), "bindingId"), ("initialize-github", GitHub(), "account"),
+                    ("initialize-managed-github", ManagedGitHub(), "account")
                 })
                 {
                     Check((await Send(path, HttpMethod.Post, valid, canvas.PresentationCapability)).Status == HttpStatusCode.Forbidden,
@@ -103,6 +105,10 @@ internal static class ConnectionSetupTests
                     incomplete[missing] = " ";
                     Check((await Send(path, HttpMethod.Post, incomplete)).Status == HttpStatusCode.BadRequest, "Blank input refuses.");
                 }
+                Check((await Send("github-accounts", HttpMethod.Get, bearer: canvas.PresentationCapability)).Status == HttpStatusCode.Forbidden,
+                    "SDK presentation capability cannot enumerate GitHub CLI accounts.");
+                Check((await Send("initialize-managed-github", HttpMethod.Post, GitHub())).Status == HttpStatusCode.BadRequest,
+                    "Managed setup refuses caller-specified paths and hosts.");
                 var anonymous = sessions.RegisterNativeCanvas(before.InstanceId);
                 Check((await Send("enroll-aad", HttpMethod.Post, enrollment, anonymous.PresentationCapability,
                     view: anonymous.ViewId)).Status == HttpStatusCode.Forbidden, "A paired non-owner cannot invoke setup.");
@@ -239,6 +245,18 @@ internal static class ConnectionSetupTests
                 Check(gateway.Fresh == new NativeFreshSetupRequest(root,
                     new NativeGitHubSetupTarget("github.com", "synthetic/repository", "named-account")), "Named GitHub target is exact.");
                 CheckReady(github);
+                var accounts = await Ok("github-accounts", HttpMethod.Get);
+                Check(JsonNode.DeepEquals(accounts, JsonNode.Parse("""[{"login":"named-account","active":false}]""")),
+                    "Account discovery exposes only the login and active flag.");
+                var managed = await Wait(await Ok("initialize-managed-github", HttpMethod.Post, ManagedGitHub()));
+                Check(gateway.Managed == new NativeGitHubSetupTarget("github.com", "synthetic/repository", "named-account"),
+                    "Managed setup forwards the named account, never an ambient default.");
+                CheckReady(managed, gateway.ManagedRoot);
+                gateway.Failure = new(ErrorCode.Unavailable, "Selected account is no longer signed in.");
+                var unavailable = await Wait(await Ok("initialize-managed-github", HttpMethod.Post, ManagedGitHub()));
+                Check(unavailable["status"]!.GetValue<string>() == "Failed" && unavailable["source"] is null,
+                    "An unavailable selected account cannot produce Ready.");
+                gateway.Failure = null;
                 gateway.BadSchema = true;
                 var bad = await Wait(await Ok("initialize-github", HttpMethod.Post, GitHub()));
                 Check(bad["status"]!.GetValue<string>() == "Failed" && bad["source"] is null,
@@ -248,11 +266,11 @@ internal static class ConnectionSetupTests
                 var current = sessions.Content(human.ViewId, human.ContentCapability, true);
                 Check(after.Benches.Length == before.Benches.Length && current.NativeContext is null && current.Preferences.BenchId is null,
                     "Setup never creates/selects a Bench or viewing connection.");
-                Check(gateway.Calls == 5, "Only explicit setup gestures dispatch.");
-                void CheckReady(JsonNode ready)
+                Check(gateway.Calls == 8, "Only explicit setup gestures and the authorized discovery dispatch.");
+                void CheckReady(JsonNode ready, string? expectedRoot = null)
                 {
                     var source = ready["source"]!;
-                    Check(ready["status"]!.GetValue<string>() == "Ready" && source["workspaceRoot"]!.GetValue<string>() == root
+                    Check(ready["status"]!.GetValue<string>() == "Ready" && source["workspaceRoot"]!.GetValue<string>() == (expectedRoot ?? root)
                         && source["source"]!["storeInstance"]!.GetValue<Guid>() == gateway.Stamp.StoreInstance
                         && source["source"]!["principalId"]!.GetValue<string>() == gateway.Stamp.PrincipalId
                         && source["source"]!["authorityStamp"]!.GetValue<string>() == gateway.Stamp.AuthorityStamp
@@ -291,10 +309,24 @@ internal static class ConnectionSetupTests
         internal NativeAadEnrollmentRequest? Enrollment;
         internal NativeAdoBindingRequest? Binding;
         internal NativeFreshSetupRequest? Fresh;
+        internal NativeSetupTarget? Managed;
+        internal string ManagedRoot { get; } = Path.Combine(Path.GetTempPath(), "managed-github");
         internal TaskCompletionSource Entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal TaskCompletionSource? Release;
         internal NativeSourceStamp Stamp { get; private set; } = new(new(new("ado"), "native-resource", "native-destination", "native-identity"),
             Guid.NewGuid(), "native-principal", "native-authority");
+        public Task<Result<NativeGitHubAccount[]>> ListGitHubAccountsAsync(CancellationToken ct)
+        {
+            Interlocked.Increment(ref Calls);
+            return Task.FromResult(Result<NativeGitHubAccount[]>.Ok([new("named-account", false)]));
+        }
+        public async Task<Result<NativeManagedSetupResult>> InitializeManagedAsync(NativeSetupTarget target, CancellationToken ct)
+        {
+            Managed = target;
+            var observation = await InitializeFreshAsync(new(ManagedRoot, target), ct);
+            return observation.IsSuccess ? Result<NativeManagedSetupResult>.Ok(new(ManagedRoot, observation.Value))
+                : Result<NativeManagedSetupResult>.Fail(observation.Error);
+        }
         public Task<Result<NativeAadEnrollment>> EnrollAadAsync(NativeAadEnrollmentRequest request, Action<Uri> authorizationUrl, CancellationToken ct)
         {
             Interlocked.Increment(ref Calls); Enrollment = request;

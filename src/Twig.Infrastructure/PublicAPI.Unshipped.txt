@@ -967,3 +967,19 @@ Twig.Infrastructure.Services.NativeSetupTarget.NativeSetupTarget(Twig.Infrastruc
 virtual Twig.Infrastructure.Services.NativeSetupTarget.EqualityContract.get -> System.Type!
 virtual Twig.Infrastructure.Services.NativeSetupTarget.Equals(Twig.Infrastructure.Services.NativeSetupTarget? other) -> bool
 virtual Twig.Infrastructure.Services.NativeSetupTarget.PrintMembers(System.Text.StringBuilder! builder) -> bool
+Twig.Infrastructure.Services.NativeConnectionSetup.ListGitHubAccountsAsync(System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeGitHubAccount![]!>!>!
+static Twig.Infrastructure.Services.NativeConnectionSetup.IsGitHubLogin(string! login) -> bool
+Twig.Infrastructure.Services.NativeGitHubAccount
+Twig.Infrastructure.Services.NativeGitHubAccount.NativeGitHubAccount(string! Login, bool Active) -> void
+Twig.Infrastructure.Services.NativeGitHubAccount.<Clone>$() -> Twig.Infrastructure.Services.NativeGitHubAccount!
+Twig.Infrastructure.Services.NativeGitHubAccount.Active.get -> bool
+Twig.Infrastructure.Services.NativeGitHubAccount.Active.init -> void
+Twig.Infrastructure.Services.NativeGitHubAccount.Login.get -> string!
+Twig.Infrastructure.Services.NativeGitHubAccount.Login.init -> void
+Twig.Infrastructure.Services.NativeGitHubAccount.Deconstruct(out string! Login, out bool Active) -> void
+Twig.Infrastructure.Services.NativeGitHubAccount.Equals(Twig.Infrastructure.Services.NativeGitHubAccount? other) -> bool
+override Twig.Infrastructure.Services.NativeGitHubAccount.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.NativeGitHubAccount.GetHashCode() -> int
+override Twig.Infrastructure.Services.NativeGitHubAccount.ToString() -> string!
+static Twig.Infrastructure.Services.NativeGitHubAccount.operator !=(Twig.Infrastructure.Services.NativeGitHubAccount? left, Twig.Infrastructure.Services.NativeGitHubAccount? right) -> bool
+static Twig.Infrastructure.Services.NativeGitHubAccount.operator ==(Twig.Infrastructure.Services.NativeGitHubAccount? left, Twig.Infrastructure.Services.NativeGitHubAccount? right) -> bool

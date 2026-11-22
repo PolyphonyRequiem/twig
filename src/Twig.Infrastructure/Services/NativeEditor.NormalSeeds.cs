@@ -84,7 +84,9 @@ internal sealed partial class NativeEditor
         var settledDraft = await Workspace.SettleVerifiedDraftsAsync(plan,
             [new(plan.Operations.Single().Item, capture.DraftFingerprint)], ct).ConfigureAwait(false);
         if (!settledDraft.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, settledDraft.Error));
-        var pins = await NativeVerifiedDelivery.ReadbackAsync(snapshot.Value, plan, plan.Operations, Workspace, ct).ConfigureAwait(false);
+        var targets = CoreWorkspace.VerifiedDeliveryTargets(snapshot.Value, plan);
+        if (!targets.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, targets.Error));
+        var pins = await NativeVerifiedDelivery.ReadbackAsync(targets.Value, Workspace, ct).ConfigureAwait(false);
         if (!pins.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, pins.Error));
         valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, valid.Error));

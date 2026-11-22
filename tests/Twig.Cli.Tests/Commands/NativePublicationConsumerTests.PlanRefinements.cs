@@ -88,11 +88,11 @@ public sealed partial class NativePublicationConsumerTests
         {
             await db.OpenAsync();
             using var command = db.CreateCommand();
-            command.CommandText = "SELECT json_array_length(document,'$.RetainedItems') FROM core_snapshots;";
+            command.CommandText = "SELECT json_array_length(document,'$.Drafts') FROM core_snapshots;";
             Convert.ToInt32(await command.ExecuteScalarAsync()).ShouldBe(1, "The actual persisted Core draft vector must match the cleanup fault condition.");
             command.CommandText = """
                 CREATE TRIGGER fixture_plan_cleanup_refusal BEFORE UPDATE OF document ON core_snapshots
-                WHEN json_array_length(NEW.document,'$.RetainedItems')=0 AND json_array_length(OLD.document,'$.RetainedItems')>0
+                WHEN json_array_length(NEW.document,'$.Drafts')=0 AND json_array_length(OLD.document,'$.Drafts')>0
                 BEGIN SELECT RAISE(ABORT,'Fixture exact local settlement refusal'); END;
                 """;
             await command.ExecuteNonQueryAsync();
@@ -108,10 +108,14 @@ public sealed partial class NativePublicationConsumerTests
         snapshot.RetainedItems.Single().Key.ShouldBe(key);
         if (newerIntent)
         {
-            var draft = snapshot.RetainedItems.OfType<LocalEdits>().Single();
+            var draft = snapshot.RetainedItems.Single();
+            var fields = draft.Fields.Set("System.Title", FieldValue.String("Newer independent intent"));
+            var newer = draft is Seed retainedSeed
+                ? (RetainedItem)new Seed(retainedSeed.Key, retainedSeed.Type, fields, retainedSeed.Parent,
+                    retainedSeed.ParentRelation, retainedSeed.Resource, retainedSeed.Links)
+                : new LocalEdits(draft.Key, draft.Type, ((LocalEdits)draft).EditBaseline, fields);
             (await store.CommitAsync(host.Stamp.Connection, snapshot.Version, new(snapshot.Version + 1,
-                snapshot.Items, snapshot.Relationships,
-                [new LocalEdits(draft.Key, draft.Type, draft.EditBaseline, draft.Fields.Set("System.Title", FieldValue.String("Newer independent intent")))],
+                snapshot.Items, snapshot.Relationships, [newer],
                 snapshot.Plans, snapshot.Journal, snapshot.Mappings, snapshot.Benches), default)).IsSuccess.ShouldBeTrue();
         }
         await using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString()))

@@ -718,6 +718,15 @@ of the **retained** plan/ordinal/attempt. Native fsynced intent/ack sidecars are
 subordinate transport evidence, never a second executor or recovery authority.
 Unknown creation remains fenced across root reopen without a second create.
 
+Explicit `plan apply --file` executes the exact file without a separate approval.
+The workspace attributes a single create or field/type batch to retained intent
+only when its authored shape matches; otherwise the file does not settle local
+intent. Multi-operation files do not implicitly capture a batch of local edits.
+Bench delivery recovery uses the original Verified journal rows and seed mappings
+to settle matching captures, and rechecks no-effect captures for convergence.
+Recovery does not dispatch provider mutations. Origin readback and Bench pin
+delivery remain separate from workspace settlement.
+
 Offline Core file preview retains exact unattempted intent as Planned with no
 attempt or receipt, and reports unavailable schema/rule evidence as blocking.
 Core `plan validate` checks only canonical file format

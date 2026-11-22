@@ -35,3 +35,38 @@ _Avoid_: Native ID.
 
 **Revision**:
 An opaque, item-specific marker of the version observed. It is not part of the work item key and does not imply protection against stale writes.
+
+## Work Item Structure
+
+**Item type**:
+A kind of work item that determines which field definitions and workflow states apply.
+
+**Field definition**:
+The description of a field that applies to an item type, including what kind of value it can hold. A shared display label does not make two field definitions the same.
+
+**Field value**:
+The content of a field on a particular item, as distinct from the field's definition.
+
+**Unset field**:
+A field observed to have no value.
+
+**Unobserved field**:
+A field for which no observation is available. Its value, or lack of one, is unknown.
+
+**Last-known field**:
+A field whose most recent observation is available but not known to be current. That observation may record a value or show that the field was unset.
+
+**State**:
+An exact position in an item type's workflow. An item's state is a value of its state field.
+
+**State category**:
+A broader classification that can group multiple states without making them equivalent.
+
+**Relationship**:
+A named connection between identified items. A provider-owned relationship is recorded by a provider; a Twig-owned relationship is recorded by Twig and need not be known to either item's provider.
+
+**Resource link**:
+A reference to a resource by its locator. A locator that opens a work item does not by itself establish a relationship to that item.
+
+**Work item extension**:
+Twig-owned data attached to an existing work item by its work item key. It is neither a second work item nor data owned by the original item's provider.

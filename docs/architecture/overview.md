@@ -41,6 +41,36 @@ A seed's negative CLI alias is shorthand; its local ID is the durable
 identity. A revision describes the version observed for a particular work item,
 not its identity or whether the provider can reject a stale write.
 
+## Work item structure
+
+Use the [glossary](../../GLOSSARY.md#work-item-structure) to distinguish schema
+from observations. Core's `ItemType` lists `FieldDef` entries;
+`WorkItem.Fields` holds values for a particular item. Interpret field references
+in their schema and item type, not by display label: an ADO field and a Twig
+provider field both called "Priority" need not have the same meaning or value
+kind. Core can distinguish an explicit `FieldValue.Null` from an absent entry,
+but interpreting an omission as unset requires provider evidence. A cached
+observation is last-known, not a fresh read.
+
+Preserve the exact state for display and workflow decisions, and use its category
+to group items. Two process states such as "Implementing" and "In Review" can
+both be In Progress without being interchangeable. Use the discovered or
+declared category; do not infer it from the state name.
+
+Preserve both the target and ownership of a link. Core's `Relationship` has item
+keys as endpoints and tracks provider versus local provenance; a `ResourceLink`
+has a locator. A pasted GitHub issue URL can remain a resource link, or serve as
+input to an explicit relationship once resolved to an item key. ADO discovers
+native relationship kinds and handles hyperlinks separately. The GitHub adapter
+uses native hierarchy and dependency relationships where supported and keeps
+`Related` local. Do not silently substitute a hyperlink or a local relationship
+for an unsupported provider relationship.
+
+A Twig-owned dependency from an ADO Bug to a GitHub issue and a work item
+extension keyed to the original item are domain examples, not claims of current
+adapter support. When a provider is unavailable, an extension's own data and
+the last-known or unobserved provider data remain distinct.
+
 ## Execution boundary
 
 The CLI admits arguments and the selected workspace before composing a provider.

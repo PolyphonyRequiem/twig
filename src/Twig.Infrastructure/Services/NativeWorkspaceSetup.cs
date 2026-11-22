@@ -4,7 +4,6 @@ using Twig.Infrastructure.Config;
 using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Persistence;
 using Twig.Infrastructure.Persistence.ProviderTargets;
-using Twig.Providers.Native;
 
 namespace Twig.Infrastructure.Services;
 
@@ -17,10 +16,6 @@ internal sealed record NativeCreationReceipt(CoreWorkspaceDocument Document, Nat
 internal static class NativeWorkspaceSetup
 {
     private const string RetryGuidance = "Stop active setup and inspect the preserved checkout-local .twig state. Move it aside only if it is disposable, or retry in a fresh worktree. Keep source, credentials and any remote-write evidence; use a new custom Core store path if any SQLite files exist.";
-
-    internal static bool ValidGitHubAccount(string? account)
-        => !string.IsNullOrWhiteSpace(account) && account.Length <= 256 && !account.StartsWith('-')
-            && !account.Any(char.IsWhiteSpace) && !account.Any(char.IsControl);
 
     internal static async Task<Result<NativeCreationReceipt>> InitializeAsync(NativeWorkspaceSetupArguments args,
         Func<IConnectionBindingService> lazyBindings, NativeSetupEffects effects, CancellationToken ct,
@@ -58,73 +53,9 @@ internal static class NativeWorkspaceSetup
                 return Fail("--core-store cannot replace a native configuration, policy or ignore file.", 2);
             var hasManifest = File.Exists(paths.RepoConfigPath);
             var config = hasManifest ? await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false) : new TwigConfiguration();
-            var kind = args.Provider is null ? config.ResolveWorkItemProviderKind() : WorkItemProviderSetting.Normalize(args.Provider);
-            if (kind is not ("ado" or "github" or "twig")) return Fail("provider-unknown: use --provider ado, github or twig.", 2);
-            if (hasManifest && kind != config.ResolveWorkItemProviderKind())
-                return Fail("Provider conflicts with the existing twig.json declaration; no configuration was changed.", 2);
-            config.Provider = kind;
-            if (args.GitHubApp is { } app && (kind != "github" || args.Account is not null
-                || args.Host != app.Host || args.Repository != app.Repository || !NativeConnectionSetup.ValidGitHubApp(app)))
-                return Fail("Choose one named gh account or one explicit github.com App identity and client ID.", 2);
-            if (kind != "twig" && args.Database is not null)
-                return Fail("--database requires --provider twig. --core-store selects the separate client store.", 2);
-            if (kind == "github")
-            {
-                if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
-                    || args.GitProject is not null || args.Binding is not null)
-                    return Fail("GitHub init uses --host, --repository and --account, not ADO coordinates/team/git-project/binding.", 2);
-                if (args.Account is not null && !ValidGitHubAccount(args.Account))
-                    return Fail("--account must name an explicit gh account; the active gh account and ambient tokens are never inferred.", 2);
-                if (hasManifest && (args.Host is not null && args.Host != config.GitHub?.Host
-                    || args.Repository is not null && args.Repository != config.GitHub?.Repository))
-                    return Fail("GitHub coordinates conflict with the existing twig.json declaration.", 2);
-                if (!hasManifest) config.GitHub = new GitHubConfig { Host = args.Host, Repository = args.Repository };
-                if (!GitHubWorkspaceScope.TryCreate(config.GitHub, out _, out var scopeProblem)) return Fail(scopeProblem, 2);
-                if (args.Account is not null)
-                {
-                    config.GitHubAccount = args.Account;
-                    config.GitHubCredentialSource = "gh";
-                    config.GitHubOAuthIdentity = null;
-                    config.GitHubAppClientId = null;
-                }
-                else if (args.GitHubApp is { } selected)
-                {
-                    config.GitHubCredentialSource = "github-app";
-                    config.GitHubOAuthIdentity = selected.Identity;
-                    config.GitHubAppClientId = selected.ClientId;
-                    config.GitHubAccount = null;
-                }
-            }
-            else if (kind == "twig")
-            {
-                if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
-                    || args.GitProject is not null || args.Binding is not null || args.Host is not null
-                    || args.Repository is not null || args.Account is not null)
-                    return Fail("To initialize the Twig provider, use --database <name>, not ADO/GitHub coordinates or credentials.", 2);
-                if (hasManifest && args.Database is not null && args.Database != config.NativeDatabase)
-                    return Fail("The native database conflicts with the existing twig.json declaration; no configuration was changed.", 2);
-                var name = args.Database ?? config.NativeDatabase;
-                if (!NativeDatabaseName.IsValid(name))
-                    return Fail("Choose --database <name> (or nativeDatabase in twig.json): 1-64 lowercase letters, digits or internal hyphens. No default database is inferred.", 2);
-                config.NativeDatabase = name;
-            }
-            else
-            {
-                if (args.Host is not null || args.Repository is not null || args.Account is not null)
-                    return Fail("--host, --repository and --account require --provider github.", 2);
-                if (hasManifest && args.Organization.Length == 0 && args.Project.Length == 0)
-                    args = args with { Organization = config.Organization, Project = config.Project };
-                if (NativeSetupEnrollment.AdoProblem(args.Organization, args.Project) is { } adoProblem) return Fail(adoProblem, 2);
-                if (hasManifest && (args.Organization != config.Organization || args.Project != config.Project
-                    || args.Team is not null && args.Team != config.Team || args.GitProject is not null && args.GitProject != config.Git.Project))
-                    return Fail("ADO coordinates conflict with the existing twig.json declaration.", 2);
-                config.Organization = args.Organization;
-                config.Project = args.Project;
-                if (args.Team is not null) config.Team = args.Team;
-                if (args.GitProject is not null) config.Git.Project = args.GitProject;
-                if (args.Binding is not null && string.IsNullOrWhiteSpace(args.Binding))
-                    return Fail("--binding requires an exact registered native binding ID.", 2);
-            }
+            var provider = NativeSetupPreflight.ConfigureProvider(args, config, hasManifest);
+            if (!provider.IsSuccess) return Fail(provider.Error.Message, 2);
+            var kind = provider.Value;
 
             ct.ThrowIfCancellationRequested();
             effects.Phase = NativeSetupPhase.Initialization;

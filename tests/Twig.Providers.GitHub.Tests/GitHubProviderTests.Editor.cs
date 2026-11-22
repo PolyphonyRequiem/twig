@@ -16,7 +16,7 @@ public sealed partial class GitHubProviderTests
         var plan = await fixture.Plan(new("compound", OpKind.Batch, source.Key, source.Revision,
             FieldValues.Empty.Set(Provider.Title, FieldValue.String("must not publish")),
             concurrency: ConcurrencyMode.ObservedNonAtomic, links: [new(fixture.Key("I2"), Provider.Dependency, true)]));
-        (await fixture.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeFalse();
+        (await fixture.Provider.ImportAsync(plan)).IsSuccess.ShouldBeFalse();
         fixture.Http.Writes.ShouldBe(0);
     }
 

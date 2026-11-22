@@ -7,7 +7,7 @@ namespace Twig.Providers.GitHub;
 
 public sealed partial class GitHubProvider
 {
-    public Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default)
+    public Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default)
         => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             var stored = await Snapshot(token);
@@ -15,7 +15,7 @@ public sealed partial class GitHubProvider
             RefuseUnresolvedTargets(plan, stored);
             var schema = await Discover(bound, token);
             var acquired = await AcquireInputs(bound, schema, plan, stored, token);
-            var errors = Model.Validate(plan, confirmation, schema.Schema, acquired, schema.Capabilities);
+            var errors = Model.Validate(plan, schema.Schema, acquired, schema.Capabilities);
             Check(errors);
             for (var ordinal = 0; ordinal < plan.Operations.Length; ordinal++)
                 await Shape(bound, schema, plan, ordinal, Guid.Empty, token);

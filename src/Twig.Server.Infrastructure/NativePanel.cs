@@ -135,6 +135,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.OfType<NativePanelContext>().ToImmutableArray());
     }
     public Task<Result<NativePlanStatus>> ReadPlanAsync(Guid benchId, CancellationToken ct) => definitions.ReadPlanStatusAsync(benchId, ct);
+    public Task<Result<(NativePlanStatus Status, string Version)>> ReadStagedPlanVersionAsync(Guid benchId, CancellationToken ct)
+        => definitions.ReadStagedPlanVersionAsync(benchId, ct);
     public Task<Result<ImmutableArray<RetainedItem>>> ReadPlanDraftsAsync(NativePlanStatus plan, NativePanelContext context, Guid scope, CancellationToken ct)
         => sources.NativeAsync(context.Root, token => definitions.ReadPlanDraftsAsync(plan.UserInstance, plan.BenchId,
             plan.Revision, scope, context.Root, context.Stamp, token), ct);
@@ -148,9 +150,13 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         => sources.NativeManyAsync(contexts.Select(context => context.Root),
             token => gateway.ReviewPlanAsync(anchor.Root, benchId, admitted, token), ct);
     public Task<Result<NativePlanOutcome>> ApplyPlanAsync(NativePlanReview review, IEnumerable<NativePanelContext> contexts,
-        string digest, bool deliveryOnly, CancellationToken ct)
-        => sources.NativeManyAsync(contexts.Select(context => context.Root), token => deliveryOnly
-            ? review.ContinueDeliveryAsync(digest, token) : review.ApplyAsync(digest, token), ct);
+        string expectedStagedVersion, CancellationToken ct)
+        => review.StagedVersion != expectedStagedVersion
+            ? Task.FromResult(Result<NativePlanOutcome>.Fail(ErrorCode.Conflict, "Staged Plan intent changed. Reload it before applying."))
+            : sources.NativeManyAsync(contexts.Select(context => context.Root), review.ApplyAsync, ct);
+    public Task<Result<NativePlanOutcome>> ContinuePlanDeliveryAsync(NativePlanReview attempt,
+        IEnumerable<NativePanelContext> contexts, CancellationToken ct)
+        => sources.NativeManyAsync(contexts.Select(context => context.Root), attempt.ContinueDeliveryAsync, ct);
 
     public async Task<Result<NativePanelContext>> OpenAsync(string root, CancellationToken ct, string? expectedBinding = null,
         IDictionary<NativePanelContext, SourceObservation>? initialObservations = null, bool cachedAdmissionOnly = false,

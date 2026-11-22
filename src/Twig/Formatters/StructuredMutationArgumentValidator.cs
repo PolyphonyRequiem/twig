@@ -134,7 +134,7 @@ public static class StructuredMutationArgumentValidator
         }
 
         if (command == "seed publish" && machine)
-            return "Structured seed publication is refused. Use an explicit reviewed plan apply.";
+            return "Structured seed publication is refused. Use plan apply with an explicit file.";
         if (command is "seed publish" or "seed discard" or "seed edit"
             && !(command == "seed publish" && HasBooleanOption(args, "--all"))
             && !Positionals(args, 2).Any(value => int.TryParse(value, out var n) && n < 0))

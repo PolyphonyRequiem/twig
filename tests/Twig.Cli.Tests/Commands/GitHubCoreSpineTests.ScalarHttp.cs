@@ -95,7 +95,7 @@ public sealed partial class GitHubCoreSpineTests
                     ["planRevision"] = status["revision"]!.DeepClone(), ["enabled"] = enabled,
                 });
             }
-            async Task<JsonNode> Wait(JsonNode operation)
+            async Task<JsonNode> Wait(JsonNode operation, bool expectSuccess = true)
             {
                 var id = operation["operationId"]!.GetValue<string>();
                 while (operation["status"]!.GetValue<string>() is "Reviewing" or "Applying" or "Delivering")
@@ -104,7 +104,7 @@ public sealed partial class GitHubCoreSpineTests
                     operation = await Ok("/plan/operations/" + id, HttpMethod.Get);
                     operation["operationId"]!.GetValue<string>().ShouldBe(id);
                 }
-                operation["error"].ShouldBeNull(operation.ToJsonString());
+                if (expectSuccess) operation["error"].ShouldBeNull(operation.ToJsonString());
                 return operation;
             }
             static JsonObject Field(string reference, string kind, string value) => new()
@@ -210,30 +210,23 @@ public sealed partial class GitHubCoreSpineTests
                 (await store.ReadEditorCapturesAsync(ct)).Value.Length.ShouldBeGreaterThan(capturesBefore);
                 (await Send("/editor/save", HttpMethod.Post, Change(staged, Field("github.title", "Text", "must not save"))))
                     .Status.ShouldBe(HttpStatusCode.Conflict);
-                var review = await Wait(await Ok("/plan/review", HttpMethod.Post,
-                    new JsonObject { ["benchId"] = fixture.Bench.ToString("D") }));
-                review["status"]!.GetValue<string>().ShouldBe("Reviewed");
-                var exact = review["review"]!;
-                exact["effects"]!.AsArray().Count.ShouldBe(1);
-                exact["notice"]!.GetValue<string>().ShouldContain("observed-non-atomic");
-                native.Writes.ShouldBe(0);
-                gateway.PlanReviews.ShouldBe(1);
+                (await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get))["lastReviewDigest"].ShouldBeNull();
                 if (scenario == "apply")
                 {
                     var apply = new JsonObject
                     {
-                        ["benchId"] = fixture.Bench.ToString("D"), ["ticket"] = exact["ticket"]!.DeepClone(),
-                        ["digest"] = new string('0', 64), ["deliveryOnly"] = false,
+                        ["benchId"] = fixture.Bench.ToString("D"),
+                        ["stagedVersion"] = (await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get))["stagedVersion"]!.DeepClone(),
                     };
-                    (await Send("/plan/apply", HttpMethod.Post, apply)).Status.ShouldBe(HttpStatusCode.Conflict);
                     native.Writes.ShouldBe(0);
-                    apply["digest"] = exact["digest"]!.DeepClone();
                     var operation = await Wait(await Ok("/plan/apply", HttpMethod.Post, apply));
                     operation["outcome"]!["status"]!.GetValue<string>().ShouldBe("Complete");
                     operation["outcome"]!["verifiedOperations"]!.GetValue<int>().ShouldBe(1);
                     operation["outcome"]!["deliveredScopes"]!.GetValue<int>().ShouldBe(1);
                     native.Writes.ShouldBe(1);
-                    (await Send("/plan/apply", HttpMethod.Post, apply)).Status.ShouldBe(HttpStatusCode.Conflict);
+                    var repeated = await Wait(await Ok("/plan/apply", HttpMethod.Post, apply), expectSuccess: false);
+                    repeated["error"]!["code"]!.GetValue<string>().ShouldBe("Conflict");
+                    gateway.PlanReviews.ShouldBe(1);
                     var delivered = await native.SnapshotAsync().WaitAsync(ct);
                     delivered.RetainedItems.ShouldBeEmpty();
                     var fieldsAfter = delivered.Items.Single().Fields;
@@ -247,6 +240,15 @@ public sealed partial class GitHubCoreSpineTests
                 }
                 else
                 {
+                    var review = await Wait(await Ok("/plan/review", HttpMethod.Post,
+                        new JsonObject { ["benchId"] = fixture.Bench.ToString("D") }));
+                    review["status"]!.GetValue<string>().ShouldBe("Reviewed");
+                    var exact = review["review"]!;
+                    exact["effects"]!.AsArray().Count.ShouldBe(1);
+                    exact["notice"]!.GetValue<string>().ShouldContain("observed-non-atomic");
+                    (await Ok($"/benches/{fixture.Bench:D}/plan", HttpMethod.Get))["lastReviewDigest"].ShouldBeNull();
+                    native.Writes.ShouldBe(0);
+                    gateway.PlanReviews.ShouldBe(1);
                     await Mode(false);
                     open["planMode"] = false;
                     form = await Ok("/editor", HttpMethod.Post, open);

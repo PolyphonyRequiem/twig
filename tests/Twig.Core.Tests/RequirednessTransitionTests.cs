@@ -30,7 +30,7 @@ public sealed class RequirednessTransitionTests
         if (close) fields = fields.Set("state", FieldValue.String("CLOSED"));
         var plan = new Plan(connection, schema.Fingerprint, 0,
             [new("edit", OpKind.Batch, key, source.Revision, fields, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
-        var errors = Model.Validate(plan, plan.Digest, schema, new(0, [source]),
+        var errors = Model.Validate(plan, schema, new(0, [source]),
             new([OpKind.Batch], [], [], false, false));
         if (close && !supplied)
         {
@@ -65,7 +65,7 @@ public sealed class RequirednessTransitionTests
         var gates = Model.CloseGates(schema, source, changes);
         gates.IsSuccess.ShouldBeTrue();
         gates.Value.ShouldBe(completionGate ? ["gate"] : []);
-        var errors = Model.Validate(plan, plan.Digest, schema, new(0, [source]),
+        var errors = Model.Validate(plan, schema, new(0, [source]),
             new([OpKind.Batch], [], [], false, false));
         if (populated && !completionGate) errors.ShouldBeEmpty();
         if (!populated) errors.ShouldContain(error => error.Message.Contains("no effective value", StringComparison.Ordinal));

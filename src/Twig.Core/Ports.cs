@@ -51,7 +51,7 @@ public interface IProvider
         => Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning reads with recorded mapping metadata."));
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
-    Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default);
+    Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default);
 
     // Exactly one already-journaled operation, never an opaque multi-request plan execution.
     Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct);

@@ -59,7 +59,7 @@ public sealed partial class AdoProviderTests
         var plan = new Plan(f.Connection, metadata.Schema.Fingerprint, 1,
             [new("edit", OpKind.Batch, source.Key, source.Revision,
                 FieldValues.Empty.Set("Custom.Empty", FieldValue.String("edit")))]);
-        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        (await f.Provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
         var applied = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
         (await f.Provider.VerifyAsync(plan, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
@@ -125,14 +125,14 @@ public sealed partial class AdoProviderTests
         var plan = new Plan(f.Connection, metadata.Schema.Fingerprint, 1,
             [new("edit", OpKind.Batch, source.Key, source.Revision,
                 FieldValues.Empty.Set("Custom.Empty", FieldValue.String("edit")))]);
-        Core.Core.Validate(plan, plan.Digest, metadata.Schema, await f.Stored(), f.Provider.Capabilities)
+        Core.Core.Validate(plan, metadata.Schema, await f.Stored(), f.Provider.Capabilities)
             .ShouldBeEmpty();
         var changedSchema = new ProcessSchema(metadata.Schema.Connection,
             metadata.Schema.Types.Select(type => type.Reference == f.Http.AdditionalType
                 ? type with { Gaps = type.Gaps.Add("new native uncertainty") } : type), metadata.Schema.Relations);
-        Core.Core.Validate(plan, plan.Digest, changedSchema, await f.Stored(), f.Provider.Capabilities)
+        Core.Core.Validate(plan, changedSchema, await f.Stored(), f.Provider.Capabilities)
             .ShouldContain(error => error.Code == ErrorCode.SchemaChanged);
-        (await f.Provider.ImportAsync(plan, plan.Digest)).IsSuccess.ShouldBeTrue();
+        (await f.Provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
         var applied = (await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default)).Value;
         applied.Status.ShouldBe(OpStatus.Applied);
         (await f.Provider.VerifyAsync(plan, applied, default)).Value.Status.ShouldBe(OpStatus.Verified);
@@ -265,7 +265,7 @@ public sealed partial class AdoProviderTests
             type: effect == "type-change" ? f.Http.AdditionalType : null,
             links: effect == "relationship-endpoint" ? [new(f.Key(2), "Native.ParentForward", true)] : []);
         var plan = new Plan(f.Connection, schema.Fingerprint, 1, [op]);
-        var errors = Core.Core.Validate(plan, plan.Digest, schema, await f.Stored(), f.Provider.Capabilities);
+        var errors = Core.Core.Validate(plan, schema, await f.Stored(), f.Provider.Capabilities);
         errors.ShouldContain(error => error.Code == ErrorCode.Unavailable && !error.Evidence.IsEmpty);
         f.Http.Writes.ShouldBe(0);
     }

@@ -39,7 +39,7 @@ public sealed partial class NativePublicationConsumerTests
             FieldValues.Empty.Set("System.Title", FieldValue.String("compound title")),
             links: [new(other, relation, true)])], default);
         prepared.IsSuccess.ShouldBeTrue(prepared.IsSuccess ? "" : prepared.Error.Message);
-        var applied = await handle.Workspace.ApplyAsync(prepared.Value, prepared.Value.Digest, default);
+        var applied = await handle.Workspace.ApplyAsync(prepared.Value, default);
         applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
         applied.Value.Error.ShouldBeNull();
         applied.Value.EffectsVerified.ShouldBeTrue();

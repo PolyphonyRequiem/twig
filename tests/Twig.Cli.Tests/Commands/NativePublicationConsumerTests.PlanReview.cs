@@ -31,17 +31,17 @@ public sealed partial class NativePublicationConsumerTests
         var review = (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
         review.Operations.ShouldBeEmpty();
         review.CoreDigests.ShouldBeEmpty();
-        var reference = (await user.ReadPlanReviewAsync(review.Digest, default)).Value;
+        var reference = (await user.RetainPlanReviewAsync(review.Document, default)).Value;
         (await user.AdvancePlanReviewAsync(reference, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
         if (coreSettledBeforeLoss)
         {
             using var services = EditorServices(host.Root);
             using var editor = (await NativeEditor.OpenAsync(services.GetRequiredService<CoreWorkspaceFactory>(), user, host.Bench, host.Stamp, default)).Value;
             var draft = (await editor.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single();
-            (await editor.Workspace.SaveDraftSetAsync([new(draft, null)], null, null, default)).IsSuccess.ShouldBeTrue();
+            (await editor.Workspace.SaveDraftSetAsync([new(draft, null)], null, default)).IsSuccess.ShouldBeTrue();
         }
         var restarted = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
-        var delivered = await restarted.ContinueDeliveryAsync(restarted.Digest);
+        var delivered = await restarted.ContinueDeliveryAsync();
         delivered.IsSuccess.ShouldBeTrue(delivered.IsSuccess ? "" : delivered.Error.Message);
         delivered.Value.Status.ShouldBe("Complete", delivered.Value.Error?.Message);
         delivered.Value.VerifiedScopes.ShouldBe(0);
@@ -68,14 +68,14 @@ public sealed partial class NativePublicationConsumerTests
         }
         status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
         var review = (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
-        var reference = (await user.ReadPlanReviewAsync(review.Digest, default)).Value;
+        var reference = (await user.RetainPlanReviewAsync(review.Document, default)).Value;
         (await user.AdvancePlanReviewAsync(reference, true, 0, admittedScopes, default)).IsSuccess.ShouldBeTrue();
         (await user.ReadPlanReviewAsync(review.Digest, default)).Value.Admitted.ShouldBe(admittedScopes);
         HumanPatchAttempts.ShouldBe(0);
-        (await review.ApplyAsync(review.Digest)).Value.Status.ShouldNotBe("Complete");
+        (await review.ApplyAsync()).Value.Status.ShouldNotBe("Complete");
         var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
         fresh.IsSuccess.ShouldBeTrue(fresh.IsSuccess ? "" : fresh.Error.Message);
-        (await fresh.Value.ApplyAsync(fresh.Value.Digest)).Value.Status.ShouldBe("Complete");
+        (await fresh.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         HumanPatchAttempts.ShouldBe(1);
     }
 
@@ -96,7 +96,7 @@ public sealed partial class NativePublicationConsumerTests
                 (await user.ReadPlanStatusAsync(host.Bench)).Value.Sources, ConfigureHumanEditor, default);
             reviewed.IsSuccess.ShouldBeTrue(reviewed.IsSuccess ? "" : reviewed.Error.Message);
             digests.Add(reviewed.Value.Digest).ShouldBeTrue();
-            (await reviewed.Value.ApplyAsync(reviewed.Value.Digest)).Value.Status.ShouldBe("Complete");
+            (await reviewed.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         }
         HumanPatchAttempts.ShouldBe(2);
         _transport.CommittedWrites.ShouldBe(2);
@@ -121,7 +121,7 @@ public sealed partial class NativePublicationConsumerTests
             var form = (await editor.SelectAsync(key)).Value;
             (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Later scope changed")))).IsSuccess.ShouldBeTrue();
         }
-        (await reviewed.Value.ApplyAsync(reviewed.Value.Digest)).IsSuccess.ShouldBeFalse();
+        (await reviewed.Value.ApplyAsync()).IsSuccess.ShouldBeFalse();
         HumanPatchAttempts.ShouldBe(0);
     }
 
@@ -139,7 +139,7 @@ public sealed partial class NativePublicationConsumerTests
             _transport.RejectNextPatchStatus = System.Net.HttpStatusCode.ServiceUnavailable;
             return Task.CompletedTask;
         };
-        var applied = await reviewed.Value.ApplyAsync(reviewed.Value.Digest);
+        var applied = await reviewed.Value.ApplyAsync();
         applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
         applied.Value.Status.ShouldBe("PartialProtected", applied.Value.Error?.Message);
         applied.Value.VerifiedScopes.ShouldBe(1);
@@ -149,8 +149,8 @@ public sealed partial class NativePublicationConsumerTests
         _transport.CommittedWrites.ShouldBe(1);
         var reopened = (await NativePlanReview.OpenAsync(fixture.Root, reviewed.Value.Digest, ConfigureHumanEditor, default)).Value;
         (await reopened.ObserveAsync()).Value.Status.ShouldBe("PartialProtected");
-        (await reopened.ApplyAsync(reopened.Digest)).Value.Status.ShouldBe("PartialProtected");
-        (await reopened.ContinueDeliveryAsync(reopened.Digest)).Value.Status.ShouldBe("PartialProtected");
+        (await reopened.ApplyAsync()).Value.Status.ShouldBe("PartialProtected");
+        (await reopened.ContinueDeliveryAsync()).Value.Status.ShouldBe("PartialProtected");
         HumanPatchAttempts.ShouldBe(2);
         _transport.CommittedWrites.ShouldBe(1);
     }
@@ -164,7 +164,7 @@ public sealed partial class NativePublicationConsumerTests
         var reviewed = (await NativePlanReview.ReviewAsync(fixture.Root, fixture.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
         _transport.CloseGateEnabled.ShouldBeTrue();
         _transport.BeforeReadback = () => { _transport.CloseGateEnabled = false; return Task.CompletedTask; };
-        var interrupted = (await reviewed.ApplyAsync(reviewed.Digest)).Value;
+        var interrupted = (await reviewed.ApplyAsync()).Value;
         interrupted.Status.ShouldBe("PartialProtected", interrupted.Error?.Message);
         interrupted.DeliveredScopes.ShouldBe(1);
         interrupted.VerifiedOperations.ShouldBe(1);
@@ -175,7 +175,7 @@ public sealed partial class NativePublicationConsumerTests
             (await user.ReadPlanStatusAsync(fixture.Bench)).Value.Sources, ConfigureHumanEditor, default);
         remaining.IsSuccess.ShouldBeTrue(remaining.IsSuccess ? "" : remaining.Error.Message);
         remaining.Value.CoreDigests.Length.ShouldBe(1);
-        (await remaining.Value.ApplyAsync(remaining.Value.Digest)).Value.Status.ShouldBe("Complete");
+        (await remaining.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         HumanPatchAttempts.ShouldBe(2);
         _transport.CommittedWrites.ShouldBe(2);
     }
@@ -247,7 +247,7 @@ public sealed partial class NativePublicationConsumerTests
         review.IsSuccess.ShouldBeTrue(review.IsSuccess ? "" : review.Error.Message);
         _transport.FailCurrentReadsAfterCommit = !uncertain;
         _transport.FailReadbackAfterCommit = uncertain;
-        var applied = await review.Value.ApplyAsync(review.Value.Digest);
+        var applied = await review.Value.ApplyAsync();
         applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
         applied.Value.Status.ShouldBe(uncertain ? "Protected" : "VerifiedDeliveryPending", applied.Value.Error?.Message);
         applied.Value.DeliveredScopes.ShouldBe(0);
@@ -255,13 +255,13 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(1);
         var reopened = (await NativePlanReview.OpenAsync(host.Root, review.Value.Digest, ConfigureHumanEditor, default)).Value;
         (await reopened.ObserveAsync()).Value.Status.ShouldBe(uncertain ? "Protected" : "VerifiedDeliveryPending");
-        (await reopened.ApplyAsync(reopened.Digest)).Value.Status.ShouldNotBe("Complete");
+        (await reopened.ApplyAsync()).Value.Status.ShouldNotBe("Complete");
         _transport.FailCurrentReadsAfterCommit = _transport.FailReadbackAfterCommit = false;
-        var continued = await reopened.ContinueDeliveryAsync(reopened.Digest);
+        var continued = await reopened.ContinueDeliveryAsync();
         continued.IsSuccess.ShouldBeTrue(continued.IsSuccess ? "" : continued.Error.Message);
         continued.Value.Status.ShouldBe(uncertain ? "Protected" : "Complete", continued.Value.Error?.Message);
         HumanPatchAttempts.ShouldBe(1);
-        (await reopened.ContinueDeliveryAsync(reopened.Digest)).Value.Status.ShouldBe(uncertain ? "Protected" : "Complete");
+        (await reopened.ContinueDeliveryAsync()).Value.Status.ShouldBe(uncertain ? "Protected" : "Complete");
         HumanPatchAttempts.ShouldBe(1);
     }
 
@@ -292,7 +292,7 @@ public sealed partial class NativePublicationConsumerTests
         var reviewed = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
         reviewed.IsSuccess.ShouldBeTrue(reviewed.IsSuccess ? "" : reviewed.Error.Message);
         _transport.PostCount.ShouldBe(0);
-        var result = await reviewed.Value.ApplyAsync(reviewed.Value.Digest);
+        var result = await reviewed.Value.ApplyAsync();
         result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
         result.Value.Status.ShouldBe("Complete", result.Value.Error?.Message);
         _transport.PostCount.ShouldBe(1);
@@ -303,7 +303,7 @@ public sealed partial class NativePublicationConsumerTests
         mapping.Local.ShouldBe(seed);
         (await user.ReadPlanSeedOwnerAsync(seed.LocalId)).Value.ScopeId.ShouldBe(scope.Id);
         (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldContain(selector => selector.Item == mapping.Remote);
-        (await reviewed.Value.ApplyAsync(reviewed.Value.Digest)).Value.Status.ShouldBe("Complete");
+        (await reviewed.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         _transport.PostCount.ShouldBe(1);
     }
 
@@ -331,18 +331,17 @@ public sealed partial class NativePublicationConsumerTests
         reviewed.Value.Operations.Length.ShouldBe(2);
         reviewed.Value.CoreDigests.Length.ShouldBe(1);
         HumanPatchAttempts.ShouldBe(0);
-        (await reviewed.Value.ApplyAsync(new string('0', 64))).Error.Code.ShouldBe(ErrorCode.DigestMismatch);
         HumanPatchAttempts.ShouldBe(0);
         var reopened = await NativePlanReview.OpenAsync(host.Root, reviewed.Value.Digest, ConfigureHumanEditor, default);
         reopened.IsSuccess.ShouldBeTrue(reopened.IsSuccess ? "" : reopened.Error.Message);
         reopened.Value.CoreDigests.ShouldBe(reviewed.Value.CoreDigests);
-        var applied = await reopened.Value.ApplyAsync(reviewed.Value.Digest);
+        var applied = await reopened.Value.ApplyAsync();
         applied.IsSuccess.ShouldBeTrue(applied.IsSuccess ? "" : applied.Error.Message);
         applied.Value.Status.ShouldBe("Complete", applied.Value.Error?.Message);
         applied.Value.VerifiedScopes.ShouldBe(1);
         applied.Value.DeliveredScopes.ShouldBe(1);
         HumanPatchAttempts.ShouldBe(2);
-        var repeated = await reopened.Value.ApplyAsync(reviewed.Value.Digest);
+        var repeated = await reopened.Value.ApplyAsync();
         repeated.IsSuccess.ShouldBeTrue();
         HumanPatchAttempts.ShouldBe(2);
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldAllBe(capture => capture.Settled);
@@ -379,7 +378,7 @@ public sealed partial class NativePublicationConsumerTests
         }
         else if (change == "schema") _transport.CloseGateEnabled = !_transport.CloseGateEnabled;
         else HumanActorDenied = true;
-        var applied = await review.Value.ApplyAsync(review.Value.Digest);
+        var applied = await review.Value.ApplyAsync();
         applied.IsSuccess.ShouldBeFalse();
         HumanPatchAttempts.ShouldBe(0);
     }

@@ -386,7 +386,7 @@
   {
     "command": "plan apply",
     "group": "plans",
-    "summary": "Apply a current Core plan under its exact confirmed digest and verify outcomes.",
+    "summary": "Apply the exact Core plan read from a named file and verify outcomes.",
     "stability": "stable",
     "mutates": "ado",
     "path": "plans/plan-apply.md"

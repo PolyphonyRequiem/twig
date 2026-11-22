@@ -71,13 +71,13 @@ public sealed class CreationLinkInvariantTests
         CreationLink[] captured = [new(Target, "dependency", true)];
         var store = Store(captured);
         var original = Plan(Create(captured));
-        Rules.Validate(original, original.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
+        Rules.Validate(original, Schema, store, Capabilities()).ShouldBeEmpty();
 
         var changed = Plan(Create([new(Target, "dependency", false)]));
-        Rules.Validate(changed, changed.Digest, Schema, store, Capabilities())
+        Rules.Validate(changed, Schema, store, Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Conflict);
         var omitted = Plan(Create());
-        Rules.Validate(omitted, omitted.Digest, Schema, store, Capabilities())
+        Rules.Validate(omitted, Schema, store, Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Conflict);
     }
 
@@ -86,10 +86,10 @@ public sealed class CreationLinkInvariantTests
     {
         CreationLink[] links = [new(Target, "dependency", true)];
         var plan = Plan(Create(links));
-        Rules.Validate(plan, plan.Digest, Schema, Store(links), Capabilities()).ShouldBeEmpty();
-        Rules.Validate(plan, plan.Digest, Schema, Store(links, [Item(Target, false)]), Capabilities())
+        Rules.Validate(plan, Schema, Store(links), Capabilities()).ShouldBeEmpty();
+        Rules.Validate(plan, Schema, Store(links, [Item(Target, false)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unavailable);
-        Rules.Validate(plan, plan.Digest, Schema, Store(links, []), Capabilities())
+        Rules.Validate(plan, Schema, Store(links, []), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unavailable);
     }
 
@@ -99,10 +99,10 @@ public sealed class CreationLinkInvariantTests
         CreationLink[] links = [new(Target, "dependency", true)];
         var plan = Plan(Create(links));
         var store = Store(links);
-        Rules.Validate(plan, plan.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
-        Rules.Validate(plan, plan.Digest, Schema, store, Capabilities(atomic: false))
+        Rules.Validate(plan, Schema, store, Capabilities()).ShouldBeEmpty();
+        Rules.Validate(plan, Schema, store, Capabilities(atomic: false))
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
-        Rules.Validate(plan, plan.Digest, Schema, store, Capabilities(native: []))
+        Rules.Validate(plan, Schema, store, Capabilities(native: []))
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
     }
 
@@ -112,7 +112,7 @@ public sealed class CreationLinkInvariantTests
         var foreign = ItemKey.Remote(Connection.Provider, "other-scope", "1");
         CreationLink[] links = [new(foreign, "dependency", true)];
         var plan = Plan(Create(links));
-        Rules.Validate(plan, plan.Digest, Schema, Store(links, [Item(foreign)]), Capabilities())
+        Rules.Validate(plan, Schema, Store(links, [Item(foreign)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
     }
 
@@ -124,7 +124,7 @@ public sealed class CreationLinkInvariantTests
         var operation = new Op("comment", OpKind.Comment, Target, source.Revision,
             body: FieldValue.String("note"), links: [new(other, "dependency", true)]);
         var plan = Plan(operation);
-        Rules.Validate(plan, plan.Digest, Schema, new(0, [source, Item(other)]), Capabilities())
+        Rules.Validate(plan, Schema, new(0, [source, Item(other)]), Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.InvalidInput);
     }
 
@@ -139,10 +139,10 @@ public sealed class CreationLinkInvariantTests
         var parentCreate = new Op("parent", OpKind.Create, parent, fields: Fields, type: "record",
             concurrency: ConcurrencyMode.ObservedNonAtomic);
         var ordered = new Plan(Connection, Schema.Fingerprint, 0, [parentCreate, Create(links)]);
-        Rules.Validate(ordered, ordered.Digest, Schema, store, Capabilities()).ShouldBeEmpty();
+        Rules.Validate(ordered, Schema, store, Capabilities()).ShouldBeEmpty();
 
         var reversed = new Plan(Connection, Schema.Fingerprint, 0, [Create(links), parentCreate]);
-        Rules.Validate(reversed, reversed.Digest, Schema, store, Capabilities())
+        Rules.Validate(reversed, Schema, store, Capabilities())
             .ShouldContain(error => error.Code == ErrorCode.Unsupported);
     }
 }

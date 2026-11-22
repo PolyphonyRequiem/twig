@@ -62,12 +62,12 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             return new QueryPage(selected, [], null, true);
         });
 
-    public Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default)
+    public Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default)
         => Guard(plan.Connection, async () =>
         {
             var before = await Snapshot(ct);
             var acquired = Mirror(before, await authority.Read(ct));
-            Check(Model.Validate(plan, confirmation, Schema(), acquired, Capabilities));
+            Check(Model.Validate(plan, Schema(), acquired, Capabilities));
             foreach (var op in plan.Operations) Shape(op);
             Fence(plan, before);
             if (before.Plans.Any(value => value.Digest == plan.Digest))

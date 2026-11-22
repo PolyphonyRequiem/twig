@@ -199,12 +199,15 @@ public sealed record PlanModeBody(Guid BenchId, Guid StoreId, long BenchRevision
 public sealed record PlanSeedBody(Guid BenchId, Guid SourceId, string Type);
 public sealed record PlanScopeDto(Guid ScopeId, Guid? SourceId, string Label, string State);
 public sealed record PlanStatusDto(Guid StoreId, Guid BenchId, long BenchRevision, Guid PlanId, long Revision,
-    bool Enabled, PlanScopeDto[] Sources, string? LastReviewDigest);
+    bool Enabled, PlanScopeDto[] Sources, string? LastReviewDigest)
+{
+    public string? StagedVersion { get; init; }
+}
 public sealed record PlanEffectDto(Guid SourceId, string Label, string ItemId, string Locator, bool IsLocal,
     string? Type, FieldDto[] Fields, string[] Relationships);
-public sealed record PlanReviewDto(Guid Ticket, Guid BenchId, string Digest, PlanEffectDto[] Effects, string[] CoreDigests,
-    string Notice, PlanOutcomeDto? Outcome, bool CanApply);
-public sealed record PlanApplyBody(Guid BenchId, Guid Ticket, string Digest, bool DeliveryOnly = false);
+public sealed record PlanReviewDto(Guid BenchId, string Digest, PlanEffectDto[] Effects, string[] CoreDigests,
+    string Notice, PlanOutcomeDto? Outcome);
+public sealed record PlanApplyBody(Guid BenchId, string StagedVersion);
 public sealed record PlanObserveBody(Guid BenchId, string Digest);
 public sealed record PlanOperationDto(Guid OperationId, string Status, PlanReviewDto? Review, PlanOutcomeDto? Outcome,
     Failure? Error);

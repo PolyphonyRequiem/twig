@@ -25,7 +25,6 @@ internal sealed class NativeEditorView
     internal bool LocalOnly { get; set; }
     internal EditorInputCapture? Inputs { get; set; }
     internal Dictionary<Guid, NativeLocalRelationshipReview> LocalReviews { get; } = [];
-    internal HashSet<Guid> LocalApplyAllowed { get; } = [];
     internal bool Retired { get; set; }
     internal void Invalidate(bool retire = false)
     {
@@ -37,7 +36,7 @@ internal sealed class NativeEditorView
             Ticket = Guid.Empty;
             Inputs = null;
             LocalOnly = false;
-            LocalReviews.Clear(); LocalApplyAllowed.Clear();
+            LocalReviews.Clear();
             Item = Endpoint = null;
             EndpointCandidates = [];
             Retired |= retire;

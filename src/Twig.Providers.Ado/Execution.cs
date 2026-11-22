@@ -9,7 +9,7 @@ namespace Twig.Providers.Ado;
 
 public sealed partial class AdoProvider
 {
-    public Task<Result<long>> ImportAsync(Plan plan, string confirmation, CancellationToken ct = default)
+    public Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default)
         => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             var stored = await Snapshot(token);
@@ -17,7 +17,7 @@ public sealed partial class AdoProvider
             RefuseUnresolvedTargets(plan, stored);
             var discovery = await Discover(bound, token);
             var acquired = await AcquireInputs(bound, discovery, plan, stored, token);
-            var errors = Model.Validate(plan, confirmation, discovery.Schema, acquired, Capabilities);
+            var errors = Model.Validate(plan, discovery.Schema, acquired, Capabilities);
             if (!errors.IsEmpty) throw new AdoFailure(errors[0] with { Evidence = errors.Select(e => e.Message).ToImmutableArray() });
             foreach (var op in plan.Operations)
                 await CheckCreateEvidence(bound, discovery.Schema, op, token);
@@ -232,7 +232,7 @@ public sealed partial class AdoProvider
             && (f is "System.Id" or "System.Rev" or "System.TeamProject" or "System.History" || IsCreateAssignedField(f))))
             throw Wire.Refuse(ErrorCode.Unsupported, "Native identity/type/history fields require their explicit operation shape.");
         if (op.Body is not null && op.Body.Kind is not (FieldKind.Text or FieldKind.Html))
-            throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before confirmation.");
+            throw Wire.Refuse(ErrorCode.Unsupported, "ADO history append accepts exact text/HTML; convert Markdown before constructing the plan.");
         if (op.Resource is not null && (op.Resource is not { } resource
             || !schema.Schema.Relations.Any(r => r.Reference == resource.Relation && r.Shape == RelationShape.Resource)
             || !Uri.TryCreate(resource.Target, UriKind.Absolute, out var locator)

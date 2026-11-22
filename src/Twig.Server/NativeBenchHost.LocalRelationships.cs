@@ -84,7 +84,6 @@ public static partial class NativeBenchHost
                         Display(op.Item) == item.Key || op.Other is { } other && Display(other) == item.Key)))
                     {
                         state.LocalReviews[review.CaptureId] = review;
-                        if (LocalUnattempted(review.Outcome)) state.LocalApplyAllowed.Add(review.CaptureId);
                     }
                     await Current(http, id, session, source, epoch, profile, ct);
                     await Write(http, state.LocalReviews.Values.Select(review => LocalReview(review, state,
@@ -125,7 +124,6 @@ public static partial class NativeBenchHost
                 var original = Required(await editor.ReadLocalRelationshipReviewsAsync(ct))
                     .Single(value => value.CaptureId == review.CaptureId && value.Plan.Digest == review.Plan.Digest);
                 state.LocalReviews[original.CaptureId] = original;
-                if (LocalUnattempted(original.Outcome)) state.LocalApplyAllowed.Add(original.CaptureId);
                 await Current(http, id, session, source, epoch, profile, ct);
                 var snapshot = Required(await panel.ReadEditorSourceAsync(source, ct)).Snapshot;
                 await Current(http, id, session, source, epoch, profile, ct);
@@ -151,7 +149,7 @@ public static partial class NativeBenchHost
                         || (original.Outcome.Journal?.Attempt ?? Guid.Empty) != body.Attempt)
                         throw new HttpFailure(409, "Conflict", "Rediscover the exact original LOCAL reference; no replacement or replay.");
                     await Current(http, id, session, source, epoch, profile, ct);
-                    if (operation == "apply" && !state.LocalApplyAllowed.Remove(body.CaptureId))
+                    if (operation == "apply" && !LocalUnattempted(original.Outcome))
                         throw new HttpFailure(409, "Conflict", "The original LOCAL effect is protected; Apply cannot be replayed.");
                     var result = Required(operation switch
                     {
@@ -163,7 +161,6 @@ public static partial class NativeBenchHost
                         throw new HttpFailure(403, "PolicyViolation", "This source cannot release original LOCAL content.");
                     var observed = Required(await editor.ReadLocalRelationshipReviewAsync(body.CaptureId, body.Digest, ct));
                     state.LocalReviews[body.CaptureId] = observed;
-                    if (!LocalUnattempted(observed.Outcome)) state.LocalApplyAllowed.Remove(body.CaptureId);
                     await Current(http, id, session, source, epoch, profile, ct);
                     var snapshot = Required(await panel.ReadEditorSourceAsync(source, ct)).Snapshot;
                     await Current(http, id, session, source, epoch, profile, ct);
@@ -208,7 +205,7 @@ public static partial class NativeBenchHost
                 plan.ExpectedStoreVersion, plan.SchemaFingerprint),
             new(false, state.Native!.PlanId, state.Native.PlanRevision, state.Native.ScopeId, state.Native.StoreInstance),
             source.Stamp.AuthorityStamp, state.Epoch,
-            state.LocalApplyAllowed.Contains(review.CaptureId) && LocalUnattempted(outcome),
+            LocalUnattempted(outcome),
             !outcome.Settled && row?.Status is null or OpStatus.Applied or OpStatus.Verified,
             result, LocalVerification);
     }

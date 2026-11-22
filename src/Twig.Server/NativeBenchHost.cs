@@ -362,10 +362,7 @@ public static partial class NativeBenchHost
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             _ = ConnectionObservation(await panel.CheckWorkspaceAsync(captured, context.RequestAborted,
                 recheckLocalSnapshot: false), app.Logger);
-            await Write(context, new NativeBenchViewDto(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
-                mapped.Sources.Select(source => PresentSource(source) with {
-                    NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray()) {
-                    Plan = PlanStatus(session, captured.Plan) });
+            await Write(context, ComposeBenchView(mapped, captured, session, PresentSource));
         });
         app.MapGet("/api/v1/views/{id:guid}/benches/{benchId:guid}/access", async (HttpContext context, Guid id, Guid benchId) =>
         {
@@ -738,6 +735,16 @@ public static partial class NativeBenchHost
     }
     private static NativeBenchDto Definition(NativeBench bench)
         => new(bench.Id, bench.Name, bench.Revision, BenchCodec.SerializeSelectors(bench.Selectors));
+
+    private static NativeBenchViewDto ComposeBenchView(BenchViewDto mapped, NativePanelView captured, ViewSession session,
+        Func<SourceViewDto, SourceViewDto> presentSource)
+        => new(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
+            mapped.Sources.Select(source => presentSource(source) with
+            {
+                NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId),
+            }).ToArray())
+        { Plan = PlanStatus(session, captured.Plan) };
+
     private static NativeBenchViewDto Mapped(BenchView view, NativePanelCapture capture)
     {
         var projected = ViewMapping.View(view, new(capture.Definitions.InstanceId, capture.Definitions.Revision, [capture.Context.Source], [view.Definition]));

@@ -93,6 +93,13 @@ owner/profile connection and content bearer; a view ID or presentation capabilit
 alone grants no content access. Older servers must be refused explicitly by clients
 requiring this capability, not treated as an empty workspace.
 
+Canvas waits for `ready` on the view's `/events` stream before its first
+`/workspace` read and uses the same route after selection changes, on Reload,
+and for active reconciliation. It does not fall back to the direct
+`GET /api/v1/views/{viewId}/benches/{benchId}` route or to split reads. The two
+routes compose the same Bench view shape, but the direct route reads the
+requested Bench and does not provide workspace-level consistency guarantees.
+
 The source-generated `NativeWorkspaceDto` response has these camel-case fields:
 
 | Field | Existing native contract |

@@ -155,10 +155,7 @@ public static partial class NativeBenchHost
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             if (mapped.CatalogId != shared.InstanceId || mapped.CatalogRevision != shared.Revision)
                 throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during workspace loading.");
-            view = new(mapped.CatalogId, mapped.CatalogRevision, mapped.Id, mapped.Name,
-                mapped.Sources.Select(source => presentSource(source) with {
-                    NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId) }).ToArray())
-                { Plan = PlanStatus(session, captured.Plan) };
+            view = ComposeBenchView(mapped, captured, session, presentSource);
         }
         if (captured is not null)
             _ = Require(await panel.CheckWorkspaceAsync(captured, ct, recheckLocalSnapshot: recurring));

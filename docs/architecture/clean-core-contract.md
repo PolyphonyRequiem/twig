@@ -954,7 +954,8 @@ still reference them. `FieldUpdateWorkflow`, `DiscardWorkflow` and
 flusher. Mixed Edit/prompt tests retain their unrelated cases. UI ownership is
 outside this deletion; removing these six CLI wrappers does not authorize deleting
 their shared workflows or resolving legacy writers into the Core graph.
-The Core inventory stays at 56 types/two ports and store/plan format 3.
+The Core inventory stays at 56 types and two ports. See [the format contract
+below](#canonical-plans) for the independent Plan and store versions.
 
 The same native `link` owner is now registered in the pinned Core graph, not a
 new adapter family or parallel facade. Association add/remove, predecessor and
@@ -1134,9 +1135,10 @@ A plan is immutable and connection-bound. Version 3 hashes:
 
 Version 2 introduced the resource slot; version 3 additionally binds configured
 policy presence and bytes. Neither reinterprets an earlier digest. The SQLite
-database/snapshot format is version 4: old files are refused and preserved, never reset or
-silently migrated. Explicit initialization must choose a genuinely new isolated
-path while prior drafts, journals, creation fences and mappings remain intact.
+database/snapshot format is version 4. Twig refuses older files without modifying
+them. For disposable developer data, reset only the affected Twig state and
+follow [fresh initialization](../commands/getting-started/init.md). A local
+reset does not resolve an uncertain remote write or make it safe to replay.
 
 The store has a genuine persisted file-instance UUID. Opening an expected
 instance or using an already-open handle against a replaced file refuses.

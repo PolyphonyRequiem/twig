@@ -1995,13 +1995,15 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
 /// </summary>
 internal static class VersionHelper
 {
+    internal static string GetInformationalVersion() => typeof(TwigCommands).Assembly
+        .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        is [System.Reflection.AssemblyInformationalVersionAttribute attr]
+        ? attr.InformationalVersion
+        : "0.0.0";
+
     internal static string GetVersion()
     {
-        var version = typeof(TwigCommands).Assembly
-            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
-            is [System.Reflection.AssemblyInformationalVersionAttribute attr]
-            ? attr.InformationalVersion
-            : "0.0.0";
+        var version = GetInformationalVersion();
         var plusIndex = version.IndexOf('+');
         if (plusIndex >= 0) version = version[..plusIndex];
         return version;

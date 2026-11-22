@@ -26,9 +26,9 @@ than becoming success or an empty snapshot.
 
 The database/snapshot format is version 4 and the canonical Plan file grammar
 remains version 3. Earlier clean-core database files are refused
-without modification, not silently adopted or migrated. Choose a deliberately
-new isolated path; do not reset a previous file or discard its drafts, retained
-plans, mappings or unresolved attempts to make initialization succeed.
+without modification, not silently adopted or migrated. For disposable developer
+data, reset only the affected Twig state and [initialize a fresh store](../../docs/commands/getting-started/init.md).
+A local reset does not resolve an uncertain remote write or make it safe to replay.
 
 Each new file stores a native `InstanceId`; `OpenAsync(..., expectedInstance: id)`
 checks it, and every read/commit through an opened handle refuses replacement.

@@ -704,8 +704,17 @@ internal static class CommandExamples
             Console.WriteLine("Use the UUID and typed values of an actual seed (`twig pending -o json`) and the exact");
             Console.WriteLine("connection, store version, schema and policy evidence for your target.");
             var version = VersionHelper.GetVersion();
-            var reference = version.Contains('-') ? "main" : $"v{version}";
-            Console.WriteLine($"Format reference: https://github.com/{CompanionStartup.ResolveRepoSlug()}/blob/{reference}/docs/features/plans.md");
+            var reference = $"v{version}";
+            if (version.Contains('-') || version == "0.0.0")
+            {
+                var metadata = VersionHelper.GetInformationalVersion().Split('+', 2);
+                var revision = metadata.Length == 2 ? metadata[1].Split('.').Last() : "";
+                reference = revision.Length == 40 && revision.All(Uri.IsHexDigit) ? revision : null;
+            }
+            if (reference is not null)
+                Console.WriteLine($"Format reference: https://github.com/{CompanionStartup.ResolveRepoSlug()}/blob/{reference}/docs/features/plans.md");
+            else
+                Console.WriteLine("Format reference unavailable: this build has no source revision.");
         }
     }
 }

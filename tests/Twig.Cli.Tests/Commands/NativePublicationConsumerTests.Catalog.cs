@@ -245,6 +245,8 @@ public sealed partial class NativePublicationConsumerTests
             var plan = CorePlanFiles.Parse(example.RootElement);
             plan.Operations.ShouldHaveSingleItem().Kind.ShouldBe(OpKind.Create);
             plan.Operations[0].Item.IsLocal.ShouldBeTrue();
+            var reference = output.ToString().Split('\n').Single(line => line.StartsWith("Format reference:"));
+            reference.ShouldMatch(@"/blob/(v[0-9]+\.[0-9]+\.[0-9]+|[0-9a-f]{40})/docs/features/plans\.md");
         }
         finally
         {

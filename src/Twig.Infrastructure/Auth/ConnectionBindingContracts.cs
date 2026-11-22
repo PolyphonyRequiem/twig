@@ -76,7 +76,8 @@ internal interface IAdmittedConnectionOperation : IDisposable
 internal sealed record ConnectionRemoteWriteRequest(string EffectKind, string Method, string Target, string Payload, string? IfMatch,
     SeedPublishCorrelation? SeedCorrelation = null, CoreWriteCorrelation? CoreCorrelation = null);
 
-internal sealed record CoreWriteCorrelation(string ConnectionIdentity, string PlanDigest, int Operation,
+internal sealed record CoreWriteCorrelation(string ConnectionIdentity,
+    [property: System.Text.Json.Serialization.JsonRequired] string PlanDigest, int Operation,
     Guid Attempt, string TargetIdentity, Guid? CreationIdentity, string? ExpectedRevision,
     [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingDefault)]
     Guid StoreInstance = default);

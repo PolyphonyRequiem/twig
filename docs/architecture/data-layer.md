@@ -32,10 +32,20 @@ database identities. The old singleton authority is not adopted or migrated.
 `twig show <id>` reads a retained item; `--refresh` explicitly asks the provider.
 `twig workspace --bench MyWork` reads that Bench, not a worktree selection.
 Adding `--refresh` refreshes that Bench's scope without publishing drafts.
-Cached observations are not proof of present access or current remote values.
-Typed local drafts remain separate from observations. A read or refresh must not
-silently publish drafts, erase local intent, or turn missing observations into
-invented fields.
+Cached observations are not proof of present access or current provider values.
+Keep [local edits](../../GLOSSARY.md#local-edits) separate from observations.
+A read or refresh must not silently publish local edits, erase local intent, or
+turn missing observations into invented fields.
+
+Core's `Draft` represents both local edits to an existing work item and seeds.
+For local edits, `Baseline` holds the edit baseline and `Changes` holds the
+intended field changes. A seed has no provider baseline.
+
+For example, if Twig last observed an ADO Bug titled “Login fails” and the user
+edits it offline to “Login fails after timeout,” the first title is the edit
+baseline and the second is local intent. If ADO independently records “Sign-in
+returns 500,” Twig won't know that title until it observes the change. Core's
+merge compares all three titles and reports a conflict rather than choosing one.
 
 Seeds have canonical UUIDv7 identities. Negative CLI IDs are convenience aliases,
 not a second identity allocator or durable external keys. Verified publication

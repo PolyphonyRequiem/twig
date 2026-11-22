@@ -12,6 +12,28 @@ namespace Twig.Infrastructure.Tests.Services;
 public sealed class NativeConnectionSetupTests
 {
     [Fact]
+    public async Task TwigProviderInitRejectsAdoCoordinatesBeforeOpeningBindings()
+    {
+        var root = Directory.CreateTempSubdirectory("twig-init-validation-");
+        try
+        {
+            var git = await new BoundedProcessRunner().RunAsync("git", ["init", "--quiet", "--template=", root.FullName],
+                TimeSpan.FromSeconds(10), 4096, default);
+            git.ExitCode.ShouldBe(0);
+            var result = await NativeWorkspaceSetup.InitializeAsync(
+                new(root.FullName, "ado-org", "", null, null, "twig", null, null, null, null, null, Database: "fixture"),
+                () => throw new InvalidOperationException("Invalid setup must not open bindings."), new(), default);
+            result.IsSuccess.ShouldBeFalse();
+            result.Error.Code.ShouldBe(ErrorCode.InvalidInput);
+            result.Error.Message.ShouldContain("To initialize the Twig provider, use --database <name>");
+        }
+        finally
+        {
+            root.Delete(recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task RepositoryPrivateSetupOnlyReusesTheExactExistingNativeAuthority()
     {
         var home = Path.Combine(Path.GetTempPath(), "twig-private-setup-" + Guid.NewGuid().ToString("N"));

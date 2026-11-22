@@ -35,6 +35,10 @@ internal static class NativeConnectionLabelTests
             "66666666-7777-4888-8999-aaaaaaaaaaaa", "bbbbbbbb-cccc-4ddd-8eee-ffffffffffff");
         var missing = await NativeConnectionLabels.ReadAsync(root, ado, default);
         Check(!missing.Available && missing.Name == "Azure DevOps connection", "Missing labels must never fall back to IDs.");
+        var twig = new Connection(new("twig"), "scope", "database", "identity");
+        var missingTwig = await NativeConnectionLabels.ReadAsync(root, twig, default);
+        Check(!missingTwig.Available && missingTwig.Name == "Twig provider",
+            "The fallback label for provider ID twig must use the public display name.");
         var config = new TwigConfiguration { Provider = "ado", Organization = "Explicit organization", Project = "Explicit project" };
         var path = Path.Combine(root, "twig.json");
         await config.SaveAsync(path);

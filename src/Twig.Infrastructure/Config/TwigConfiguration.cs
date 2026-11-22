@@ -906,7 +906,7 @@ public sealed class TwigRepoConfig
     /// </summary>
     public string? Provider { get; set; }
 
-    /// <summary>Named Twig-native authority; required when the provider is twig.</summary>
+    /// <summary>Named authority for the Twig provider; required when the provider ID is <c>twig</c>.</summary>
     public string? NativeDatabase { get; set; }
 
     /// <summary>

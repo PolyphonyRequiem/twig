@@ -21,8 +21,8 @@ Requires an actual discovered type and title (or supported editor input).
 Initial state comes from acquired rules, not a hardcoded process name.
 
 Every invocation must choose exactly one of `--parent <id>` and `--no-parent`.
-GitHub and Twig-native require `--no-parent`; GitHub editor/creation links are not
-qualified. Twig-native uses its explicit `Twig.Item` schema.
+GitHub and the Twig provider require `--no-parent`; GitHub editor/creation links are not
+qualified. The Twig provider uses its explicit `Twig.Item` schema.
 ADO can capture a published or existing local parent and repeatable typed
 `--field <reference=value>` intent.
 

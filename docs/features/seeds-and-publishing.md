@@ -16,12 +16,12 @@ twig seed view
 twig pending -o json
 ```
 
-For Twig-native, the type is `Twig.Item`. For ADO and GitHub, use the actual
+For the Twig provider, the type is `Twig.Item`. For ADO and GitHub, use the actual
 discovered type reference; do not assume Task, Issue, or Bug exists.
 The provider's initial-state and required-field rules still apply.
 Every CLI creation requires an explicit parent decision, even in human output.
 For `seed new`, use exactly one of `--parent <id>` or `--no-parent`.
-GitHub and Twig-native require `--no-parent`; ADO also supports a parent.
+GitHub and the Twig provider require `--no-parent`; ADO also supports a parent.
 
 `seed new` stages locally, never creates a provider item. Retained ADO conveniences
 include editor, chain, and creation-link commands; they are not GitHub-qualified.

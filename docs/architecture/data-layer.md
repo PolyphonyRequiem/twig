@@ -11,7 +11,7 @@ Twig's current data path uses `Twig.Core` and `Twig.Store.Sqlite`, not the forme
 | `.twig/core.db` (default) | Workspace client mirror, typed drafts, proposals, operation journal and permanent creation mappings |
 | Native user registry and private credentials | Registered connection/identity metadata and separate private credential material |
 | User-wide `benches.db` | Shared Bench definitions, rules, source dependencies and repository bindings |
-| `native-databases/database-<name>.db` beside the user registry | One authoritative Twig-native database per explicit name, with independent stable source identity, items, revisions and creation evidence |
+| `native-databases/database-<name>.db` beside the user registry | One authoritative database for the Twig provider per explicit name, with independent stable source identity, items, revisions and creation evidence |
 | Server private data directory | Server identity/instance guard, endpoint metadata, presentation sessions and native evidence |
 
 An explicit absolute `TWIG_USER_HOME` selects the native metadata home.

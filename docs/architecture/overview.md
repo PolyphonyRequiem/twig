@@ -14,7 +14,7 @@ architecture.
 | `Twig.Store.Sqlite` | Core store implementation, transactional state and journal persistence |
 | `Twig.Providers.Ado` | ADO schema discovery, native reads, revision-bound writes and verification |
 | `Twig.Providers.GitHub` | GitHub API adapter, opaque observations, explicit observed-non-atomic effects |
-| `Twig.Providers.Native` | Isolated named owner-local Twig-native authorities and explicit native schema |
+| `Twig.Providers.Native` | Isolated named owner-local authorities and explicit schema for the Twig provider |
 | `Twig.Infrastructure` | Native authentication/bindings, workspace admission, Core host composition and host-facing APIs |
 | `Twig.RenderTree` | Pure rendering vocabulary shared by consumers |
 | `Twig.Server.*` | Windows same-owner service, application/domain/infrastructure, and pure client library |
@@ -50,7 +50,7 @@ See [server architecture and operation](../server.md).
 
 ADO process vocabulary is discovered, never assumed. GitHub API constraints and
 configured Twig policy are not discovery of external repository automation.
-Twig-native values belong only to that provider's explicit schema.
+Values from the Twig provider belong only to its explicit schema.
 
 ## Further reading
 

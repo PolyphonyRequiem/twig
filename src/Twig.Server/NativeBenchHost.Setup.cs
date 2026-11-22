@@ -113,7 +113,7 @@ public static partial class NativeBenchHost
             }
             else
             {
-                if (body.Account is not null) throw new HttpFailure(400, "InvalidInput", "A native Twig connection does not use a GitHub account.");
+                if (body.Account is not null) throw new HttpFailure(400, "InvalidInput", "A Twig provider connection does not use a GitHub account.");
                 target = new NativeTwigSetupTarget(request.Value.Database!);
             }
             await Start(http, session, session.Setup.Epoch, "Connection setup", async (operation, ct) =>

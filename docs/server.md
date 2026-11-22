@@ -521,7 +521,7 @@ Private-directory ownership and endpoint selection checks remain user-scoped.
 
 The server's private data holds durable server identity and presentation/native
 evidence. User-wide Benches live separately in `benches.db` beside the native
-registry. Twig-native items live in explicitly named databases under
+registry. Items from the Twig provider live in explicitly named databases under
 `native-databases/` there, not in the server directory or a workspace mirror.
 Twig connection requests carry a `database` name; `setup/initialize-twig` also
 requires `database`. Names use 1-64 lowercase letters, digits or internal hyphens.

@@ -100,7 +100,7 @@ internal static class NativeWorkspaceSetup
                 if (args.Organization.Length != 0 || args.Project.Length != 0 || args.Team is not null
                     || args.GitProject is not null || args.Binding is not null || args.Host is not null
                     || args.Repository is not null || args.Account is not null)
-                    return Fail("Twig-native init uses --database <name>, not ADO/GitHub coordinates or credentials.", 2);
+                    return Fail("To initialize the Twig provider, use --database <name>, not ADO/GitHub coordinates or credentials.", 2);
                 if (hasManifest && args.Database is not null && args.Database != config.NativeDatabase)
                     return Fail("The native database conflicts with the existing twig.json declaration; no configuration was changed.", 2);
                 var name = args.Database ?? config.NativeDatabase;

@@ -211,7 +211,7 @@ public sealed class NativeAuthority
         command.Transaction = transaction;
         command.CommandText = "PRAGMA application_id;";
         if (Convert.ToInt32(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) != ApplicationId)
-            throw new NativeFailure(ErrorCode.Conflict, "Not a Twig native authority database; mirrors cannot become authorities.");
+            throw new NativeFailure(ErrorCode.Conflict, "Not an authority database for the Twig provider; mirrors cannot become authorities.");
         command.CommandText = "PRAGMA user_version;";
         if (Convert.ToInt32(await command.ExecuteScalarAsync(ct), CultureInfo.InvariantCulture) != 1)
             throw new NativeFailure(ErrorCode.Conflict, "Unsupported native authority format; no migration was attempted.");

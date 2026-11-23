@@ -71,7 +71,9 @@ of delivery; an existing pin is not duplicated. If the create response is
 lost, keep the seed and its original attempt and receipts. Retrying a Bench
 update is not permission to send another create.
 Between verification and delivery, a Bench read shows the provider item
-once, even when it is already pinned. The read does not perform delivery;
+once, even when it is already pinned in another admitted mirror of the same
+connection. If membership cannot be resolved, unrelated protected edits to
+provider items remain visible without disclosing the unavailable seed. The read does not perform delivery;
 a mapping without a matching verified receipt does not replace the seed.
 
 ## Publication

@@ -315,6 +315,22 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                 views.Add(SourceView.Failed(Guid.Empty, new(ErrorCode.Unavailable,
                     "Referenced seed membership is unavailable in this workspace.")));
             }
+            // Establish availability against the exact origin above. Once verified, the row
+            // itself is a provider identity and can also be present in the viewing mirror.
+            if (!verifiedTargets.IsEmpty)
+            {
+                var targets = verifiedTargets.Select(pair => (pair.Key.Connection, pair.Value)).ToHashSet();
+                var preferred = views.Where(view => view.Error is null && view.Observation is not null)
+                    .SelectMany(view => view.Items.Where(item => item.BenchMember)
+                        .Select(item => (Key: (view.Observation!.Binding.Connection, item.Identity.Key), Item: item)))
+                    .Where(row => targets.Contains(row.Key)).GroupBy(row => row.Key)
+                    .ToDictionary(group => group.Key, group => group.MinBy(row => row.Item.IsExcluded).Item.Identity);
+                for (var i = 0; i < views.Count; i++)
+                    if (views[i] is { Error: null, Observation: { } stamp } view)
+                        views[i] = view with { Items = view.Items.Where(item => !item.BenchMember
+                            || !preferred.TryGetValue((stamp.Binding.Connection, item.Identity.Key), out var identity)
+                            || item.Identity == identity).ToImmutableArray() };
+            }
         }
 
         async Task<(SourceSelection? Selection, SourceView View, string Label, int Drafts)> ReadConnection(Connection connection,
@@ -411,8 +427,17 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                         Limitations = projected.Value.Limitations.Add(
                             $"{normalDebt} normal-mode draft(s) remain separate from this Plan. They are retained in protected draft browse and cannot be published by Plan Apply.")
                     }, label, normalDebt);
-                if (byOrigin.Contains(origin)) return Failed(projected.Error);
+                if (onlyReferences) return Failed(projected.Error);
                 // Membership failure must not discard this admitted context's protected draft evidence.
+                if (byOrigin.Contains(origin))
+                {
+                    // The failed selection cannot establish seed membership. Retain provider edits,
+                    // but no seed rows or relationship endpoints identifying an unavailable seed.
+                    var store = observation.Snapshot;
+                    observation = observation with { Snapshot = new(store.Version, store.Items,
+                        store.Relationships.Where(edge => !edge.From.IsLocal && !edge.To.IsLocal),
+                        store.RetainedItems.OfType<LocalEdits>(), mappings: store.Mappings) };
+                }
                 var empty = new SourceSelection(context.Source.Id, context.Source.Binding, []);
                 var protectedView = SourceProjection.Create(new(bench.Id, bench.Name, bench.Revision, [empty]), empty,
                     observation with { WorkspaceExclusions = [] }, timeout.Token);

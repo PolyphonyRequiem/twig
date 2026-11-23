@@ -62,22 +62,27 @@ public sealed partial class NativeWorkspaceTests
         (await page.Content.ReadAsStringAsync()).ShouldNotContain("Private seed");
     }
 
-    [Fact]
-    public async Task SeedOnAnotherSourceDoesNotHideProtectedProviderEditsOnMembershipFailure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SeedDoesNotHideProtectedProviderEditsOnMembershipFailure(bool sameOrigin)
     {
         await Start();
         var origin = await Source("seed");
-        var other = await Source("other");
+        var other = sameOrigin ? origin : await Source("other");
         var connection = other.Stamp.Connection;
         ItemKey Remote(string id) => ItemKey.Remote(connection.Provider, connection.ResourceScope, id);
         var key = Remote("42");
         var baseline = new WorkItem(key, "issue", FieldValues.Empty, new(key, "1"));
         var changes = FieldValues.Empty.Set("System.Title", FieldValue.String("Protected proposal"));
-        gateway.Snapshots[other.Root] = new(2, [baseline], retainedItems: [new LocalEdits(key, baseline.Type, baseline, changes)]);
+        var edits = new LocalEdits(key, baseline.Type, baseline, changes);
         var bench = (await definitions.SaveAsync(new(Guid.NewGuid(), "Partial", [new(SelectorKind.Pin, Remote("99"),
-            connection: connection)], connections: [origin.Stamp.Connection, connection]), 0)).Value;
-        var seed = new Seed(ItemKey.Local(Guid.CreateVersion7()), "issue", FieldValues.Empty);
+            connection: connection)], connections: new[] { origin.Stamp.Connection, connection }.Distinct()), 0)).Value;
+        var seed = new Seed(ItemKey.Local(Guid.CreateVersion7()), "issue",
+            FieldValues.Empty.Set("System.Title", FieldValue.String("Private seed detail")));
         gateway.Snapshots[origin.Root] = new(2, retainedItems: [seed]);
+        gateway.Snapshots[other.Root] = new(2, [baseline], relationships: [new(key, seed.Key, "fixture.link", RelationshipOrigin.Local)],
+            retainedItems: sameOrigin ? [edits, seed] : [edits]);
         (await definitions.SetSeedReferenceAsync(bench.Id, new(origin.Stamp.Connection, origin.Stamp.StoreInstance, seed.Key), true)).Value.ShouldBeTrue();
         SaveSelection(bench.Id);
         var sources = (await Workspace()).GetProperty("view").GetProperty("sources").EnumerateArray().ToArray();
@@ -86,12 +91,19 @@ public sealed partial class NativeWorkspaceTests
         var fallback = degraded.GetProperty("items").EnumerateArray().ShouldHaveSingleItem();
         fallback.GetProperty("benchMember").GetBoolean().ShouldBeFalse();
         fallback.GetProperty("title").GetString().ShouldBe("Protected proposal");
+        if (sameOrigin)
+        {
+            degraded.GetRawText().ShouldNotContain("Private seed detail");
+            degraded.GetProperty("edges").GetArrayLength().ShouldBe(0);
+            sources.ShouldContain(s => s.GetProperty("label").GetString() == "Unavailable seed membership");
+        }
     }
 
     [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task PendingDeliveryUsesOnlyVerifiedRemoteIdentity(bool alreadyPinned)
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public async Task PendingDeliveryUsesOnlyVerifiedRemoteIdentity(bool alreadyPinned, bool pinnedInMirror)
     {
         await Start();
         var source = await Source("origin");
@@ -104,6 +116,16 @@ public sealed partial class NativeWorkspaceTests
         SaveSelection(bench.Id);
         var draft = new Seed(local, "fixture.issue", FieldValues.Empty.Set("System.Title", FieldValue.String("Local draft")));
         var item = new WorkItem(remote, draft.Type, FieldValues.Empty.Set("System.Title", FieldValue.String("Verified provider item")), new(remote, "1"));
+        if (pinnedInMirror)
+        {
+            var viewing = await Source("viewing", mirror: connection);
+            gateway.Snapshots[viewing.Root] = new(2, [item]);
+            await Workspace();
+            using var opened = await client.PutAsJsonAsync(View + "context", new ContextBody(viewing.Root), TransportJson.Default.ContextBody);
+            opened.EnsureSuccessStatusCode();
+            using var admitted = await client.PutAsJsonAsync(View + "population-context", new PopulationContextBody(source.Root), TransportJson.Default.PopulationContextBody);
+            admitted.EnsureSuccessStatusCode();
+        }
         var plan = new Plan(connection, "schema", 1, [new("create", OpKind.Create, local, fields: draft.Fields,
             type: draft.Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
         var applying = JournalEntry.Planned(plan.Digest, 0).Begin(Guid.NewGuid()).Value;
@@ -113,8 +135,12 @@ public sealed partial class NativeWorkspaceTests
         {
             gateway.Snapshots[source.Root] = new(2, [item], retainedItems: drafts, plans: [plan], journal: [entry],
                 mappings: [new(local, remote, plan.Digest, 0)]);
-            var view = (await Workspace()).GetProperty("view");
-            var rows = view.GetProperty("sources").EnumerateArray().Single().GetProperty("items").EnumerateArray().ToArray();
+            var view = pinnedInMirror
+                ? await client.GetFromJsonAsync(View + $"benches/{bench.Id:D}", TransportJson.Default.JsonElement)
+                : (await Workspace()).GetProperty("view");
+            var sources = view.GetProperty("sources").EnumerateArray().ToArray();
+            sources.All(s => s.GetProperty("errorCode").ValueKind == JsonValueKind.Null).ShouldBeTrue();
+            var rows = sources.SelectMany(s => s.GetProperty("items").EnumerateArray()).ToArray();
             if (entry == applied)
                 rows.Single(row => row.GetProperty("isLocal").GetBoolean()).GetProperty("benchMember").GetBoolean().ShouldBeTrue();
             else

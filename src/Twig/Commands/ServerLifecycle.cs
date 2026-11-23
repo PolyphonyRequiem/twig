@@ -126,10 +126,7 @@ internal static class ServerLifecycle
                 throw new InvalidOperationException("A server installation cannot use reparse-point paths.");
 
         if (action == "endpoint") return await ServerEndpointProcess.RunAsync(launcher, root);
-        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
-        {
-            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root,
-        };
+        var start = WindowsOperatorStartInfo(root);
         foreach (var arg in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-File", launcher,
             action switch { "start" => "-EnsureRunning", "status" => "-Status", "stop" => "-Stop",
                 _ => throw new ArgumentException("Unknown lifecycle operation.") } })
@@ -141,5 +138,18 @@ internal static class ServerLifecycle
         if (process.ExitCode != 0)
             throw new InvalidOperationException($"The server launcher exited with code {process.ExitCode}: {(await errors).Trim()}");
         return output;
+    }
+
+    internal static ProcessStartInfo WindowsOperatorStartInfo(string root)
+    {
+        var system = Environment.SystemDirectory;
+        var start = new ProcessStartInfo(Path.Combine(system, @"WindowsPowerShell\v1.0\powershell.exe"))
+        {
+            UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root,
+        };
+        // A trimmed desktop environment leaves Windows Shell's ProgramData template relative to the install root.
+        if (!start.Environment.TryGetValue("SystemDrive", out var drive) || string.IsNullOrEmpty(drive))
+            start.Environment["SystemDrive"] = Path.GetPathRoot(system)!.TrimEnd('\\');
+        return start;
     }
 }

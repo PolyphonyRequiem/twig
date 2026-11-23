@@ -21,11 +21,9 @@ internal static partial class ServerEndpointProcess
         var command = "$ErrorActionPreference='Stop'; $gate=[Threading.EventWaitHandle]::OpenExisting('"
             + gateName + "'); try { if (-not $gate.WaitOne(5000)) { throw 'Endpoint ownership gate expired.' } }"
             + " finally { $gate.Dispose() }; & '" + launcher.Replace("'", "''") + "' -Endpoint";
-        var start = new ProcessStartInfo(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"))
-        {
-            UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true,
-            RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = root,
-        };
+        var start = ServerLifecycle.WindowsOperatorStartInfo(root);
+        start.CreateNoWindow = true;
+        start.RedirectStandardInput = true;
         foreach (var argument in new[] { "-NoLogo", "-NoProfile", "-NonInteractive", "-EncodedCommand",
             Convert.ToBase64String(Encoding.Unicode.GetBytes(command)) })
             start.ArgumentList.Add(argument);

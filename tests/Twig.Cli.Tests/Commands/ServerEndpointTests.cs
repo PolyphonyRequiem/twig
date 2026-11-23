@@ -143,6 +143,38 @@ public sealed class ServerEndpointTests
     }
 
     [Fact]
+    public async Task TrimmedWindowsHostDoesNotLeavePropertyCachesInTheSelectedInstall()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        using var fixture = new EndpointProcessFixture("cancel");
+        File.WriteAllText(fixture.Launcher, """
+            param([switch]$Status, [switch]$Endpoint)
+            $ErrorActionPreference = 'Stop'
+            $shell = New-Object -ComObject Shell.Application
+            $null = $shell.Namespace([Environment]::SystemDirectory).ParseName('notepad.exe').ExtendedProperty('System.FileDescription')
+            if (-not $env:SystemDrive) { throw 'No system drive' }
+            if ($Status) { '{"running":false}' } else {
+            """ + "\n'" + Endpoint() + "'\n}");
+        foreach (var action in new[] { "status", "endpoint" })
+        {
+            var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, WorkingDirectory = fixture.Root };
+            foreach (var arg in new[] { typeof(ServerLifecycle).Assembly.Location, "server", action, "-o", "json" })
+                start.ArgumentList.Add(arg);
+            start.Environment["TWIG_SERVER_INSTALL_ROOT"] = fixture.Root;
+            foreach (var key in new[] { "SystemDrive", "ProgramData", "ALLUSERSPROFILE", "TWIG_TELEMETRY_ENDPOINT" })
+                start.Environment.Remove(key);
+            using var process = Process.Start(start)!;
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)); }
+            finally
+            {
+                if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(5000).ShouldBeTrue(); }
+            }
+            process.ExitCode.ShouldBe(0);
+            Directory.Exists(Path.Combine(fixture.Root, "%SystemDrive%")).ShouldBeFalse();
+        }
+    }
+
+    [Fact]
     public async Task ExternalCliTerminationClosesEndpointJobAndReapsDescendants()
     {
         if (!OperatingSystem.IsWindows()) return;

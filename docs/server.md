@@ -397,6 +397,8 @@ Installation starts/stops **no process** and installs no canvas package.
 `-RegisterStartup` is explicit opt-in and creates the user's `Twig Server.lnk`
 sign-in shortcut. This is a per-user process, not a Windows Service installation.
 Foreign installation entries or Startup shortcuts are refused rather than replaced.
+When a desktop host omits `SystemDrive`, the Twig CLI restores it for the
+Windows launcher so Windows Shell does not write its property cache into the installation.
 
 ## Start, reuse, and stop
 

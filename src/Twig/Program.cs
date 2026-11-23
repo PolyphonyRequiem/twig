@@ -1281,6 +1281,18 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
         string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
         => NativePlanning("browse", new(Query: query, Backlog: backlog), output, ct);
 
+    /// <summary>Reference an existing seed in a Bench without publishing it.</summary>
+    [Command("bench seed add")]
+    public Task<int> BenchSeedAdd([Argument] string name, string localId,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("seed-add", new(Bench: name, Value: localId), output, ct);
+
+    /// <summary>Remove a Bench reference without discarding the workspace seed.</summary>
+    [Command("bench seed remove")]
+    public Task<int> BenchSeedRemove([Argument] string name, string localId,
+        string output = OutputFormatterFactory.DefaultFormat, CancellationToken ct = default)
+        => NativePlanning("seed-remove", new(Bench: name, Value: localId), output, ct);
+
     private Task<int> NativePlanning(string action, BenchPlanningArguments arguments, string output, CancellationToken ct)
         => services.GetService<BenchPlanningCommand>() is { } native
             ? native.ExecuteAsync(action, arguments, output, ct) : Task.FromResult(MissingCore(output));

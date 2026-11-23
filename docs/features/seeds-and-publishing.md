@@ -40,6 +40,13 @@ same UUID on two Benches does not copy its fields or links; removing the
 reference from one Bench does not discard the draft or remove it from the
 other. A reference grants no permission to edit or publish.
 
+From the originating workspace, use the UUID returned by `twig seed new`:
+
+```sh
+twig bench seed add Triage --local-id <uuid>
+twig bench seed remove Triage --local-id <uuid>
+```
+
 Native clients can check for the `bench-seed-members-v1` server capability.
 With the Bench selected in normal mode and the original source admitted,
 use this view-scoped route with the usual content bearer and `X-Twig-Bench: 1`:
@@ -54,12 +61,18 @@ the response is `{"changed":true}` when the rule changes and `{"changed":false}`
 when already in the requested state. Read the ordinary Bench view to see
 the result. A session without access to the originating workspace cannot
 read the draft through the reference. Isolated Plan seeds are not eligible.
+Selecting a mirror of the same connection is not enough: the session must
+already have admitted the originating store. Otherwise the Bench reports
+unavailable seed membership without showing the draft.
 
 After verified creation, the remaining references become ordinary pins for
 the provider ID. Removing a reference before delivery keeps that Bench out
 of delivery; an existing pin is not duplicated. If the create response is
 lost, keep the seed and its original attempt and receipts. Retrying a Bench
 update is not permission to send another create.
+Between verification and delivery, a Bench read shows the provider item
+once, even when it is already pinned. The read does not perform delivery;
+a mapping without a matching verified receipt does not replace the seed.
 
 ## Publication
 

@@ -384,9 +384,12 @@ public static partial class NativeBenchHost
             var library = Require(await panel.ListAsync(context.RequestAborted));
             var bench = library.Benches.SingleOrDefault(value => value.Id == benchId)
                 ?? throw new HttpFailure(404, "NotFound", "The selected Bench is unavailable.");
+            var origins = Require(await panel.ReadSeedReferencesAsync(benchId, context.RequestAborted))
+                .Select(r => (r.Connection, r.StoreInstance)).ToHashSet();
             NativePanelContext[] chosen;
-            lock (session) chosen = session.DisplayContexts.Values.Where(value => value == anchor
-                || NativePanel.Dependencies(bench, session.RepositoryBindings).Contains(value.Stamp.Connection)).ToArray();
+            lock (session) chosen = session.DisplayContexts.Values.Append(anchor).Distinct().Where(value => value == anchor
+                || NativePanel.Dependencies(bench, session.RepositoryBindings).Contains(value.Stamp.Connection)
+                || origins.Contains((value.Stamp.Connection, value.Stamp.StoreInstance))).ToArray();
             if (chosen.Length > 32) throw new HttpFailure(422, "Unsupported", "The Bench exceeds the bounded access-check source count.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -394,8 +397,8 @@ public static partial class NativeBenchHost
             foreach (var check in checks) _ = ConnectionObservation(check, app.Logger);
             lock (session)
                 if (session.ProfileGeneration != profile || !ReferenceEquals(session.NativeContext, anchor)
-                    || chosen.Any(source => !session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current)
-                        || !ReferenceEquals(current, source)))
+                    || chosen.Any(source => !ReferenceEquals(source, anchor)
+                        && (!session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current) || !ReferenceEquals(current, source))))
                     throw new HttpFailure(409, "SourceChanged", "The source or profile changed during the access check.");
             if (session.CurrentBenchId != benchId)
                 throw new HttpFailure(409, "Conflict", "The selected Bench changed during the access check.");

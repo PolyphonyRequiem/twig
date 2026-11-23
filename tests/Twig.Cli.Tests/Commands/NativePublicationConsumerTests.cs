@@ -1562,6 +1562,15 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             seed.Key.LocalId.Version.ShouldBe(7);
             seed.Fields["System.State"].Text.ShouldBe("To Do");
             seed.Fields["System.AssignedTo"].Text.ShouldBe(Actor);
+            (await commands.BenchCreate("Seed review", output: "json")).ShouldBe(0, stderr.ToString());
+            (await commands.BenchSeedAdd("Seed review", seed.Key.LocalId.ToString("D"), output: "json"))
+                .ShouldBe(0, stderr.ToString());
+            stdout.GetStringBuilder().Clear();
+            (await commands.Workspace("json", bench: "Seed review")).ShouldBe(0, stderr.ToString());
+            using (var displayed = JsonDocument.Parse(stdout.ToString()))
+                displayed.RootElement.GetProperty("items")[0].GetProperty("benchMember").GetBoolean().ShouldBeTrue();
+            (await commands.BenchSeedRemove("Seed review", seed.Key.LocalId.ToString("D"), output: "json"))
+                .ShouldBe(0, stderr.ToString());
             _transport.PostCount.ShouldBe(0);
             stdout.GetStringBuilder().Clear();
             (await commands.SeedView("json")).ShouldBe(0, stderr.ToString());

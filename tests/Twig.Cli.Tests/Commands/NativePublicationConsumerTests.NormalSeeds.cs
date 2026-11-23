@@ -183,10 +183,14 @@ public sealed partial class NativePublicationConsumerTests
         owned.Publication.ShouldNotBeNull().CaptureId.ShouldBe(reference.CaptureId);
         (await reopened.SelectAsync(seed)).IsSuccess.ShouldBeFalse();
         (await reopened.ContinueSeedDeliveryAsync(reference.CaptureId, new string('0', 64))).Error.Code.ShouldBe(ErrorCode.DigestMismatch);
+        var itemReads = _transport.ReadbacksAfterCommit;
+        if (failure == "pin") _transport.FailCurrentReadsAfterCommit = true;
         var delivered = await reopened.ContinueSeedDeliveryAsync(reference.CaptureId, reference.Digest);
         delivered.IsSuccess.ShouldBeTrue(delivered.IsSuccess ? "" : delivered.Error.Message);
         delivered.Value.Status.ShouldBe("Complete", delivered.Value.Error?.Message);
         delivered.Value.Error.ShouldBeNull();
+        if (failure == "pin") _transport.ReadbacksAfterCommit.ShouldBe(itemReads,
+            "Retry the interrupted local membership write, not the already completed origin item readback.");
         (await reopened.ContinueSeedDeliveryAsync(reference.CaptureId, reference.Digest)).Value.Status.ShouldBe("Complete");
         var after = (await ReadHumanHostAsync(host.Root, host.Stamp, false, default)).Value.Snapshot;
         after.Plans.ShouldHaveSingleItem().Digest.ShouldBe(reference.Digest);

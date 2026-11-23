@@ -36,6 +36,7 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                 "area-add" => "workspace area add", "area-remove" => "workspace area remove", "area-list" => "workspace area list",
                 "sprint-add" => "workspace sprint add", "sprint-remove" => "workspace sprint remove", "sprint-list" => "workspace sprint list",
                 "rules" => "bench rules", "add-rule" => "bench rule add", "remove-rule" => "bench rule remove",
+                "seed-add" => "bench seed add", "seed-remove" => "bench seed remove",
                 "sources" => "bench sources", "browse" => "bench browse", "refresh" => "bench planning refresh", _ => "bench planning",
             };
             try { TelemetryHelper.TrackCommand(telemetry, command, format ?? "invalid", exit, started); }
@@ -104,7 +105,8 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                     var opened = await factory.OpenAsync(ct);
                     if (!opened.IsSuccess) return Error(opened.Error.Message);
                     handle = opened.Value;
-                    operation = ConnectionOperationGate.Acquire(handle.Workspace.WorktreeRoot, exclusive: true);
+                    if (action is not ("seed-add" or "seed-remove"))
+                        operation = ConnectionOperationGate.Acquire(handle.Workspace.WorktreeRoot, exclusive: true);
                     var admitted = await factory.RevalidateSourceAsync(handle, ct);
                     if (!admitted.IsSuccess) return Error(admitted.Error.Message);
                 }
@@ -213,6 +215,24 @@ internal sealed class BenchPlanningCommand(UserBenchStore store, RendererFactory
                         || bench.Id.ToString("D").Equals(args.Bench, StringComparison.OrdinalIgnoreCase)).ToArray();
                 if (matches.Length != 1) return Error("Choose an existing unambiguous Bench. No default was created.");
                 var target = matches[0];
+                if (action is "seed-add" or "seed-remove")
+                {
+                    if (!Guid.TryParseExact(args.Value, "D", out var localId) || localId.Version != 7)
+                        return Error("--local-id requires the original seed UUIDv7.", 2);
+                    var registered = await handle!.Workspace.BenchSnapshotAsync(ct);
+                    if (!registered.IsSuccess) return Error(registered.Error.Message);
+                    var opened = await NativeEditor.OpenAsync(factory!, store, target.Id, handle!.Source, ct, prepareScope: false);
+                    if (!opened.IsSuccess) return Error(opened.Error.Message);
+                    using var editor = opened.Value;
+                    var membership = await editor.SetSeedMembershipAsync(localId, action == "seed-add", ct);
+                    if (!membership.IsSuccess) return Error(membership.Error.Message);
+                    Render(membership.Value ? "Bench seed membership updated." : "Bench seed membership unchanged.", [], [], new()
+                    {
+                        ["benchId"] = RenderCell.String(target.Id.ToString("D")), ["localId"] = RenderCell.String(localId.ToString("D")),
+                        ["changed"] = RenderCell.Boolean(membership.Value),
+                    });
+                    return 0;
+                }
                 if (args.ExpectedRevision is { } expected && target.Revision != expected)
                     return Error("The captured Bench revision changed. Newer rule intent was preserved.");
                 if (action == "rules")

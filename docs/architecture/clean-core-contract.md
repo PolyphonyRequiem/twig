@@ -174,7 +174,11 @@ Neither operation prepares a plan or calls Create/Apply again.
 Normal and Plan delivery share native Infrastructure primitives for original
 Verified journal/mapping attribution, original-source readback, additive latest
 remote Bench pins and exact capture settlement. The capture is settled only
-after readback and pin delivery succeed. Delivery recovery can complete local
+after readback and pin delivery succeed. A normal seed capture records successful
+original-source item readback before updating memberships. If that update is
+interrupted, continuation checks source admission and the original verified create
+evidence again, without repeating the item read or dispatching another create.
+Delivery recovery can complete local
 settlement but cannot establish an uncertain remote outcome. Core remains the
 only provider, policy, merge, plan and journal publisher; there is no new
 Core port, alternate executor, Plan scope for normal writes, or UI/install work.

@@ -59,9 +59,7 @@ public sealed partial class UserBenchStore
                 : "DELETE FROM seed_references WHERE bench_id=$bench AND store_instance=$store AND local_id=$local;";
             if (await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 0) return Result<bool>.Ok(false);
             var bench = current.Bench;
-            var next = new Bench(bench.Id, bench.Name, bench.Selectors, checked(bench.Revision + 1),
-                present ? bench.Connections.Append(reference.Connection) : bench.Connections);
-            Validate(next);
+            var next = new Bench(bench.Id, bench.Name, bench.Selectors, checked(bench.Revision + 1), bench.Connections);
             await Put(db, tx, next, false, ct).ConfigureAwait(false);
             await Advance(db, tx, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -99,7 +97,7 @@ public sealed partial class UserBenchStore
                 var current = await Find(db, tx, id, ct).ConfigureAwait(false);
                 var bench = current!.Value.Bench;
                 var next = new Bench(id, bench.Name, bench.Selectors.Contains(pin) ? bench.Selectors : bench.Selectors.Add(pin),
-                    checked(bench.Revision + 1), bench.Connections);
+                    checked(bench.Revision + 1), bench.Connections.Append(pin.Connection!));
                 Validate(next);
                 await Put(db, tx, next, false, ct).ConfigureAwait(false);
             }

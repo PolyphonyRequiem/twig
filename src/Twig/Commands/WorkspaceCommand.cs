@@ -114,7 +114,12 @@ internal sealed class WorkspaceCommand(
             var evaluationTime = DateTimeOffset.UtcNow;
             if (KnownLocalKeys(snapshot).GroupBy(LocalAlias).Any(group => group.Count() != 1))
                 return Error("Local aliases are ambiguous; no workspace identity was guessed.");
-            ItemKey Resolve(ItemKey key) => key.IsLocal
+            var references = await UserBenchStore.ForRegistry(factory.ExecutionRegistryPath).ReadSeedReferencesAsync(selected.Id, ct);
+            if (!references.IsSuccess) return Error(references.Error.Message);
+            var localReferences = references.Value.Where(reference => reference.Connection == handle.Source.Connection
+                && reference.StoreInstance == handle.Source.StoreInstance).Select(reference => reference.Item).ToHashSet();
+            ItemKey Resolve(ItemKey key) => localReferences.Contains(key)
+                ? snapshot.VerifiedSeedTarget(workspace.Connection, key) ?? key : key.IsLocal
                 ? snapshot.Mappings.SingleOrDefault(mapping => mapping.Local == key)?.Remote ?? key : key;
             bool Qualified(ItemKey key) => CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).IsSuccess;
             var selectors = selected.Selectors.Where(historicalProjection.AllowsSelector).Select(selector => selector.Item is null ? selector
@@ -124,7 +129,11 @@ internal sealed class WorkspaceCommand(
                 || snapshot.Items.Any(item => !Qualified(item.Key))
                 || snapshot.RetainedItems.Any(draft => !Qualified(Resolve(draft.Key))))
                 return Error("The retained scope contains an unqualified native identity; no integer identity or broader scope was fabricated.");
-            var projectedBench = new Bench(selected.Id, selected.Name, selectors);
+            var seedPins = localReferences.Where(key => snapshot.RetainedItems.OfType<Seed>().Any(seed => seed.Key == key)
+                || snapshot.VerifiedSeedTarget(workspace.Connection, key) is not null)
+                .Select(key => new Selector(SelectorKind.Pin, Resolve(key), connection: workspace.Connection))
+                .Where(historicalProjection.AllowsSelector).ToArray();
+            var projectedBench = new Bench(selected.Id, selected.Name, selectors.Concat(seedPins));
             var projection = new StoreSnapshot(snapshot.Version, snapshot.Items,
                 snapshot.Relationships.Select(edge => edge with { From = Resolve(edge.From), To = Resolve(edge.To) }),
                 snapshot.RetainedItems, snapshot.Plans, snapshot.Journal, snapshot.Mappings, snapshot.Benches);
@@ -187,6 +196,8 @@ internal sealed class WorkspaceCommand(
                     new("projection", new RenderNode.KeyValue("projection", RenderCell.String("core-bench-workspace-v1"))),
                     new("benchId", new RenderNode.KeyValue("benchId", RenderCell.String(selected.Id.ToString("D")))),
                     new("benchName", new RenderNode.KeyValue("benchName", RenderCell.String(selected.Name))),
+                    new("unavailableSeedReferences", new RenderNode.KeyValue("unavailableSeedReferences",
+                        RenderCell.Integer(references.Value.Length - seedPins.Length))),
                     new("scope", new RenderNode.KeyValue("scope", RenderCell.String("Cached selector membership plus all protected drafts; not an exhaustive provider query."))),
                     new("schema", new RenderNode.KeyValue("schema", RenderCell.String("Provider schema metadata acquired; cached items have no freshness guarantee."))),
                     new("items", table),

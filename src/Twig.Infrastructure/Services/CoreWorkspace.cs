@@ -1115,16 +1115,11 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     {
         var op = plan.Operations[ordinal];
         if (sharedBenches is null || op.Kind != OpKind.Create) return Task.FromResult(Result<bool>.Ok(false));
-        var digest = plan.Digest;
-        var mapping = snapshot.Mappings.SingleOrDefault(value => value.Local == op.Item
-            && value.Operation == ordinal && value.PlanDigest == digest);
-        var journal = snapshot.Journal.SingleOrDefault(value => value.Operation == ordinal && value.Digest == digest);
-        if (plan.Connection != connection || !snapshot.Plans.Any(value => value.Digest == digest)
-            || mapping is null || !mapping.Remote.BelongsTo(connection) || journal?.Status != OpStatus.Verified
-            || journal.Receipts.LastOrDefault()?.PublishedKey != mapping.Remote)
+        var target = snapshot.VerifiedSeedTarget(connection, op.Item, plan.Digest, ordinal);
+        if (target is null)
             return Task.FromResult(Result<bool>.Fail(ErrorCode.Indeterminate,
                 "Bench delivery needs the original verified create receipt and matching permanent mapping."));
-        return sharedBenches.DeliverSeedReferenceAsync(new(connection, storeInstance, op.Item), mapping.Remote, ct);
+        return sharedBenches.DeliverSeedReferenceAsync(new(connection, storeInstance, op.Item), target, ct);
     }
 
     private async Task<Result<bool>> CheckCurrentPolicyAsync(Plan plan, CancellationToken ct)

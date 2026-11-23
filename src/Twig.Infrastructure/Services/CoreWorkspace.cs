@@ -707,8 +707,10 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         foreach (var row in captured.Value.Journal)
         {
             var plan = captured.Value.Plans.Single(plan => plan.Digest == row.Digest);
-            if (plan.Operations[row.Operation].Kind != OpKind.Create || row.Status == OpStatus.Planned) continue;
-            if (row.Status is OpStatus.Applied or OpStatus.Applying)
+            if (plan.Operations[row.Operation].Kind != OpKind.Create || row.Status == OpStatus.Planned
+                || row.DefinitivelyHadNoEffect) continue;
+            if (row.Status is OpStatus.Applied or OpStatus.Applying
+                || connection.Provider.Value == "ado" && row.CanRecheckAcknowledgedCreate)
             {
                 var recovered = await provider.RecoverAsync(plan, row.Operation, ct).ConfigureAwait(false);
                 if (!recovered.IsSuccess) return Result<int>.Fail(recovered.Error);

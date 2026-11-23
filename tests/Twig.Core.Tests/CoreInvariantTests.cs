@@ -486,5 +486,17 @@ public sealed class CoreInvariantTests
         Rules.Validate(replacement, schema,
             new(1, retainedItems: [draft], plans: [plan], journal: [attempting]), Capabilities)
             .ShouldContain(e => e.Message.Contains("already been attempted", StringComparison.Ordinal));
+        var rejected = attempting.Record(new(plan.Digest, 0, attempting.Attempt, OpStatus.Failed,
+            ["native rejection"], error: new(ErrorCode.InvalidInput, "Provider refused creation."))).Value;
+        Rules.Validate(replacement, schema,
+            new(1, retainedItems: [draft], plans: [plan], journal: [rejected]), Capabilities).ShouldBeEmpty();
+        Rules.Validate(plan, schema,
+            new(0, retainedItems: [draft], plans: [plan], journal: [rejected]), Capabilities)
+            .ShouldContain(e => e.Message.Contains("already been attempted", StringComparison.Ordinal));
+        var unknown = attempting.Record(new(plan.Digest, 0, attempting.Attempt, OpStatus.Indeterminate,
+            ["missing acknowledgement"], error: new(ErrorCode.Indeterminate, "Creation may have occurred."))).Value;
+        Rules.Validate(replacement, schema,
+            new(1, retainedItems: [draft], plans: [plan], journal: [unknown]), Capabilities)
+            .ShouldContain(e => e.Message.Contains("already been attempted", StringComparison.Ordinal));
     }
 }

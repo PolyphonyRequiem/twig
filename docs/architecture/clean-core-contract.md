@@ -822,9 +822,10 @@ GitHub still refuses unproven atomic creation-link coupling. `seed chain` now au
 the same typed drafts and predecessor links with an explicit parent/type, emits one
 structured result, and preserves any staged prefix after an authoring failure.
 `seed validate` acquires actual schema and declared-policy evidence for the ordered
-captures without importing or dispatching a plan. `seed reconcile` recovers only
-existing Applying/Applied creation rows and settles unchanged captures from their
-original Verified mappings; it never applies Planned successors, rewrites UUID
+captures without importing or dispatching a plan. `seed reconcile` recovers
+existing Applying/Applied creation rows, can recheck an acknowledged Partial ADO
+create against its original immutable revision, and settles unchanged captures from
+their original Verified mappings; it never applies Planned successors, rewrites UUID
 references, guesses native identities or replays an unknown creation. All CLI seed
 creation requires `--parent <id>` or `--no-parent`; no item supplies an implicit parent.
 Explicit seed discard now checks the exact draft/store
@@ -1244,8 +1245,10 @@ If the process dies before returning, the durable Applying row retains that unce
 
 `Applied` is not `Verified`. Readback appends a receipt and advances Applied to Verified,
 Partial or Indeterminate without deleting the acknowledgement. Failure to read back an
-acknowledged effect cannot become `Failed`/safe-to-replay. Receipts bind digest, ordinal
-and attempt UUID; an unrelated successful request is not evidence for this attempt.
+acknowledged effect cannot become `Failed`. A definitive no-effect create rejection
+permits only a fresh plan from the original store and connection, not replay of
+the rejected plan. Receipts bind digest, ordinal and attempt UUID; an unrelated
+successful request is not evidence for this attempt.
 Creates additionally retain attributable remote identity, not title-based matching.
 
 After failure, partial or uncertainty, later operations do not start. No journal transition

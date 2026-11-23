@@ -819,7 +819,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         string? branch, string? repository, string output, CancellationToken ct)
     {
         if (factory.IsGitHub && branch is not null) return Error(output, "GitHub creation-bound resources are not qualified.");
-        if (output != "human") return Error(output, "Structured seed publication is refused because it changes local publication context. Use plan apply with an explicit file.", 2);
+        if (output != "human" && !dryRun)
+            return Error(output, "Structured seed publication is refused. Export the plan with --dry-run -o json, then use plan apply with an explicit file.", 2);
         if (id is not null && (id >= 0 || all) || id is null && !all)
             return Error(output, "Specify one negative seed ID or --all.", 2);
         if (repository is not null && branch is null)
@@ -888,6 +889,8 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             };
             if (plan.Connection.Provider.Value == "ado")
                 cells["notice"] = RenderCell.String(AdoProvider.CreateConcurrencyNotice);
+            if (output != "human")
+                cells["canonicalPlan"] = RenderCell.String(System.Text.Encoding.UTF8.GetString(global::Twig.Core.Core.PlanBytes(plan)));
             renderer.GetRenderer(output).Render(new RenderTree.RenderTree([new RenderNode.Record("seedPublicationPreview", cells)]));
             return 0;
         }

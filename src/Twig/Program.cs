@@ -803,7 +803,7 @@ public sealed class TwigCommands(IServiceProvider services) : TwigCommandsCompat
     /// <param name="id">Seed ID to publish; omit when using --all.</param>
     /// <param name="all">Publish all seeds in dependency order.</param>
     /// <param name="force">Skip validation before publishing.</param>
-    /// <param name="dryRun">Preview what would be published without making changes.</param>
+    /// <param name="dryRun">Retain an unattempted plan without creating provider items; use -o json to export its canonical JSON.</param>
     /// <param name="linkBranch">Link published work items to this branch name (e.g. feature/my-branch). Creates an ADO artifact link to the branch ref.</param>
     /// <param name="repo">Repository name for branch linking. When omitted, uses the default repository for the project.</param>
     /// <param name="output">-o, Output format: human, json, minimal.</param>

@@ -122,6 +122,14 @@ public sealed record JournalEntry
     public OpStatus Status { get; }
     public ImmutableArray<Receipt> Receipts { get; }
 
+    public bool DefinitivelyHadNoEffect => Status == OpStatus.Failed && Receipts.Length == 1
+        && Receipts[0] is { Status: OpStatus.Failed, PublishedKey: null, Revision: null, Error: not null } receipt
+        && receipt.Digest == Digest && receipt.Operation == Operation && receipt.Attempt == Attempt;
+
+    public bool CanRecheckAcknowledgedCreate => Status == OpStatus.Partial && Receipts.Length == 2
+        && Receipts[0] is { Status: OpStatus.Applied, PublishedKey: not null, Revision: not null } ack
+        && Receipts[1].PublishedKey == ack.PublishedKey && Receipts[1].Revision == ack.Revision;
+
     public static JournalEntry Planned(string digest, int operation)
         => operation < 0 ? throw new ArgumentOutOfRangeException(nameof(operation))
             : new(Contract.Text(digest, nameof(digest)), operation, Guid.Empty, OpStatus.Planned, []);
@@ -135,7 +143,9 @@ public sealed record JournalEntry
         if (receipt.Digest != Digest || receipt.Operation != Operation || receipt.Attempt != Attempt)
             return Result<JournalEntry>.Fail(ErrorCode.Conflict, "Receipt does not belong to this exact operation attempt.");
         var permitted = Status == OpStatus.Applying && receipt.Status is OpStatus.Applied or OpStatus.Failed or OpStatus.Partial or OpStatus.Indeterminate
-            || Status == OpStatus.Applied && receipt.Status is OpStatus.Verified or OpStatus.Partial or OpStatus.Indeterminate;
+            || Status == OpStatus.Applied && receipt.Status is OpStatus.Verified or OpStatus.Partial or OpStatus.Indeterminate
+            || CanRecheckAcknowledgedCreate && receipt.Status == OpStatus.Verified
+                && receipt.PublishedKey == Receipts[0].PublishedKey && receipt.Revision == Receipts[0].Revision;
         return permitted
             ? Result<JournalEntry>.Ok(new(Digest, Operation, Attempt, receipt.Status, Receipts.Add(receipt)))
             : Result<JournalEntry>.Fail(ErrorCode.Conflict, "Illegal journal transition; applied is not verified, and unknown is not retryable.");

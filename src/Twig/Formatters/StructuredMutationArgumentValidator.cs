@@ -133,8 +133,8 @@ public static class StructuredMutationArgumentValidator
             if (readError is not null) return readError;
         }
 
-        if (command == "seed publish" && machine)
-            return "Structured seed publication is refused. Use plan apply with an explicit file.";
+        if (command == "seed publish" && machine && !HasBooleanOption(args, "--dry-run"))
+            return "Structured seed publication is refused. Export the plan with --dry-run -o json, then use plan apply with an explicit file.";
         if (command is "seed publish" or "seed discard" or "seed edit"
             && !(command == "seed publish" && HasBooleanOption(args, "--all"))
             && !Positionals(args, 2).Any(value => int.TryParse(value, out var n) && n < 0))

@@ -175,7 +175,8 @@ public static partial class Core
             if (store.Mappings.Any(m => m.Local == op.Item) || store.Journal.Any(j =>
                 j.Status != OpStatus.Planned && store.Plans.Any(p => p.Digest == j.Digest
                     && j.Operation < p.Operations.Length && p.Operations[j.Operation].Kind == OpKind.Create
-                    && p.Operations[j.Operation].Item == op.Item)))
+                    && p.Operations[j.Operation].Item == op.Item
+                    && !(p.Connection == plan.Connection && p.Digest != plan.Digest && j.DefinitivelyHadNoEffect))))
                 Fail(ErrorCode.Conflict, "This creation identity has already been attempted; reconcile without replay, even under a new digest.");
         }
         else if (!local)
@@ -598,6 +599,12 @@ public static partial class Core
                     OpStatus.Planned => current.Status != OpStatus.Applying,
                     OpStatus.Applying => current.Receipts.Length != prior.Receipts.Length + 1,
                     OpStatus.Applied => current.Receipts.Length != prior.Receipts.Length + 1,
+                    OpStatus.Partial => !prior.CanRecheckAcknowledgedCreate || current.Status != OpStatus.Verified
+                        || current.Receipts.Length != prior.Receipts.Length + 1
+                        || current.Receipts[^1].PublishedKey != prior.Receipts[0].PublishedKey
+                        || current.Receipts[^1].Revision != prior.Receipts[0].Revision
+                        || !next.Plans.Any(p => p.Digest == current.Digest
+                            && p.Operations.ElementAtOrDefault(current.Operation)?.Kind == OpKind.Create),
                     _ => true,
                 }))
                 errors.Add(new(ErrorCode.Conflict, "Journal evidence cannot be erased, rewritten or replayed."));
@@ -637,10 +644,22 @@ public static partial class Core
                 && j.Receipts.Any(r => r.PublishedKey == mapping.Remote)))
                 errors.Add(new(ErrorCode.Conflict, "A mapping needs the original create's attributable acknowledgement."));
         var attemptedCreates = next.Journal.Where(j => j.Status != OpStatus.Planned)
-            .Select(j => (Row: j, Op: next.Plans.FirstOrDefault(p => p.Digest == j.Digest)?.Operations.ElementAtOrDefault(j.Operation)))
-            .Where(x => x.Op?.Kind == OpKind.Create).ToArray();
-        if (attemptedCreates.GroupBy(x => x.Op!.Item).Any(g => g.Count() > 1))
-            errors.Add(new(ErrorCode.Conflict, "A durable creation UUID cannot begin another attempt under a replacement digest."));
+            .Join(next.Plans, j => j.Digest, p => p.Digest, (row, plan) => (Row: row, Plan: plan))
+            .Where(x => x.Plan.Operations.ElementAtOrDefault(x.Row.Operation)?.Kind == OpKind.Create);
+        foreach (var group in attemptedCreates.GroupBy(x => x.Plan.Operations[x.Row.Operation].Item))
+        {
+            var ordered = group.OrderBy(x => x.Plan.ExpectedStoreVersion).ToArray();
+            for (var i = 1; i < ordered.Length; i++)
+            {
+                var prior = ordered[i - 1];
+                var later = ordered[i];
+                if (prior.Plan.Connection != later.Plan.Connection
+                    || prior.Plan.ExpectedStoreVersion == later.Plan.ExpectedStoreVersion
+                    || !before.Journal.Any(row => row.Digest == prior.Row.Digest
+                        && row.Operation == prior.Row.Operation && row.DefinitivelyHadNoEffect))
+                    errors.Add(new(ErrorCode.Conflict, "A durable creation UUID cannot begin another attempt under a replacement digest without a prior definitive rejection."));
+            }
+        }
         return errors.ToImmutable();
     }
 

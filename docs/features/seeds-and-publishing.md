@@ -32,6 +32,50 @@ An original UUID can be read with `show --local-id <uuid> -o json`, including it
 permanent mapping after verified publication. Imported items do not acquire a
 second arbitrary local UUID registry.
 
+## Add an existing seed to a Bench
+
+A Bench can reference a seed staged with `twig seed new` before it has a
+provider ID. The workspace still owns the original draft. Referencing the
+same UUID on two Benches does not copy its fields or links; removing the
+reference from one Bench does not discard the draft or remove it from the
+other. A reference grants no permission to edit or publish.
+
+From the originating workspace, use the UUID returned by `twig seed new`:
+
+```sh
+twig bench seed add Triage --local-id <uuid>
+twig bench seed remove Triage --local-id <uuid>
+```
+
+Native clients can check for the `bench-seed-members-v1` server capability.
+With the Bench selected in normal mode and the original source admitted,
+use this view-scoped route with the usual content bearer and `X-Twig-Bench: 1`:
+
+```text
+PUT    /api/v1/views/{view}/benches/{bench}/sources/{source}/seed-members/{uuid}
+DELETE /api/v1/views/{view}/benches/{bench}/sources/{source}/seed-members/{uuid}
+```
+
+Use the UUIDv7, not the negative CLI alias. Neither request takes a body;
+the response is `{"changed":true}` when the rule changes and `{"changed":false}`
+when already in the requested state. Read the ordinary Bench view to see
+the result. A session without access to the originating workspace cannot
+read the draft through the reference. Isolated Plan seeds are not eligible.
+Selecting a mirror of the same connection is not enough: the session must
+already have admitted the originating store. Otherwise the Bench reports
+unavailable seed membership without showing the draft.
+
+After verified creation, the remaining references become ordinary pins for
+the provider ID. Removing a reference before delivery keeps that Bench out
+of delivery; an existing pin is not duplicated. If the create response is
+lost, keep the seed and its original attempt and receipts. Retrying a Bench
+update is not permission to send another create.
+Between verification and delivery, a Bench read shows the provider item
+once, even when it is already pinned in another admitted mirror of the same
+connection. If membership cannot be resolved, unrelated protected edits to
+provider items remain visible without disclosing the unavailable seed. The read does not perform delivery;
+a mapping without a matching verified receipt does not replace the seed.
+
 ## Publication
 
 Use the negative alias returned by `seed new` in each command:

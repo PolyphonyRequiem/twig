@@ -704,7 +704,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var captured = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!captured.IsSuccess) return Result<int>.Fail(captured.Error);
-        foreach (var row in captured.Value.Journal)
+        // Deliver previously verified identities even if an unrelated later create remains fenced.
+        foreach (var row in captured.Value.Journal.OrderByDescending(row => row.Status == OpStatus.Verified))
         {
             var plan = captured.Value.Plans.Single(plan => plan.Digest == row.Digest);
             if (plan.Operations[row.Operation].Kind != OpKind.Create || row.Status == OpStatus.Planned
@@ -716,8 +717,17 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 if (!recovered.IsSuccess) return Result<int>.Fail(recovered.Error);
                 if (recovered.Value.Status != OpStatus.Verified)
                     return Result<int>.Fail(recovered.Value.Error ?? new(ErrorCode.Indeterminate, "The original creation receipt remains unresolved; no creation was replayed."));
+                var evidence = await SnapshotAsync(ct).ConfigureAwait(false);
+                if (!evidence.IsSuccess) return Result<int>.Fail(evidence.Error);
+                var delivered = await DeliverVerifiedSeedAsync(plan, row.Operation, evidence.Value, ct).ConfigureAwait(false);
+                if (!delivered.IsSuccess) return Result<int>.Fail(delivered.Error);
             }
-            else if (row.Status != OpStatus.Verified)
+            else if (row.Status == OpStatus.Verified)
+            {
+                var delivered = await DeliverVerifiedSeedAsync(plan, row.Operation, captured.Value, ct).ConfigureAwait(false);
+                if (!delivered.IsSuccess) return Result<int>.Fail(delivered.Error);
+            }
+            else
                 return Result<int>.Fail(row.Receipts.LastOrDefault()?.Error
                     ?? new(ErrorCode.Indeterminate, "A creation remains fenced; no identity or outcome was inferred."));
         }
@@ -868,14 +878,15 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         return Result<Op>.Ok(op with { CreateEvidence = evidence.Value });
     }
 
-    internal async Task<Result<CoreExecution>> SaveDraftAsync(CoreDraftPreview preview, CancellationToken ct)
+    internal async Task<Result<CoreExecution>> SaveDraftAsync(CoreDraftPreview preview, CancellationToken ct,
+        bool deferSeedDelivery = false)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         CoreExecution execution;
         if (preview.Plan is { } plan)
         {
-            var applied = await ApplyAsync(plan, ct).ConfigureAwait(false);
-            if (!applied.IsSuccess || !applied.Value.EffectsVerified) return applied;
+            var applied = await ApplyAsync(plan, ct, deferSeedDelivery).ConfigureAwait(false);
+            if (!applied.IsSuccess || applied.Value.Error is not null || !applied.Value.EffectsVerified) return applied;
             execution = applied.Value;
         }
         else
@@ -957,7 +968,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         var applied = plan is null
             ? Result<CoreExecution>.Ok(new([], AlreadyVerified: true))
             : await ApplyAsync(plan, ct).ConfigureAwait(false);
-        if (!applied.IsSuccess || !applied.Value.EffectsVerified) return applied;
+        if (!applied.IsSuccess || applied.Value.Error is not null || !applied.Value.EffectsVerified) return applied;
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Retained(current.Error);
         if (captures.Any(capture => current.Value.RetainedItems.Any(draft => draft.Key == capture.Draft.Key
@@ -1013,7 +1024,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 relationships: relationships), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
-    internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct)
+    internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct, bool deferSeedDelivery = false)
     {
         if (plan.Connection != connection)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The plan belongs to another immutable connection.");
@@ -1041,7 +1052,16 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             var current = await SnapshotAsync(ct).ConfigureAwait(false);
             if (!current.IsSuccess) return Finish(current.Error);
             var row = current.Value.Journal.Single(j => j.Digest == plan.Digest && j.Operation == ordinal);
-            if (row.Status == OpStatus.Verified) { receipts.Add(row.Receipts[^1]); continue; }
+            if (row.Status == OpStatus.Verified)
+            {
+                receipts.Add(row.Receipts[^1]);
+                if (!deferSeedDelivery)
+                {
+                    var delivered = await DeliverVerifiedSeedAsync(plan, ordinal, current.Value, ct).ConfigureAwait(false);
+                    if (!delivered.IsSuccess) return Finish(delivered.Error);
+                }
+                continue;
+            }
             if (row.Status is OpStatus.Failed or OpStatus.Partial or OpStatus.Indeterminate)
             {
                 receipts.Add(row.Receipts[^1]);
@@ -1077,11 +1097,29 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             }
             receipts.Add(receipt);
             if (receipt.Status != OpStatus.Verified) return Finish(receipt.Error);
+            if (!deferSeedDelivery && sharedBenches is not null && plan.Operations[ordinal].Kind == OpKind.Create)
+            {
+                var evidence = await SnapshotAsync(ct).ConfigureAwait(false);
+                if (!evidence.IsSuccess) return Finish(evidence.Error);
+                var delivered = await DeliverVerifiedSeedAsync(plan, ordinal, evidence.Value, ct).ConfigureAwait(false);
+                if (!delivered.IsSuccess) return Finish(delivered.Error);
+            }
         }
         return Finish(null);
 
         Result<CoreExecution> Finish(Error? error) => Result<CoreExecution>.Ok(new(receipts.ToImmutable(), error,
             AlreadyVerified: error is null && !dispatched));
+    }
+
+    internal Task<Result<bool>> DeliverVerifiedSeedAsync(Plan plan, int ordinal, StoreSnapshot snapshot, CancellationToken ct)
+    {
+        var op = plan.Operations[ordinal];
+        if (sharedBenches is null || op.Kind != OpKind.Create) return Task.FromResult(Result<bool>.Ok(false));
+        var target = snapshot.VerifiedSeedTarget(connection, op.Item, plan.Digest, ordinal);
+        if (target is null)
+            return Task.FromResult(Result<bool>.Fail(ErrorCode.Indeterminate,
+                "Bench delivery needs the original verified create receipt and matching permanent mapping."));
+        return sharedBenches.DeliverSeedReferenceAsync(new(connection, storeInstance, op.Item), target, ct);
     }
 
     private async Task<Result<bool>> CheckCurrentPolicyAsync(Plan plan, CancellationToken ct)

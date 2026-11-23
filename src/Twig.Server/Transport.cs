@@ -223,6 +223,7 @@ public sealed record EditorSavedDto(bool Verified, bool DraftRetained, string? M
     public SeedPublicationDto? SeedPublication { get; init; }
 }
 public sealed record NormalSeedCreateBody(Guid SourceId, Guid BenchId, string Type);
+public sealed record SeedMembershipDto(bool Changed);
 public sealed record SeedReferenceBody(Guid SourceId, Guid BenchId, Guid CaptureId);
 public sealed record SeedDeliveryBody(Guid SourceId, Guid BenchId, Guid CaptureId, string Digest);
 public sealed record SeedTypeDto(string Reference, string Name);
@@ -324,6 +325,7 @@ public sealed record SetupOperationDto(Guid OperationId, string Status, string P
 [JsonSerializable(typeof(EditorChoiceDto[]))]
 [JsonSerializable(typeof(EditorSavedDto))]
 [JsonSerializable(typeof(NormalSeedCreateBody))]
+[JsonSerializable(typeof(SeedMembershipDto))]
 [JsonSerializable(typeof(SeedReferenceBody))]
 [JsonSerializable(typeof(SeedDeliveryBody))]
 [JsonSerializable(typeof(SeedPublicationDto))]

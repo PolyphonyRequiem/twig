@@ -45,6 +45,29 @@ public static partial class NativeBenchHost
         app.MapGet("/api/v1/views/{id:guid}/benches/{bench:guid}/sources/{sourceId:guid}/seeds",
             (HttpContext http, Guid id, Guid bench, Guid sourceId) => Read(http, id, bench, sourceId));
 
+        const string member = "/api/v1/views/{id:guid}/benches/{bench:guid}/sources/{sourceId:guid}/seed-members/{localId:guid}";
+        app.MapPut(member, (HttpContext http, Guid id, Guid bench, Guid sourceId, Guid localId) =>
+            Membership(http, id, bench, sourceId, localId, true));
+        app.MapDelete(member, (HttpContext http, Guid id, Guid bench, Guid sourceId, Guid localId) =>
+            Membership(http, id, bench, sourceId, localId, false));
+
+        async Task Membership(HttpContext http, Guid id, Guid bench, Guid sourceId, Guid localId, bool present)
+        {
+            var session = await authorize(http, id);
+            if (localId.Version != 7)
+                throw new HttpFailure(400, "InvalidInput", "Use the seed's original UUIDv7.");
+            await Bound(http, session, sourceId, bench, async (source, ct) =>
+            {
+                var changed = SeedRequired(await panel.EditorOperationAsync(source, async token =>
+                {
+                    using var editor = SeedEditor(await panel.OpenExistingEditorAsync(source, bench, token));
+                    return SeedRequired(await editor.SetSeedMembershipAsync(localId, present, token));
+                }, ct));
+                if (changed) updates.Publish(0);
+                await Write(http, new SeedMembershipDto(changed));
+            }, requireAdo: false);
+        }
+
         async Task Read(HttpContext http, Guid id, Guid bench, Guid? sourceId)
         {
             var session = await authorize(http, id);
@@ -137,7 +160,7 @@ public static partial class NativeBenchHost
         }
 
         async Task Bound(HttpContext http, ViewSession session, Guid? sourceId, Guid bench,
-            Func<NativePanelContext, CancellationToken, Task> action, bool useEditor = true)
+            Func<NativePanelContext, CancellationToken, Task> action, bool useEditor = true, bool requireAdo = true)
         {
             var state = session.Editor;
             CancellationToken navigation;
@@ -152,7 +175,7 @@ public static partial class NativeBenchHost
                         ? session.DisplayContexts.Values.SingleOrDefault(value => value.Source.Id == id)
                             ?? throw new HttpFailure(409, "ContextRequired", "The requested connection is not admitted in this view.")
                         : Context(session);
-                if (source.Stamp.Connection.Provider.Value != "ado")
+                if (requireAdo && source.Stamp.Connection.Provider.Value != "ado")
                     throw new HttpFailure(422, "Unsupported", "Item creation requires an admitted Azure DevOps connection.");
                 if (SeedRequired(await panel.ReadPlanAsync(bench, lifetime.Token)).Enabled
                     || session.CurrentBenchId != bench)

@@ -72,6 +72,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         return guarded.IsSuccess ? guarded.Value : Result<NativePanelSeeds>.Fail(guarded.Error);
     }
     public Task<Result<UserBenchSnapshot>> ListAsync(CancellationToken ct) => definitions.ReadAsync(ct);
+    public Task<Result<ImmutableArray<BenchSeedReference>>> ReadSeedReferencesAsync(Guid benchId, CancellationToken ct)
+        => definitions.ReadSeedReferencesAsync(benchId, ct);
     public async Task<Result<bool>> CheckInitialAsync(IReadOnlyDictionary<NativePanelContext, SourceObservation> observations, CancellationToken ct)
     {
         foreach (var (context, observation) in observations)
@@ -112,6 +114,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (bench is null) return Result<ImmutableArray<NativePanelContext>>.Fail(ErrorCode.NotFound, "The Bench was deleted.");
         var registry = await definitions.WorkspacesAsync(ct).ConfigureAwait(false);
         if (!registry.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(registry.Error);
+        var references = await definitions.ReadSeedReferencesAsync(benchId, ct).ConfigureAwait(false);
+        if (!references.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(references.Error);
         var previous = retained.ToArray();
         using var concurrency = new SemaphoreSlim(8);
         var dependencies = Dependencies(bench, repository).Take(ViewSourceLimit);
@@ -142,7 +146,12 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (current.Value.InstanceId != shared.Value.InstanceId
             || current.Value.Benches.SingleOrDefault(value => value.Id == benchId)?.Revision != bench.Revision)
             return Result<ImmutableArray<NativePanelContext>>.Fail(ErrorCode.Conflict, "The Bench changed during connection resolution. Read the current definition.");
-        return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.OfType<NativePanelContext>().ToImmutableArray());
+        // A reference keeps an already admitted origin in scope; it cannot open a new root.
+        var origins = references.Value.Select(r => (r.Connection, r.StoreInstance)).ToHashSet();
+        var retainedOrigins = previous.Where(context => (available is null || available.Contains(context.Stamp.Connection))
+            && origins.Contains((context.Stamp.Connection, context.Stamp.StoreInstance)));
+        return Result<ImmutableArray<NativePanelContext>>.Ok(resolved.OfType<NativePanelContext>()
+            .Union(retainedOrigins).Take(ViewSourceLimit).ToImmutableArray());
     }
     public Task<Result<NativePlanStatus>> ReadPlanAsync(Guid benchId, CancellationToken ct) => definitions.ReadPlanStatusAsync(benchId, ct);
     public Task<Result<(NativePlanStatus Status, string Version)>> ReadStagedPlanVersionAsync(Guid benchId, CancellationToken ct)
@@ -250,7 +259,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
     public async Task<Result<NativePanelView>> ReadViewAsync(Guid benchId, NativePanelContext? anchor,
         IEnumerable<NativePanelContext> chosenContexts, CancellationToken ct,
         IReadOnlyDictionary<NativePanelContext, SourceObservation>? initialObservations = null,
-        IReadOnlySet<Connection>? available = null, UserRepositoryBindings? repository = null)
+        IReadOnlySet<Connection>? available = null, UserRepositoryBindings? repository = null,
+        bool includeSeedReferences = false)
     {
         if (repository is not null) available = RepositorySources(repository).ToHashSet();
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
@@ -259,7 +269,15 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (bench is null) return Result<NativePanelView>.Fail(ErrorCode.NotFound, "The selected Bench was deleted; its cached items and drafts were not removed.");
         var plan = await definitions.ReadPlanStatusAsync(benchId, ct).ConfigureAwait(false);
         if (!plan.IsSuccess) return Result<NativePanelView>.Fail(plan.Error);
-        var contexts = chosenContexts.Where(context => context.Stamp.Connection != anchor?.Stamp.Connection)
+        var references = await definitions.ReadSeedReferencesAsync(benchId, ct).ConfigureAwait(false);
+        if (!references.IsSuccess) return Result<NativePanelView>.Fail(references.Error);
+        var byOrigin = references.Value.Where(_ => includeSeedReferences && !plan.Value.Enabled)
+            .ToLookup(reference => (reference.Connection, reference.StoreInstance),
+            reference => reference.Item);
+        var captures = new Lazy<Task<Result<ImmutableArray<NativeEditorCapture>>>>(
+            () => definitions.ReadEditorCapturesAsync(ct, inspect: true));
+        var chosen = chosenContexts.ToArray();
+        var contexts = chosen.Where(context => context.Stamp.Connection != anchor?.Stamp.Connection)
             .GroupBy(context => context.Stamp.Connection).ToDictionary(group => group.Key, group => group.Last());
         if (anchor is not null) contexts[anchor.Stamp.Connection] = anchor;
         var selections = ImmutableArray.CreateBuilder<SourceSelection>();
@@ -267,9 +285,16 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var labels = ImmutableDictionary.CreateBuilder<Guid, string>();
         var normalDraftCounts = ImmutableDictionary.CreateBuilder<Guid, int>();
         var observations = new ConcurrentDictionary<NativePanelContext, SourceObservation>();
+        var verifiedTargets = new ConcurrentDictionary<BenchSeedReference, ItemKey>();
         using var concurrency = new SemaphoreSlim(8);
-        var dependencies = Dependencies(bench, repository).Take(ViewSourceLimit);
-        var results = await Task.WhenAll(dependencies.Select(ReadConnection)).ConfigureAwait(false);
+        var ordinary = Dependencies(bench, repository).Select(connection =>
+            (Connection: connection, Context: contexts.GetValueOrDefault(connection), SeedOnly: false)).Take(ViewSourceLimit).ToArray();
+        var seedOnly = chosen.Concat(contexts.Values).DistinctBy(c => c.Source.Id)
+            .Where(c => byOrigin.Contains((c.Stamp.Connection, c.Stamp.StoreInstance))
+                && (available is null || available.Contains(c.Stamp.Connection)) && !ordinary.Any(o => o.Context?.Source.Id == c.Source.Id))
+            .Select(c => (Connection: c.Stamp.Connection, Context: (NativePanelContext?)c, SeedOnly: true));
+        var results = await Task.WhenAll(ordinary.Concat(seedOnly).Take(ViewSourceLimit)
+            .Select(source => ReadConnection(source.Connection, source.Context, source.SeedOnly))).ConfigureAwait(false);
         foreach (var acquired in results)
         {
             labels[acquired.View.SourceId] = acquired.Label;
@@ -277,10 +302,40 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             if (acquired.Selection is { } selection) selections.Add(selection);
             if (acquired.Drafts != 0) normalDraftCounts[acquired.View.SourceId] = acquired.Drafts;
         }
-
-        async Task<(SourceSelection? Selection, SourceView View, string Label, int Drafts)> ReadConnection(Connection connection)
+        if (!references.Value.IsEmpty)
         {
-            contexts.TryGetValue(connection, out var context);
+            var shown = views.Where(view => view.Error is null && view.Observation is not null)
+                .SelectMany(view => view.Items.Where(item => item.BenchMember)
+                    .Select(item => (view.Observation!.Binding.Connection,
+                        view.Observation.Binding.StoreInstance, item.Identity.Key))).ToHashSet();
+            if (!includeSeedReferences || plan.Value.Enabled || references.Value.Any(reference => !shown.Contains((reference.Connection, reference.StoreInstance,
+                verifiedTargets.GetValueOrDefault(reference, reference.Item)))))
+            {
+                labels[Guid.Empty] = "Unavailable seed membership";
+                views.Add(SourceView.Failed(Guid.Empty, new(ErrorCode.Unavailable,
+                    "Referenced seed membership is unavailable in this workspace.")));
+            }
+            // Establish availability against the exact origin above. Once verified, the row
+            // itself is a provider identity and can also be present in the viewing mirror.
+            if (!verifiedTargets.IsEmpty)
+            {
+                var targets = verifiedTargets.Select(pair => (pair.Key.Connection, pair.Value)).ToHashSet();
+                var preferred = views.Where(view => view.Error is null && view.Observation is not null)
+                    .SelectMany(view => view.Items.Where(item => item.BenchMember)
+                        .Select(item => (Key: (view.Observation!.Binding.Connection, item.Identity.Key), Item: item)))
+                    .Where(row => targets.Contains(row.Key)).GroupBy(row => row.Key)
+                    .ToDictionary(group => group.Key, group => group.MinBy(row => row.Item.IsExcluded).Item.Identity);
+                for (var i = 0; i < views.Count; i++)
+                    if (views[i] is { Error: null, Observation: { } stamp } view)
+                        views[i] = view with { Items = view.Items.Where(item => !item.BenchMember
+                            || !preferred.TryGetValue((stamp.Binding.Connection, item.Identity.Key), out var identity)
+                            || item.Identity == identity).ToImmutableArray() };
+            }
+        }
+
+        async Task<(SourceSelection? Selection, SourceView View, string Label, int Drafts)> ReadConnection(Connection connection,
+            NativePanelContext? context, bool onlyReferences)
+        {
             var sourceId = context?.Source.Id ?? new Guid(SHA256.HashData(Encoding.UTF8.GetBytes(
                 string.Join("\n", connection.Provider.Value, connection.ResourceScope, connection.Destination, connection.IdentityRef))).AsSpan(0, 16));
             var label = context?.Source.Label ?? NativeConnectionLabels.Unavailable(connection).Name;
@@ -302,9 +357,50 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                     : await sources.ReadAsync(context.Source, timeout.Token).ConfigureAwait(false);
                 if (!observed.IsSuccess) return Failed(observed.Error);
                 observations[context] = observed.Value;
-                var intent = bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
+                var intent = onlyReferences ? [] : bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
                 var observation = observed.Value;
                 var normalDebt = 0;
+                var origin = (connection, observation.Binding.StoreInstance);
+                if (includeSeedReferences && !plan.Value.Enabled && (byOrigin.Contains(origin)
+                    || observation.Snapshot.RetainedItems.Any(draft => draft is Seed)))
+                {
+                    // A local key (even on the same connection) is not evidence of the origin store.
+                    // Never let a tentative mapping turn this read-only membership into a provider pin.
+                    var store = observation.Snapshot;
+                    var originKeys = byOrigin[origin].ToHashSet();
+                    originKeys.ExceptWith(store.Mappings.Where(mapping => observation.WithdrawnItems.Contains(mapping.Remote))
+                        .Select(mapping => mapping.Local));
+                    var verified = new Dictionary<ItemKey, ItemKey>();
+                    foreach (var key in originKeys)
+                        if (store.VerifiedSeedTarget(connection, key) is { } target)
+                        {
+                            verified[key] = target;
+                            verifiedTargets[new(connection, observation.Binding.StoreInstance, key)] = target;
+                        }
+                    originKeys.ExceptWith(verified.Keys);
+                    var eligible = store.RetainedItems.OfType<Seed>().Select(seed => seed.Key).Where(originKeys.Contains).ToHashSet();
+                    var retained = eligible.ToHashSet();
+                    // Keep existing creation-owned rows, independently of explicit memberships.
+                    var ownership = onlyReferences ? Result<ImmutableArray<NativeEditorCapture>>.Ok([])
+                        : await captures.Value.ConfigureAwait(false);
+                    if (!ownership.IsSuccess) return Failed(ownership.Error);
+                    foreach (var capture in ownership.Value.Where(capture => capture.UserInstance == shared.Value.InstanceId
+                        && capture.BenchId == benchId && !capture.PlanMode && !capture.Cancelled && capture.ScopeId == Guid.Empty
+                        && capture.Origin == context.Stamp && capture.StoreInstance == context.Stamp.StoreInstance
+                        && Twig.Infrastructure.Persistence.NativePathComparer.Instance.Equals(capture.Root, context.Root)))
+                        if (UserBenchStore.ParseIntent(capture.IntentJson).Operations is [{ Kind: OpKind.Create } op])
+                            retained.Add(op.Item);
+                    // Already mapped draft debt belongs to its ordinary provider row, not to a local member.
+                    if (!byOrigin.Contains(origin)) retained.UnionWith(store.Mappings.Select(mapping => mapping.Local));
+                    bool VisibleEndpoint(ItemKey key) => !key.IsLocal || retained.Contains(key);
+                    observation = observation with { Snapshot = new(store.Version, store.Items,
+                        store.Relationships.Where(edge => VisibleEndpoint(edge.From) && VisibleEndpoint(edge.To)),
+                        store.RetainedItems.Where(draft => draft is Seed ? retained.Contains(draft.Key) && !verified.ContainsKey(draft.Key)
+                            : !onlyReferences || verified.ContainsValue(draft.Key)),
+                        store.Plans, store.Journal, store.Mappings.Where(mapping => !eligible.Contains(mapping.Local)), store.Benches) };
+                    intent = intent.AddRange(eligible.Concat(verified.Values).Distinct()
+                        .Select(key => new Selector(SelectorKind.Pin, key, connection: connection)));
+                }
                 if (plan.Value.Enabled)
                 {
                     normalDebt = observation.Snapshot.RetainedItems.Length;
@@ -331,7 +427,17 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                         Limitations = projected.Value.Limitations.Add(
                             $"{normalDebt} normal-mode draft(s) remain separate from this Plan. They are retained in protected draft browse and cannot be published by Plan Apply.")
                     }, label, normalDebt);
+                if (onlyReferences) return Failed(projected.Error);
                 // Membership failure must not discard this admitted context's protected draft evidence.
+                if (byOrigin.Contains(origin))
+                {
+                    // The failed selection cannot establish seed membership. Retain provider edits,
+                    // but no seed rows or relationship endpoints identifying an unavailable seed.
+                    var store = observation.Snapshot;
+                    observation = observation with { Snapshot = new(store.Version, store.Items,
+                        store.Relationships.Where(edge => !edge.From.IsLocal && !edge.To.IsLocal),
+                        store.RetainedItems.OfType<LocalEdits>(), mappings: store.Mappings) };
+                }
                 var empty = new SourceSelection(context.Source.Id, context.Source.Binding, []);
                 var protectedView = SourceProjection.Create(new(bench.Id, bench.Name, bench.Revision, [empty]), empty,
                     observation with { WorkspaceExclusions = [] }, timeout.Token);

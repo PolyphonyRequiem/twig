@@ -84,6 +84,21 @@ public sealed record StoreSnapshot
     public ImmutableArray<JournalEntry> Journal { get; }
     public ImmutableArray<PublishMapping> Mappings { get; }
     public ImmutableArray<Bench> Benches { get; }
+
+    /// <summary>Resolves only a permanent identity proved by this store's original verified create.</summary>
+    public ItemKey? VerifiedSeedTarget(Connection connection, ItemKey local, string? digest = null, int? ordinal = null)
+    {
+        if (!local.IsLocal || Mappings.Where(value => value.Local == local).Take(2).ToArray() is not [var mapping]
+            || !mapping.Remote.BelongsTo(connection) || digest is not null && digest != mapping.PlanDigest
+            || ordinal is not null && ordinal != mapping.Operation) return null;
+        var plan = Plans.SingleOrDefault(value => value.Digest == mapping.PlanDigest && value.Connection == connection);
+        if (plan is null || mapping.Operation >= plan.Operations.Length
+            || plan.Operations[mapping.Operation] is not { Kind: OpKind.Create } op || op.Item != local) return null;
+        return Journal.Where(row => row.Digest == mapping.PlanDigest && row.Operation == mapping.Operation)
+            .Take(2).ToArray() is [{ Status: OpStatus.Verified } row]
+            && row.Receipts.LastOrDefault() is { Status: OpStatus.Verified } receipt
+            && receipt.PublishedKey == mapping.Remote ? mapping.Remote : null;
+    }
 }
 
 public interface IStore

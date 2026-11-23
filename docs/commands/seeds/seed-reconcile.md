@@ -11,8 +11,11 @@ mutates: local
 ## Behavior
 
 Uses original Core publication evidence/mappings to settle eligible local seed
-state. It is not a repair of legacy `seed_links` rows or permission to infer a
-new remote item from its title.
+state. If a create was verified but its Bench update was interrupted, run
+`twig seed reconcile` in the original workspace. It uses the original receipt
+and mapping to replace any remaining explicit seed memberships with provider
+pins, even if the local draft has already been settled. It does not infer an
+identity from the item's title or add it to a Bench it no longer belongs to.
 
 ## Effects
 

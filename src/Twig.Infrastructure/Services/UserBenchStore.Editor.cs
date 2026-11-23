@@ -20,6 +20,7 @@ internal sealed record NativeEditorCapture(Guid Id, long Revision, Guid UserInst
     public string BeforeFingerprint { get; init; } = "none";
     public bool Cancelled { get; init; }
     public string? SeedPlan { get; init; }
+    public bool SeedOriginReadBack { get; init; }
     public NativeLocalRelationshipCapture? LocalRelationship { get; init; }
     internal bool SameAs(NativeEditorCapture other)
         => this with { Endpoints = other.Endpoints } == other && Endpoints.SequenceEqual(other.Endpoints);
@@ -58,6 +59,7 @@ public sealed partial class UserBenchStore
                 || plan.Connection != capture.Origin.Connection || plan.Operations.Length != 1
                 || !local && plan.Operations[0].Kind is not (OpKind.Create or OpKind.Batch)
                 || local != (capture.LocalRelationship is not null)
+                || capture.SeedOriginReadBack && capture.SeedPlan is null
                 || capture.Endpoints.IsDefault || capture.Endpoints.Length > 128
                 || (local ? capture.DraftFingerprint != "none" : capture.DraftFingerprint.Length != 64)
                 || Encoding.UTF8.GetByteCount(capture.IntentJson) > 1024 * 1024)
@@ -102,6 +104,7 @@ public sealed partial class UserBenchStore
                     || previous.StoreInstance != capture.StoreInstance || previous.ScopeId != capture.ScopeId || previous.Origin != capture.Origin
                     || previous.Root != capture.Root || previous.PlanMode && previous.PlanId != capture.PlanId
                     || !previous.PlanMode && plan.Operations[0].Item.IsLocal && previous.BenchId != capture.BenchId
+                    || previous.SeedOriginReadBack && !capture.SeedOriginReadBack
                     || previous.SeedPlan is not null && (previous.SeedPlan != capture.SeedPlan
                         || previous.IntentJson != capture.IntentJson || previous.DraftFingerprint != capture.DraftFingerprint
                         || previous.BenchId != capture.BenchId || previous.PlanId != capture.PlanId || capture.Cancelled)

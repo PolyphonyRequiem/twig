@@ -27,6 +27,7 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("unknown")]
     [InlineData("guards")]
     [InlineData("ownership")]
+    [InlineData("membership")]
     public async Task NativeAdoSeedHttpKeepsExactAuthority(string scenario)
     {
         var caseClock = Stopwatch.StartNew();
@@ -143,6 +144,52 @@ public sealed partial class NativePublicationConsumerTests
                 current.Connections.ShouldBe(emptyBench.Connections);
             }
 
+            if (scenario == "membership")
+            {
+                using var services = EditorServices(fixture.Root);
+                using var origin = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(ct)).Value;
+                var first = (await origin.Workspace.StageSeedAsync(type.Reference,
+                    FieldValues.Empty.Set("System.Title", FieldValue.String("Selected standalone draft")), ct)).Value;
+                var unrelated = (await origin.Workspace.StageSeedAsync(type.Reference,
+                    FieldValues.Empty.Set("System.Title", FieldValue.String("Unrelated standalone draft")), ct)).Value;
+                var path = $"/benches/{fixture.Bench:D}/sources/{sourceId}/seed-members/{first.Key.LocalId:D}";
+                (await Send(path.Replace(sourceId, unadmitted), HttpMethod.Put)).Status.ShouldBe(HttpStatusCode.Conflict);
+                (await Send(path.Replace(first.Key.LocalId.ToString("D"), Guid.CreateVersion7().ToString("D")), HttpMethod.Put)).Status
+                    .ShouldBe(HttpStatusCode.NotFound);
+                (await Ok(path, HttpMethod.Put))["changed"]!.GetValue<bool>().ShouldBeTrue();
+                var revision = (await store.ReadAsync(ct)).Value.Revision;
+                (await Ok(path, HttpMethod.Put))["changed"]!.GetValue<bool>().ShouldBeFalse();
+                (await store.ReadAsync(ct)).Value.Revision.ShouldBe(revision);
+                var included = (await View())["sources"]![0]!["items"]!.AsArray().ShouldHaveSingleItem()!;
+                included["benchMember"]!.GetValue<bool>().ShouldBeTrue();
+                included["title"]!.GetValue<string>().ShouldBe("Selected standalone draft");
+                (await Send("/editor", HttpMethod.Post, OpenBody(included["id"]!.GetValue<string>()))).Status
+                    .ShouldNotBe(HttpStatusCode.OK, "A reference does not create an editor ticket.");
+                var second = (await store.SaveAsync(new(Guid.NewGuid(), "Release", [], connections: definition.Connections), 0, ct)).Value;
+                async Task Select(Guid from, Guid to)
+                    => await Ok("/selection", HttpMethod.Put, new JsonObject { ["expectedBenchId"] = from, ["benchId"] = to });
+                await Select(fixture.Bench, second.Id);
+                await Ok($"/benches/{second.Id:D}", HttpMethod.Get);
+                var otherPath = path.Replace(fixture.Bench.ToString("D"), second.Id.ToString("D"));
+                (await Ok(otherPath, HttpMethod.Put))["changed"]!.GetValue<bool>().ShouldBeTrue();
+                await Select(second.Id, fixture.Bench);
+                await View();
+                (await Ok(path, HttpMethod.Delete))["changed"]!.GetValue<bool>().ShouldBeTrue();
+                (await Ok(path, HttpMethod.Delete))["changed"]!.GetValue<bool>().ShouldBeFalse();
+                (await View())["sources"]![0]!["items"]!.AsArray().ShouldBeEmpty();
+                await Select(fixture.Bench, second.Id);
+                (await Ok($"/benches/{second.Id:D}", HttpMethod.Get))["sources"]![0]!["items"]!.AsArray()
+                    .ShouldHaveSingleItem()!["id"]!.GetValue<string>().ShouldBe(included["id"]!.GetValue<string>());
+                var release = (await store.ReadAsync(ct)).Value.Benches.Single(bench => bench.Id == second.Id);
+                (await store.DeleteAsync(second.Id, release.Revision, ct)).IsSuccess.ShouldBeTrue();
+                var remaining = (await origin.Workspace.SnapshotAsync(ct)).Value.RetainedItems;
+                remaining.Length.ShouldBe(2);
+                remaining.Single(seed => seed.Key == first.Key).Fields.ShouldBe(first.Fields);
+                remaining.Single(seed => seed.Key == unrelated.Key).Fields.ShouldBe(unrelated.Fields);
+                NoWrites();
+                return;
+            }
+
             if (scenario == "projection")
             {
                 ItemKey key;
@@ -247,6 +294,8 @@ public sealed partial class NativePublicationConsumerTests
                 var planOwner = (await store.ReadPlanSeedOwnerAsync(planSeed.LocalId, ct)).Value;
                 planOwner.BenchId.ShouldBe(fixture.Bench);
                 planOwner.StoreInstance.ShouldNotBe(fixture.Stamp.StoreInstance);
+                (await Send($"/benches/{fixture.Bench:D}/sources/{sourceId}/seed-members/{planSeed.LocalId:D}",
+                    HttpMethod.Put)).Status.ShouldBe(HttpStatusCode.NotFound);
                 var captures = (await store.ReadEditorCapturesAsync(ct)).Value;
                 captures.Single(capture => UserBenchStore.ParseIntent(capture.IntentJson).Operations.Single().Item == otherSeed)
                     .BenchId.ShouldBe(other.Id);

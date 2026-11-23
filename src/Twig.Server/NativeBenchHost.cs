@@ -98,12 +98,12 @@ public static partial class NativeBenchHost
                     context.Response.Headers[ServerLauncher.InstanceHeader] = options.ProcessInstance.ToString("D");
                 return Write(context,
                 new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.ServerId,
-                    CanvasAssets.ServerVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1"]));
+                    CanvasAssets.ServerVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1", "bench-seed-members-v1"]));
             })
                 .RequireAuthorization("WindowsOwner");
         app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
             new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.ServerId,
-                CanvasAssets.ServerVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1"])));
+                CanvasAssets.ServerVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1", "bench-seed-members-v1"])));
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);
@@ -353,15 +353,27 @@ public static partial class NativeBenchHost
             var session = await Authorize(context, id, true);
             await ResolveBenchConnections(panel, session, context.RequestAborted);
             NativePanelContext[] chosen;
-            lock (session) chosen = session.DisplayContexts.Values.ToArray();
-            var observed = await panel.ReadViewAsync(benchId, session.NativeContext, chosen, context.RequestAborted,
-                repository: session.RepositoryBindings);
+            NativePanelContext? anchor;
+            UserRepositoryBindings? repository;
+            lock (session)
+            {
+                chosen = session.DisplayContexts.Values.ToArray();
+                anchor = session.NativeContext;
+                repository = session.RepositoryBindings;
+            }
+            var observed = await panel.ReadViewAsync(benchId, anchor, chosen, context.RequestAborted,
+                repository: repository, includeSeedReferences: true);
             if (!observed.IsSuccess && observed.Error.Evidence.Contains("bench-definition-changed"))
                 throw new HttpFailure(409, "BenchViewChanged", "The Bench changed while loading. Read its current definition again.");
             var captured = ConnectionObservation(observed, app.Logger);
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             _ = ConnectionObservation(await panel.CheckWorkspaceAsync(captured, context.RequestAborted,
                 recheckLocalSnapshot: false), app.Logger);
+            lock (session)
+                if (!ReferenceEquals(anchor, session.NativeContext) || !ReferenceEquals(repository, session.RepositoryBindings)
+                    || chosen.Length != session.DisplayContexts.Count || chosen.Any(source =>
+                        !session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current) || !ReferenceEquals(source, current)))
+                    throw new HttpFailure(409, "SourceChanged", "The source changed during the Bench read.");
             await Write(context, ComposeBenchView(mapped, captured, session, PresentSource));
         });
         app.MapGet("/api/v1/views/{id:guid}/benches/{benchId:guid}/access", async (HttpContext context, Guid id, Guid benchId) =>
@@ -372,9 +384,12 @@ public static partial class NativeBenchHost
             var library = Require(await panel.ListAsync(context.RequestAborted));
             var bench = library.Benches.SingleOrDefault(value => value.Id == benchId)
                 ?? throw new HttpFailure(404, "NotFound", "The selected Bench is unavailable.");
+            var origins = Require(await panel.ReadSeedReferencesAsync(benchId, context.RequestAborted))
+                .Select(r => (r.Connection, r.StoreInstance)).ToHashSet();
             NativePanelContext[] chosen;
-            lock (session) chosen = session.DisplayContexts.Values.Where(value => value == anchor
-                || NativePanel.Dependencies(bench, session.RepositoryBindings).Contains(value.Stamp.Connection)).ToArray();
+            lock (session) chosen = session.DisplayContexts.Values.Append(anchor).Distinct().Where(value => value == anchor
+                || NativePanel.Dependencies(bench, session.RepositoryBindings).Contains(value.Stamp.Connection)
+                || origins.Contains((value.Stamp.Connection, value.Stamp.StoreInstance))).ToArray();
             if (chosen.Length > 32) throw new HttpFailure(422, "Unsupported", "The Bench exceeds the bounded access-check source count.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -382,8 +397,8 @@ public static partial class NativeBenchHost
             foreach (var check in checks) _ = ConnectionObservation(check, app.Logger);
             lock (session)
                 if (session.ProfileGeneration != profile || !ReferenceEquals(session.NativeContext, anchor)
-                    || chosen.Any(source => !session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current)
-                        || !ReferenceEquals(current, source)))
+                    || chosen.Any(source => !ReferenceEquals(source, anchor)
+                        && (!session.DisplayContexts.TryGetValue(source.Stamp.Connection, out var current) || !ReferenceEquals(current, source))))
                     throw new HttpFailure(409, "SourceChanged", "The source or profile changed during the access check.");
             if (session.CurrentBenchId != benchId)
                 throw new HttpFailure(409, "Conflict", "The selected Bench changed during the access check.");
@@ -743,6 +758,8 @@ public static partial class NativeBenchHost
             mapped.Sources.Select(source => presentSource(source) with
             {
                 NormalDraftCount = captured.NormalDraftCounts.GetValueOrDefault(source.SourceId),
+                Items = source.Items.Select(item => item.IsLocal && !captured.Plan.Enabled
+                    ? item with { Pin = null } : item).ToArray(),
             }).ToArray())
         { Plan = PlanStatus(session, captured.Plan) };
 

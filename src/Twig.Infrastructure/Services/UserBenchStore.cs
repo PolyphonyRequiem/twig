@@ -17,6 +17,7 @@ public sealed record WorkspaceViewRules(long Revision, ImmutableArray<Selector> 
 public sealed partial class UserBenchStore
 {
     private const int ApplicationId = 0x5457424e;
+    private const int SchemaVersion = 4;
     private readonly string path;
     private readonly string? captureRegistry;
     private readonly object identityGate = new();
@@ -69,6 +70,8 @@ public sealed partial class UserBenchStore
             if (current is null ? expectedRevision != 0 : current.Value.Deleted || current.Value.Bench.Revision != expectedRevision)
                 return Result<Bench>.Fail(ErrorCode.Conflict, "The Bench changed or was deleted. Refresh before changing it.");
             var next = new Bench(definition.Id, definition.Name, definition.Selectors, expectedRevision + 1, definition.Connections);
+            foreach (var removed in (current?.Bench.Connections ?? []).Except(next.Connections))
+                await RemoveSeedReferences(db, transaction, next.Id, removed, ct).ConfigureAwait(false);
             await Put(db, transaction, next, false, ct).ConfigureAwait(false);
             await Advance(db, transaction, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -134,6 +137,7 @@ public sealed partial class UserBenchStore
             if (current.Value.Deleted || current.Value.Bench.Revision != expectedRevision || expectedRevision == long.MaxValue)
                 return Result<bool>.Fail(ErrorCode.Conflict, "The Bench changed or was deleted; nothing else was removed.");
             var previous = current.Value.Bench;
+            await RemoveSeedReferences(db, transaction, previous.Id, null, ct).ConfigureAwait(false);
             await Put(db, transaction, new(previous.Id, previous.Name, previous.Selectors, expectedRevision + 1, previous.Connections), true, ct).ConfigureAwait(false);
             await Advance(db, transaction, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -654,7 +658,7 @@ public sealed partial class UserBenchStore
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != ApplicationId)
                 throw new InvalidDataException("This is not the native user Bench store.");
             command.CommandText = "PRAGMA user_version;";
-            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != 3)
+            if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) != SchemaVersion)
                 throw new InvalidDataException("Unsupported native Bench store version. Reset developer-local Twig data and initialize a fresh store; the existing file was preserved.");
             command.CommandText = "SELECT instance FROM meta WHERE id=1;";
             if (!Guid.TryParseExact(await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string, "D", out var current)
@@ -702,13 +706,17 @@ public sealed partial class UserBenchStore
                     PRAGMA journal_mode=WAL;
                     PRAGMA synchronous=FULL;
                     PRAGMA application_id={ApplicationId};
-                    PRAGMA user_version=3;
+                    PRAGMA user_version={SchemaVersion};
                     CREATE TABLE meta(id INTEGER PRIMARY KEY CHECK(id=1),instance TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>=0),
                         editor_registry TEXT,editor_generation INTEGER NOT NULL DEFAULT 0,editor_head TEXT NOT NULL DEFAULT '') STRICT;
                     INSERT INTO meta(id,instance,revision,editor_registry) VALUES(1,'{user:D}',0,{(registryIdentity is null ? "NULL" : "'" + registryIdentity.Value.ToString("N") + "'")});
                     CREATE TABLE benches(id TEXT PRIMARY KEY,canonical_name TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),deleted INTEGER NOT NULL CHECK(deleted IN(0,1)),document TEXT NOT NULL) STRICT;
                     CREATE UNIQUE INDEX bench_names ON benches(canonical_name) WHERE deleted=0;
                     CREATE TABLE imports(store_instance TEXT PRIMARY KEY,connection TEXT NOT NULL) STRICT;
+                    CREATE TABLE seed_references(bench_id TEXT NOT NULL REFERENCES benches(id),
+                        store_instance TEXT NOT NULL REFERENCES imports(store_instance),local_id TEXT NOT NULL,
+                        PRIMARY KEY(store_instance,local_id,bench_id)) STRICT;
+                    CREATE INDEX seed_references_by_bench ON seed_references(bench_id);
                     CREATE TABLE workspaces(context_key TEXT PRIMARY KEY,root TEXT NOT NULL,connection TEXT NOT NULL,store_instance TEXT NOT NULL) STRICT;
                     CREATE TABLE repository_bindings(repository_key TEXT PRIMARY KEY,revision INTEGER NOT NULL CHECK(revision>0),document TEXT NOT NULL) STRICT;
                     CREATE TABLE view_rules(context_key TEXT NOT NULL,connection TEXT NOT NULL,revision INTEGER NOT NULL CHECK(revision>0),exclusions TEXT NOT NULL,PRIMARY KEY(context_key,connection)) STRICT;

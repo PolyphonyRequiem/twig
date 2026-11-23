@@ -191,14 +191,7 @@ public sealed partial class NativePublicationConsumerTests
     [Fact]
     public async Task NativeEditorPendingSafetyCheckStillAllowsFreshOwnedPlanDraftsWithoutInventingCoverage()
     {
-        var native = await RelationshipWorkspaceAsync();
-        using (var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = _bindings.RegistryPath, Pooling = false }.ToString()))
-        {
-            await db.OpenAsync();
-            using var command = db.CreateCommand();
-            command.CommandText = "UPDATE core_execution_meta SET active=0,digest=NULL,revision=revision+1;";
-            await command.ExecuteNonQueryAsync();
-        }
+        var native = await UnactivatedPublishingWorkspaceAsync();
         using var services = EditorServices(native.Paths.StartDir);
         var factory = services.GetRequiredService<CoreWorkspaceFactory>();
         var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
@@ -210,9 +203,11 @@ public sealed partial class NativePublicationConsumerTests
         using var editor = opened.Value;
         var item = (await editor.SelectAsync(ItemKey.Remote(native.Connection.Provider, native.Connection.ResourceScope, "42"), default)).Value;
         (await editor.StageAsync(item, FieldValues.Empty.Set("System.Title", FieldValue.String("local pending")), null, null, default)).IsSuccess.ShouldBeTrue();
-        (await NativeCoreExecution.PublishingAsync(_bindings.RegistryPath, default)).IsSuccess.ShouldBeFalse();
+        (await editor.Workspace.SnapshotAsync(default)).Value.RetainedItems.Single().Fields["System.Title"].Text.ShouldBe("local pending");
+        (await _systemRegistry.ReadCoreGateAsync(default)).Value.Active.ShouldBeFalse();
         (await native.Store.ReadAsync(native.Connection, default)).Value.RetainedItems.ShouldBeEmpty();
         _transport.PatchAttempts.ShouldBe(0);
+        _transport.PostCount.ShouldBe(0);
     }
 
     [Theory]

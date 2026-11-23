@@ -35,9 +35,32 @@ public sealed partial class NativePublicationConsumerTests
     }
 
     [Fact]
-    public async Task NativePublishingBeforeActivationIsRefusedByTheActualCliComposition()
+    public async Task NativePublishingVerifiesAdmittedSourceWithoutGlobalActivation()
     {
-        var native = await AttachAsync();
+        var (paths, _, store, connection) = await UnactivatedPublishingWorkspaceAsync();
+        const string title = "Verified without global activation";
+        RunCoreLink(paths, ["update", "title", title, "--id", "42", "-o", "json"]).ShouldBe(0);
+        _transport.PatchAttempts.ShouldBe(1);
+        _transport.TitleOf(42).ShouldBe(title);
+        (await store.ReadAsync(connection, default)).Value.Journal.Single().Status.ShouldBe(CoreModel.OpStatus.Verified);
+    }
+
+    [Fact]
+    public async Task NativePublishingRefusesChangedBindingWithoutMutationHttp()
+    {
+        var (paths, config, store, connection) = await UnactivatedPublishingWorkspaceAsync();
+        var replacement = await _bindings.CreateBindingAsync(config.Organization, config.Project, "sibling", false);
+        SwapSelection(config, replacement.BindingId);
+        RunCoreLink(paths, ["update", "title", "Must not publish", "--id", "42", "-o", "json"]).ShouldBe(1);
+        _transport.WorkRequests.ShouldBe(0);
+        _transport.PatchAttempts.ShouldBe(0);
+        _transport.PostCount.ShouldBe(0);
+        (await store.ReadAsync(connection, default)).Value.Journal.ShouldBeEmpty();
+    }
+
+    private async Task<(TwigPaths Paths, TwigConfiguration Config, CleanStore Store, CoreModel.Connection Connection)> UnactivatedPublishingWorkspaceAsync()
+    {
+        var native = await AttachAsync(canonicalRoot: true);
         var config = native.GetRequiredService<TwigConfiguration>();
         var paths = native.GetRequiredService<TwigPaths>();
         _transport.CoreMetadataEnabled = true;
@@ -47,10 +70,8 @@ public sealed partial class NativePublicationConsumerTests
         var database = Path.Combine(paths.TwigDir, "activation-gate-core.db");
         var store = (await CleanStore.CreateAsync(database)).Value;
         (await CoreWorkspaceFactory.RecordNewAsync(paths, store, database, connection, Actor, default)).IsSuccess.ShouldBeTrue();
-        _transport.PatchAttempts.ShouldBe(0);
-        RunCoreLink(paths, ["update", "title", "must stay unpublished before safety check", "--id", "42", "-o", "json"])
-            .ShouldBe(1);
-        _transport.PatchAttempts.ShouldBe(0, "no mutation HTTP before the real native activation gate");
+        (await _systemRegistry.ReadCoreGateAsync(default)).Value.Active.ShouldBeFalse();
+        return (paths, config, store, connection);
     }
 
     [Fact]

@@ -155,7 +155,8 @@ public sealed partial class AdoProvider
                     var matches = op.Kind switch
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
-                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && MatchesField(f.Key, f.Value, value))
+                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value)
+                                && (value.Equals(f.Value) || op.Kind == OpKind.Create && MatchesCreateDescription(f.Key, f.Value, value)))
                             && op.CreateEvidence.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
                             && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text)
                             && (op.Kind != OpKind.Create || op.Other is null
@@ -230,9 +231,8 @@ public sealed partial class AdoProvider
             : Result<Receipt>.Ok(row.Receipts[^1]);
     }
 
-    private static bool MatchesField(string reference, FieldValue expected, FieldValue actual)
+    private static bool MatchesCreateDescription(string reference, FieldValue expected, FieldValue actual)
     {
-        if (expected.Equals(actual)) return true;
         if (reference != "System.Description" || expected.Kind != FieldKind.Html || actual.Kind != FieldKind.Html)
             return false;
 

@@ -133,7 +133,6 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                             && ConnectionRemoteWriteAdmission.TargetWorkItemId(admitted.Request.Target) == target)
                         return NativeResults.Fail("remote-write-core-outcome-unknown: an original unresolved native request fences this target or creation family.");
                 }
-
             }
             cmd.CommandText = "SELECT 1 FROM connection_remote_write_intents i WHERE i.worktree_fingerprint=$fp AND i.request_digest=$digest AND NOT EXISTS(SELECT 1 FROM connection_remote_write_receipts r WHERE r.intent_id=i.intent_id) LIMIT 1;";
             if (await cmd.ExecuteScalarAsync(ct).ConfigureAwait(false) is not null)

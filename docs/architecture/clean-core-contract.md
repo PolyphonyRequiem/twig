@@ -104,9 +104,14 @@ attachment, in that order. A connection blocker does not switch the Bench.
 
 Native workspace responses carry `summary.repositorySetup` for Canvas. Use
 `PUT /repository-bindings` with the binding revision to set `attachedBenches`,
-`defaultBench`, and `excludedConnections`. Use `PUT /repository-connection`
-with an operation ID, repository ID, binding revision and selected Bench revision for an exact connection already
-on that Bench. This changes only owner-local wiring, not the Bench definition.
+`defaultBench`, and `excludedConnections`. For an attached Bench, resolve the
+repository declaration against local registrations and combine resolved
+repository sources with saved Bench dependencies for this view only.
+Do not copy the declaration into Bench metadata or infer membership from it.
+Use `PUT /repository-connection` with an operation ID, repository ID, binding
+revision and selected Bench revision to explicitly assign an exact connection.
+It must match the repository declaration or a saved Bench dependency. This changes only owner-local wiring,
+not the Bench definition.
 Multiple registrations require disambiguation; Twig does not infer another
 account. Private setup accepts an explicitly named existing native database
 only when its source and owner match; other providers require an existing

@@ -86,6 +86,14 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         => sources.RefreshMetadataAsync(workspace, now, ct);
     public Task<Result<UserRepositoryBindings>> ReadRepositoryAsync(string root, CancellationToken ct)
         => definitions.ReadRepositoryAsync(root, ct);
+    public static IEnumerable<Connection> RepositorySources(UserRepositoryBindings repository)
+        => repository.DeclaredConnection is { } declared
+            ? repository.Connections.Append(declared).Distinct() : repository.Connections;
+
+    public static IEnumerable<Connection> Dependencies(NativeBench bench, UserRepositoryBindings? repository)
+        => repository is not null && repository.AttachedBenches.Contains(bench.Id)
+            ? bench.Connections.Union(RepositorySources(repository)) : bench.Connections;
+    public const int ViewSourceLimit = 64;
     public Task<Result<UserRepositoryBindings>> SaveRepositoryAsync(string root, long revision,
         IEnumerable<Connection> connections, Guid? defaultBench, CancellationToken ct,
         Guid[]? attachedBenches = null, Connection[]? excludedConnections = null,
@@ -95,8 +103,9 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             expectedBenchId, expectedBenchRevision, expectedWorkspace, operationId, operationDigest);
     public async Task<Result<ImmutableArray<NativePanelContext>>> ResolveConnectionsAsync(Guid benchId,
         IEnumerable<NativePanelContext> retained, CancellationToken ct, IReadOnlySet<Connection>? available = null,
-        bool cachedAdmissionOnly = false)
+        bool cachedAdmissionOnly = false, UserRepositoryBindings? repository = null)
     {
+        if (repository is not null) available = RepositorySources(repository).ToHashSet();
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
         if (!shared.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(shared.Error);
         var bench = shared.Value.Benches.SingleOrDefault(value => value.Id == benchId);
@@ -105,7 +114,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (!registry.IsSuccess) return Result<ImmutableArray<NativePanelContext>>.Fail(registry.Error);
         var previous = retained.ToArray();
         using var concurrency = new SemaphoreSlim(8);
-        var resolved = await Task.WhenAll(bench.Connections.Select(async connection =>
+        var dependencies = Dependencies(bench, repository).Take(ViewSourceLimit);
+        var resolved = await Task.WhenAll(dependencies.Select(async connection =>
         {
             if (available is not null && !available.Contains(connection)) return null;
             var admitted = previous.Where(value => value.Stamp.Connection == connection).ToArray();
@@ -240,8 +250,9 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
     public async Task<Result<NativePanelView>> ReadViewAsync(Guid benchId, NativePanelContext? anchor,
         IEnumerable<NativePanelContext> chosenContexts, CancellationToken ct,
         IReadOnlyDictionary<NativePanelContext, SourceObservation>? initialObservations = null,
-        IReadOnlySet<Connection>? available = null)
+        IReadOnlySet<Connection>? available = null, UserRepositoryBindings? repository = null)
     {
+        if (repository is not null) available = RepositorySources(repository).ToHashSet();
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
         if (!shared.IsSuccess) return Result<NativePanelView>.Fail(shared.Error);
         var bench = shared.Value.Benches.SingleOrDefault(value => value.Id == benchId);
@@ -257,7 +268,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         var normalDraftCounts = ImmutableDictionary.CreateBuilder<Guid, int>();
         var observations = new ConcurrentDictionary<NativePanelContext, SourceObservation>();
         using var concurrency = new SemaphoreSlim(8);
-        var results = await Task.WhenAll(bench.Connections.Select(ReadConnection)).ConfigureAwait(false);
+        var dependencies = Dependencies(bench, repository).Take(ViewSourceLimit);
+        var results = await Task.WhenAll(dependencies.Select(ReadConnection)).ConfigureAwait(false);
         foreach (var acquired in results)
         {
             labels[acquired.View.SourceId] = acquired.Label;

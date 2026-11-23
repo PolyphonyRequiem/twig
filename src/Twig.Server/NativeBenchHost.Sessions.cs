@@ -136,7 +136,7 @@ public static partial class NativeBenchHost
             {
                 Connection = registered.Connection,
                 Account = NativeConnectionLabels.Account(registered.Connection, accounts),
-                Available = repository is null || repository.Connections.Contains(registered.Connection),
+                Available = repository is null || NativePanel.RepositorySources(repository).Contains(registered.Connection),
             });
         }
         var summary = new NativePanelSummary(shared.InstanceId, shared.Revision, shared.Benches.Select(Definition).ToArray(),
@@ -151,7 +151,7 @@ public static partial class NativeBenchHost
         if (selectionExists && state.CurrentBenchId is { } bench)
         {
             captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations,
-                repository?.Connections.ToHashSet()));
+                repository: repository));
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             if (mapped.CatalogId != shared.InstanceId || mapped.CatalogRevision != shared.Revision)
                 throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during workspace loading.");
@@ -162,7 +162,7 @@ public static partial class NativeBenchHost
         if (!registry.SequenceEqual(Require(await panel.WorkspacesAsync(ct))))
             throw new HttpFailure(409, "WorkspaceChanged", "The registered connections changed during workspace loading.");
         if (repositoryRoot is not null && Require(await panel.ReadRepositoryAsync(repositoryRoot, ct)) is { } currentRepository
-            && (currentRepository.RepositoryId != repository?.RepositoryId || currentRepository.Revision != repository?.Revision))
+            && !SameRepositorySources(currentRepository, repository))
             throw new HttpFailure(409, "WorkspaceChanged", "The repository bindings changed during workspace loading.");
         if (Require(await panel.ListAsync(ct)) is { } final
             && (final.InstanceId != shared.InstanceId || final.Revision != shared.Revision))
@@ -285,7 +285,8 @@ public static partial class NativeBenchHost
                         ? before.Choices.BenchId : null));
             var currentBench = selection.BenchId;
             var resolved = currentBench is { } selected && shared.Benches.Any(value => value.Id == selected)
-                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct, available, cachedAdmissionOnly || repository is not null)).ToArray()
+                ? Require(await panel.ResolveConnectionsAsync(selected, opened.Values, ct,
+                    cachedAdmissionOnly: cachedAdmissionOnly || repository is not null, repository: repository)).ToArray()
                 : [];
             var instance = shared.InstanceId;
             if (instance != session.CatalogId)
@@ -337,11 +338,14 @@ public static partial class NativeBenchHost
         NativePanelContext[] previous;
         lock (session) { bench = session.CurrentBenchId; revision = session.SelectionRevision; previous = session.DisplayContexts.Values.ToArray(); }
         if (bench is null) return;
-        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct, AvailableConnections(session), cachedAdmissionOnly));
+        var repository = session.RepositoryBindings;
+        var resolved = Require(await panel.ResolveConnectionsAsync(bench.Value, previous, ct,
+            cachedAdmissionOnly: cachedAdmissionOnly || repository is not null, repository: repository));
         lock (session.Agent)
         lock (session)
         {
-            if (session.SelectionRevision != revision || session.CurrentBenchId != bench)
+            if (session.SelectionRevision != revision || session.CurrentBenchId != bench
+                || !ReferenceEquals(repository, session.RepositoryBindings))
                 throw new HttpFailure(409, "BenchViewChanged", "The selected Bench changed during connection resolution.");
             if (resolved.Length == previous.Length && resolved.All(previous.Contains)) return;
             session.Agent.Invalidate();

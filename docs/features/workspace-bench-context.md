@@ -50,8 +50,19 @@ item in this invocation; it cannot set a target for the next one. A named
 Bench read includes its permitted selector scope and protected local drafts,
 not extra relationships around an item in a viewer.
 
-The server uses isolated view profiles and explicit source admission. Repository
-bindings can constrain available sources without rewriting shared Bench intent.
+The server uses isolated view profiles and explicit source admission. In a
+repository view, an attached Bench can use the repository's declared source
+without a second attachment to the Bench. For example, if the repository
+declares an ADO project, a new empty Bench can show that source with zero
+members. Its pins and queries still determine membership. Opening the same
+Bench from another repository does not carry the first repository's source
+with it, change the Bench revision, or grant permission to publish.
+
+Declaring a target is not the same as signing in. Twig must resolve it to
+the exact local binding and workspace; it does not guess between accounts
+or create a registration on read. An unavailable or excluded source needs
+attention in repository setup, not a duplicate Bench attachment. Explicit
+Bench dependencies remain visible even when unavailable in a repository.
 Linked worktrees share bindings through their common Git directory. Twig uses
 the main checkout as the repository context when there is one. When the common
 directory is bare, Twig uses the requesting linked checkout instead; the bare

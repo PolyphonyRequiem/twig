@@ -641,10 +641,10 @@ public sealed partial class UserBenchStore
 
     private static string CanonicalName(string name) => name.Normalize(NormalizationForm.FormC).ToUpperInvariant();
 
-    private async Task<SqliteConnection> Open(CancellationToken ct)
+    private async Task<SqliteConnection> Open(CancellationToken ct, bool readOnly = false)
     {
-        if (!File.Exists(path)) await Create(ct).ConfigureAwait(false);
-        var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        if (!readOnly && !File.Exists(path)) await Create(ct).ConfigureAwait(false);
+        var db = readOnly ? RepositoryReadConnection.Create(path) : new SqliteConnection(new SqliteConnectionStringBuilder
         { DataSource = path, Mode = SqliteOpenMode.ReadWrite, Pooling = false, DefaultTimeout = 5 }.ToString());
         try
         {
@@ -666,8 +666,11 @@ public sealed partial class UserBenchStore
                     throw new InvalidDataException("The native Bench store was replaced; no captured operation was adopted.");
                 instanceId = current;
             }
-            command.CommandText = "PRAGMA synchronous=FULL;";
-            await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            if (!readOnly)
+            {
+                command.CommandText = "PRAGMA synchronous=FULL;";
+                await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            }
             return db;
         }
         catch { await db.DisposeAsync().ConfigureAwait(false); throw; }

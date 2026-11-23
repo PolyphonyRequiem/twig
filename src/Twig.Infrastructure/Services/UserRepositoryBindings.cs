@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.Data.Sqlite;
 using Twig.Core;
 using Twig.Infrastructure.Config;
@@ -9,6 +10,9 @@ namespace Twig.Infrastructure.Services;
 public sealed record UserRepositoryBindings(string RepositoryId, long Revision,
     ImmutableArray<Connection> Connections, Guid? DefaultBench, string RepositoryRoot)
 {
+    [JsonIgnore] public Connection? DeclaredConnection { get; init; }
+    [JsonIgnore] public string? DeclaredSourceStatus { get; init; }
+    [JsonIgnore] public string? DeclaredSourceLabel { get; init; }
     public bool AttachmentsConfigured { get; init; }
     public ImmutableArray<Guid> AttachedBenches { get; init; } = [];
     public ImmutableArray<Connection> ExcludedConnections { get; init; } = [];
@@ -24,8 +28,14 @@ public sealed partial class UserBenchStore
         try
         {
             var repository = RepositoryIdentity(root);
-            await using var db = await Open(ct).ConfigureAwait(false);
-            return Result<UserRepositoryBindings>.Ok(await ReadRepository(db, null, repository.Id, repository.Root, ct).ConfigureAwait(false));
+            ct.ThrowIfCancellationRequested();
+            if (!File.Exists(path))
+                return Result<UserRepositoryBindings>.Ok(await ProjectDeclaration(
+                    new(repository.Id, 0, [], null, repository.Root), null, null, ct).ConfigureAwait(false));
+            await using var db = await Open(ct, readOnly: true).ConfigureAwait(false);
+            using var transaction = db.BeginTransaction(deferred: true);
+            var stored = await ReadRepository(db, transaction, repository.Id, repository.Root, ct).ConfigureAwait(false);
+            return Result<UserRepositoryBindings>.Ok(await ProjectDeclaration(stored, db, transaction, ct).ConfigureAwait(false));
         }
         catch (ArgumentException ex) { return Result<UserRepositoryBindings>.Fail(ErrorCode.InvalidInput, ex.Message); }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<UserRepositoryBindings>(ex); }
@@ -65,9 +75,13 @@ public sealed partial class UserBenchStore
             if (expectedWorkspace is { } exact)
             {
                 if (expectedBenchId is not { } target || !current.AttachedBenches.Contains(target)
-                    || !selected.Contains(exact.Connection) || current.ExcludedConnections.Contains(exact.Connection)
+                    || !selected.ToHashSet().SetEquals(current.Connections.Append(exact.Connection))
+                    || attached is not null || excluded is not null || defaultBench != current.DefaultBench
+                    || current.ExcludedConnections.Contains(exact.Connection)
                     || await Find(db, transaction, target, ct).ConfigureAwait(false) is not { Deleted: false } stored
-                    || stored.Bench.Revision != expectedBenchRevision || !stored.Bench.Connections.Contains(exact.Connection))
+                    || stored.Bench.Revision != expectedBenchRevision
+                    || (!stored.Bench.Connections.Contains(exact.Connection)
+                        && (await ProjectDeclaration(current, db, transaction, ct).ConfigureAwait(false)).DeclaredConnection != exact.Connection))
                     return Result<UserRepositoryBindings>.Fail(ErrorCode.Conflict, "The attached Bench or connection decision changed during admission.");
                 await using var verify = db.CreateCommand();
                 verify.Transaction = transaction;

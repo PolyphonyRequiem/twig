@@ -40,6 +40,84 @@ public sealed class UserBenchStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ReadingAnUnboundDeclarationDoesNotInitializeTheRepositoryOrUserStore()
+    {
+        Directory.CreateDirectory(directory);
+        await Git(directory, "init", "--quiet");
+        File.WriteAllText(Path.Combine(directory, "twig.json"), """{"provider":"twig","nativeDatabase":"shared"}""");
+        var bindings = Required(await Store.ReadRepositoryAsync(directory));
+        bindings.DeclaredConnection.ShouldBeNull();
+        bindings.DeclaredSourceStatus.ShouldNotBeNull().ShouldContain("not registered");
+        Directory.Exists(Path.Combine(directory, "user")).ShouldBeFalse();
+        Directory.Exists(Path.Combine(directory, ".twig")).ShouldBeFalse();
+    }
+
+    [Fact]
+    public async Task TwoRepositoriesResolveTheirOwnDeclarationsWithoutChangingTheSharedBenchOrSavedAssignments()
+    {
+        var one = Directory.CreateDirectory(Path.Combine(directory, "one")).FullName;
+        var two = Directory.CreateDirectory(Path.Combine(directory, "two")).FullName;
+        await Git(one, "init", "--quiet");
+        await Git(two, "init", "--quiet");
+        async Task<Connection> Register(string name)
+        {
+            var source = Directory.CreateDirectory(Path.Combine(directory, name)).FullName;
+            await Git(source, "init", "--quiet");
+            using var bindings = new Twig.Infrastructure.Auth.ConnectionBindingService(Path.Combine(directory, "user"));
+            var receipt = Required(await NativeWorkspaceSetup.InitializeAsync(
+                new(source, "", "", null, null, "twig", null, null, null, null, null, Database: name),
+                () => bindings, new(), default));
+            var core = Required(await SqliteStore.OpenAsync(receipt.Document.DatabasePath, default, receipt.Source.StoreInstance));
+            Required(await Store.View(core, source, core.InstanceId).ReadAsync(receipt.Source.Connection, default));
+            return receipt.Source.Connection;
+        }
+        var a = await Register("alpha");
+        var b = await Register("beta");
+        static void Declare(string root, string name) =>
+            File.WriteAllText(Path.Combine(root, "twig.json"), $$"""{"provider":"twig","nativeDatabase":"{{name}}"}""");
+        Declare(one, "alpha");
+        Declare(two, "beta");
+        var bench = Required(await Store.SaveAsync(new(Guid.NewGuid(), "Shared", []), 0));
+        Required(await Store.SaveRepositoryAsync(one, 0, [b], bench.Id, attachedBenches: [bench.Id]));
+        Required(await Store.SaveRepositoryAsync(two, 0, [], bench.Id, attachedBenches: [bench.Id]));
+
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        string[] LocalFiles() => Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories)
+            .Where(path => !path.EndsWith("-wal", StringComparison.Ordinal) && !path.EndsWith("-shm", StringComparison.Ordinal))
+            .Select(path => $"{path}:{File.GetLastWriteTimeUtc(path).Ticks}:{new FileInfo(path).Length}")
+            .Order(StringComparer.Ordinal).ToArray();
+        var beforeRead = LocalFiles();
+        var first = Required(await Store.ReadRepositoryAsync(one));
+        first.DeclaredSourceStatus.ShouldBeNull();
+        first.DeclaredConnection.ShouldBe(a);
+        first.Connections.ShouldBe([b]);
+        var second = Required(await Store.ReadRepositoryAsync(two));
+        second.DeclaredConnection.ShouldBe(b);
+        second.Connections.ShouldBeEmpty();
+        LocalFiles().ShouldBe(beforeRead, "normal SQLite locks may create sidecars, not modify persistent application data");
+
+        Declare(two, "alpha");
+        var changed = Required(await Store.ReadRepositoryAsync(two));
+        changed.Revision.ShouldBe(second.Revision);
+        changed.DeclaredConnection.ShouldBe(a);
+        var exact = Required(await Store.WorkspacesAsync()).Single(w => w.Connection == a);
+        (await Store.SaveRepositoryAsync(two, changed.Revision, [b], bench.Id, expectedBenchId: bench.Id,
+            expectedBenchRevision: bench.Revision, expectedWorkspace: exact with { Connection = b })).IsSuccess.ShouldBeFalse();
+        Required(await Store.SaveRepositoryAsync(two, changed.Revision, [a], bench.Id, expectedBenchId: bench.Id,
+            expectedBenchRevision: bench.Revision, expectedWorkspace: exact));
+        Required(await Store.SaveRepositoryAsync(one, first.Revision, [b], bench.Id, excludedConnections: [a]));
+        var excluded = Required(await Store.ReadRepositoryAsync(one));
+        excluded.DeclaredSourceStatus.ShouldNotBeNull().ShouldContain("excluded");
+        excluded.DeclaredConnection.ShouldBeNull();
+        var duplicate = await Native("another-alpha-workspace");
+        Required(await Store.View(duplicate.Store, duplicate.Root, duplicate.Store.InstanceId).ReadAsync(a, default));
+        var ambiguous = Required(await Store.ReadRepositoryAsync(two));
+        ambiguous.DeclaredConnection.ShouldBeNull();
+        ambiguous.DeclaredSourceStatus.ShouldNotBeNull().ShouldContain("ambiguous workspace");
+        Required(await Store.ReadAsync()).Benches.Single().Connections.ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task RepositoryAttachmentsDistinguishUnconfiguredFromExplicitlyEmpty()
     {
         Directory.CreateDirectory(directory);
@@ -365,6 +443,7 @@ public sealed class UserBenchStoreTests : IDisposable
     }
     public void Dispose()
     {
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         if (!Directory.Exists(directory)) return;
         foreach (var file in Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories))
             File.SetAttributes(file, File.GetAttributes(file) & ~FileAttributes.ReadOnly);

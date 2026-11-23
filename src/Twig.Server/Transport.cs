@@ -77,7 +77,11 @@ public sealed record IdentityProfilesBody(Guid SourceId, string[] Identities);
 public sealed record PopulationContextBody(string? Root);
 public sealed record SelectionBody(Guid? ExpectedBenchId, Guid? BenchId);
 public sealed record RepositorySetupDto(string State, NativeBenchDto[] Attached, Guid? DefaultBench,
-    Guid? SelectedBench, string? SelectionReason, RepositoryConnectionDto[] Connections);
+    Guid? SelectedBench, string? SelectionReason, RepositoryConnectionDto[] Connections)
+{
+    public string? DeclaredSourceLabel { get; init; }
+    public string? DeclaredSourceStatus { get; init; }
+}
 public sealed record RepositoryConnectionDto(Connection Connection, string State);
 public sealed record AgentPermissionsBody(Guid BenchId, bool Read, bool Draft, bool Membership, bool Rules = false);
 public sealed record AgentPermissionsDto(bool Read, bool Draft, bool Membership, Guid? BenchId, DateTimeOffset? ExpiresAt, bool Rules = false);

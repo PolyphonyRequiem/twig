@@ -55,7 +55,8 @@ internal sealed record ProviderConnectionRequirement(string Provider, string Sco
 /// <summary>A user-local credential selector, never credential material or portable repository configuration.</summary>
 internal sealed record ProviderConnectionCredential(string Kind, string Selector, string? ClientId = null);
 internal sealed record RegisteredProviderConnection(ProviderConnectionRequirement Requirement, ProviderConnectionCredential? Credential,
-    string? Organization = null, string? Project = null, string? BindingId = null);
+    string? Organization = null, string? Project = null, string? BindingId = null,
+    string? IdentityId = null, string? PatPrincipal = null);
 
 /// <summary>Device-local provider registrations shared across workspaces by the current user's server.</summary>
 internal sealed class DeviceConnectionCatalog
@@ -142,10 +143,7 @@ internal sealed class DeviceConnectionCatalog
     {
         ct.ThrowIfCancellationRequested();
         if (!File.Exists(path)) return [];
-        await using var db = new SqliteConnection(new SqliteConnectionStringBuilder
-        {
-            DataSource = path, Mode = SqliteOpenMode.ReadOnly, Pooling = false,
-        }.ToString());
+        await using var db = RepositoryReadConnection.Create(path);
         await db.OpenAsync(ct).ConfigureAwait(false);
         using var tx = db.BeginTransaction(deferred: true);
         using var command = db.CreateCommand();
@@ -157,10 +155,11 @@ internal sealed class DeviceConnectionCatalog
         var rows = new List<RegisteredProviderConnection>();
         var ado = new HashSet<ProviderConnectionRequirement>();
         command.CommandText = """
-            SELECT c.organization,c.project,b.binding_id,i.name
+            SELECT c.organization,c.project,b.binding_id,i.name,i.identity_id,p.principal_id
             FROM connection_bindings b
             JOIN connections c ON c.connection_ref=b.connection_ref
-            JOIN identities i ON i.identity_id=b.identity_id;
+            JOIN identities i ON i.identity_id=b.identity_id
+            LEFT JOIN pat_principals p ON p.identity_id=i.identity_id;
             """;
         await using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
         {
@@ -169,7 +168,8 @@ internal sealed class DeviceConnectionCatalog
                 var organization = reader.GetString(0);
                 var project = reader.GetString(1);
                 var requirement = ProviderConnectionRequirement.Create("ado", organization, project);
-                rows.Add(new(requirement, new("ado", reader.GetString(3)), organization, project, reader.GetString(2)));
+                rows.Add(new(requirement, new("ado", reader.GetString(3)), organization, project, reader.GetString(2),
+                    reader.GetString(4), reader.IsDBNull(5) ? null : reader.GetString(5)));
                 ado.Add(requirement);
             }
         }

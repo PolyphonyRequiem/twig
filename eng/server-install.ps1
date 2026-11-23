@@ -163,7 +163,7 @@ $files = @(Get-ChildItem -LiteralPath $stage -File -Recurse -Force | Sort-Object
     [ordered]@{ path = $_.FullName.Substring($stage.Length + 1); sha256 = Get-BenchHash $_.FullName }
 })
 $manifest = [ordered]@{ application = 'twig-server'; schema = 1; version = $version; rid = 'win-x64';
-    protocol = 'twig-bench-service-v2'; files = $files }
+    protocol = 'twig-bench-service-v1'; files = $files }
 Write-BenchAtomic (Join-Path $stage 'runtime.json') ($manifest | ConvertTo-Json -Depth 5)
 }
 $record = [ordered]@{

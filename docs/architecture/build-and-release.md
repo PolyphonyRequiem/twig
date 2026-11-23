@@ -57,7 +57,12 @@ assets before claiming an available compatible pair.
 | Boundary | Supported contract |
 | --- | --- |
 | Windows CLI | `twig server endpoint -o json`; bounded origin, certificateThumbprint, selectionId and nullable serverId; `server start/status/stop` for lifecycle |
-| Windows server | Self-contained `win-x64`; `twig-bench-service-v2`; runtime manifest schema 1 and operator selection schema 4 |
+| Windows server | Self-contained `win-x64`; `twig-bench-service-v1`; runtime manifest schema 1 and operator selection schema 4 |
+
+Keep the Canvas/server protocol at `twig-bench-service-v1` until the maintainer
+explicitly approves public protocol versioning. Validate changes against the
+current Canvas consumer; do not publish a new protocol version as part of
+pre-release contract changes.
 | Linux CLI/server | Self-contained `linux-x64`; headless `twig-command-v1`, owner-only IPC/control; no Canvas HTTPS endpoint |
 | Version binding | CLI MinVer `v*` tags; independent server `server-v*` tags; server runtime version is an exact source SHA with a closed file-hash inventory |
 

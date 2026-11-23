@@ -107,7 +107,7 @@ function Get-BenchRuntime([string] $VersionRoot, [string] $Version, [string] $Ma
         ($manifest.schema -isnot [int] -and $manifest.schema -isnot [long]) -or $manifest.schema -ne 1 -or
         $manifest.version -isnot [string] -or $manifest.rid -isnot [string] -or
         $manifest.version -cne $Version -or $manifest.rid -cne 'win-x64' -or
-        $manifest.protocol -cne 'twig-bench-service-v2' -or
+        $manifest.protocol -cne 'twig-bench-service-v1' -or
         $manifest.files -isnot [array] -or $manifest.files.Count -lt 1) { throw 'Invalid runtime manifest.' }
     $listed = @{}
     foreach ($file in $manifest.files) {

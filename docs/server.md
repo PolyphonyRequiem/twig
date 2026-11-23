@@ -153,6 +153,17 @@ for observation, never for replay. `lastReviewDigest` identifies an admitted
 attempt, not a preview. Across attachment loss, inspect the original attempt
 and its journal receipts.
 
+### Repository sources in Canvas
+
+For a repository view, `summary.repositorySetup.connections` describes the
+selected Bench's sources in that repository, not just connections saved on
+the Bench. Use `declaredSourceLabel` and `declaredSourceStatus` to explain a
+repository declaration that could not be resolved. Do not prompt for a
+second Bench attachment to resolve a repository dependency. An available
+source with zero items is a valid empty result, not an incomplete setup.
+The view admits up to 64 sources, giving saved Bench dependencies priority.
+Additional repository sources remain listed in setup as `ViewSourceLimitReached`.
+
 ### Canvas Plan Apply contract
 
 For the selected Bench, read `GET /api/v1/views/{viewId}/benches/{benchId}/plan`.

@@ -350,6 +350,71 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     }
 
     [Fact]
+    public async Task FullBenchKeepsSavedSourcesAndReportsRepositoryOverflow()
+    {
+        await Start();
+        var extra = await Source("extra");
+        var saved = Enumerable.Range(1, 64).Select(i => new Connection(new("ado"), "fixture-collection", $"saved-{i}", "fixture-identity")).ToArray();
+        var bench = await Bench("Full", saved);
+        var repository = Directory.CreateDirectory(Path.Combine(root, "full-repo")).FullName;
+        using var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git")
+        {
+            WorkingDirectory = repository, UseShellExecute = false, ArgumentList = { "init", "--quiet" },
+        })!;
+        await git.WaitForExitAsync();
+        git.ExitCode.ShouldBe(0);
+        (await definitions.SaveRepositoryAsync(repository, 0, [extra.Stamp.Connection], bench.Id,
+            attachedBenches: [bench.Id])).IsSuccess.ShouldBeTrue();
+        var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+        var state = sessions.ReadState(session);
+        sessions.SaveState(session, new(state.Revision, state.Choices with { RepositoryRoot = repository, BenchId = bench.Id }));
+        var workspace = await Workspace();
+        workspace.GetProperty("view").GetProperty("sources").GetArrayLength().ShouldBe(64);
+        var row = workspace.GetProperty("summary").GetProperty("repositorySetup").GetProperty("connections")
+            .EnumerateArray().Single(value => value.GetProperty("connection").GetProperty("destination").GetString() == "extra");
+        row.GetProperty("state").GetString().ShouldBe("ViewSourceLimitReached");
+    }
+
+    [Fact]
+    public async Task EmptyBenchUsesRepositorySourceWithoutSavingItOnTheBench()
+    {
+        await Start();
+        var source = await Source("repo-source");
+        var bench = await Bench("Shared empty Bench");
+        foreach (var configured in new[] { true, false })
+        {
+            var repository = Path.Combine(root, configured ? "repo-a" : "repo-b");
+            Directory.CreateDirectory(repository);
+            using var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git")
+            {
+                WorkingDirectory = repository, UseShellExecute = false, ArgumentList = { "init", "--quiet" },
+            })!;
+            await git.WaitForExitAsync();
+            git.ExitCode.ShouldBe(0);
+            (await definitions.SaveRepositoryAsync(repository, 0, configured ? [source.Stamp.Connection] : [],
+                bench.Id, attachedBenches: [bench.Id])).IsSuccess.ShouldBeTrue();
+            var session = sessions.Content(owner.ViewId, owner.ContentCapability, true);
+            var state = sessions.ReadState(session);
+            sessions.SaveState(session, new(state.Revision, state.Choices with { RepositoryRoot = repository, BenchId = bench.Id }));
+            var workspace = await Workspace();
+            var sources = workspace.GetProperty("view").GetProperty("sources").EnumerateArray().ToArray();
+            sources.Length.ShouldBe(configured ? 1 : 0);
+            if (configured)
+            {
+                sources[0].GetProperty("sourceId").GetGuid().ShouldBe(source.Source.Id);
+                sources[0].GetProperty("items").GetArrayLength().ShouldBe(0);
+                workspace.GetProperty("summary").GetProperty("repositorySetup").GetProperty("connections")[0]
+                    .GetProperty("state").GetString().ShouldBe("Ready");
+            }
+            using var picker = await client.GetAsync(View + "picker");
+            picker.StatusCode.ShouldBe(configured ? HttpStatusCode.OK : HttpStatusCode.Conflict);
+            var saved = (await definitions.ReadAsync()).Value.Benches.Single();
+            saved.Revision.ShouldBe(bench.Revision);
+            saved.Connections.ShouldBeEmpty();
+        }
+    }
+
+    [Fact]
     public async Task RepositoryScopeWithholdsUnassignedSourceWithoutRetargetingSavedBench()
     {
         await Start();

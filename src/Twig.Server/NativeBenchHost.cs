@@ -186,7 +186,7 @@ public static partial class NativeBenchHost
                 labels.Add(new(workspace.Root, workspace.Connection.Provider.Value, display.Name, display.Available)
                     { Connection = workspace.Connection, Account = NativeConnectionLabels.Account(workspace.Connection, identities),
                         Available = session.RepositoryBindings is null
-                        || session.RepositoryBindings.Connections.Contains(workspace.Connection) });
+                        || NativePanel.RepositorySources(session.RepositoryBindings).Contains(workspace.Connection) });
             }
             await Write(context, new NativePanelSummary(shared.InstanceId, shared.Revision,
                 shared.Benches.Select(Definition).ToArray(),
@@ -355,7 +355,7 @@ public static partial class NativeBenchHost
             NativePanelContext[] chosen;
             lock (session) chosen = session.DisplayContexts.Values.ToArray();
             var observed = await panel.ReadViewAsync(benchId, session.NativeContext, chosen, context.RequestAborted,
-                available: AvailableConnections(session));
+                repository: session.RepositoryBindings);
             if (!observed.IsSuccess && observed.Error.Evidence.Contains("bench-definition-changed"))
                 throw new HttpFailure(409, "BenchViewChanged", "The Bench changed while loading. Read its current definition again.");
             var captured = ConnectionObservation(observed, app.Logger);
@@ -374,7 +374,7 @@ public static partial class NativeBenchHost
                 ?? throw new HttpFailure(404, "NotFound", "The selected Bench is unavailable.");
             NativePanelContext[] chosen;
             lock (session) chosen = session.DisplayContexts.Values.Where(value => value == anchor
-                || bench.Connections.Contains(value.Stamp.Connection)).ToArray();
+                || NativePanel.Dependencies(bench, session.RepositoryBindings).Contains(value.Stamp.Connection)).ToArray();
             if (chosen.Length > 32) throw new HttpFailure(422, "Unsupported", "The Bench exceeds the bounded access-check source count.");
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(30));
@@ -718,8 +718,9 @@ public static partial class NativeBenchHost
         if (session.PopulationContext is { } selected) return selected;
         var library = Require(await panel.ListAsync(ct));
         var bench = library.Benches.SingleOrDefault(value => value.Id == session.CurrentBenchId);
-        if (bench?.Connections.Length == 1 && session.NativeContext is { } context
-            && context.Stamp.Connection == bench.Connections[0]) return context;
+        if (bench is not null && NativePanel.Dependencies(bench, session.RepositoryBindings).Take(2).ToArray() is [var only]
+            && session.NativeContext is { } context && context.Stamp.Connection == only
+            && session.RepositoryBindings is not { DeclaredSourceStatus: not null, DeclaredConnection: null }) return context;
         throw new HttpFailure(409, "DestinationRequired", "Choose an explicit Add items connection. No default destination was inferred from the healthy sources.");
     }
     private static async Task<NativePanelContext> PlanningPopulation(NativePanel panel, ViewSession session, CancellationToken ct)

@@ -48,7 +48,12 @@ public static partial class NativeBenchHost
     }
 
     private static HashSet<Connection>? AvailableConnections(ViewSession session)
-        => session.RepositoryBindings?.Connections.ToHashSet();
+        => session.RepositoryBindings is { } repository ? NativePanel.RepositorySources(repository).ToHashSet() : null;
+
+    private static bool SameRepositorySources(UserRepositoryBindings? left, UserRepositoryBindings? right)
+        => left?.RepositoryId == right?.RepositoryId && left?.Revision == right?.Revision
+            && left?.DeclaredConnection == right?.DeclaredConnection && left?.DeclaredSourceStatus == right?.DeclaredSourceStatus
+            && left?.DeclaredSourceLabel == right?.DeclaredSourceLabel;
 
     private static RepositorySetupDto DescribeRepository(UserRepositoryBindings repository, UserBenchSnapshot library,
         Guid? selected, string? reason, NativePanelContext[] opened, IEnumerable<UserBenchWorkspace> workspaces)
@@ -59,22 +64,27 @@ public static partial class NativeBenchHost
             : repository.AttachedBenches.IsEmpty ? "NoAttachments"
             : attached.Length == 0 ? "NoEligibleAttachments"
             : bench is null ? "ChooseAttached" : "Selected";
-        var connections = bench?.Connections.Select(connection =>
+        var connections = bench is null ? [] : NativePanel.Dependencies(bench, repository).Select((connection, index) =>
         {
             var count = workspaces.Count(workspace => workspace.Connection == connection);
             var availability = repository.ExcludedConnections.Contains(connection) ? "Excluded"
+                : index >= NativePanel.ViewSourceLimit ? "ViewSourceLimitReached"
                 : opened.Any(context => context.Stamp.Connection == connection) ? "Ready"
                 : count > 1 ? "NeedsExactChoice"
                 : count == 0 ? connection.Provider.Value == "twig" ? "CanInitializePrivate" : "Unavailable"
-                : repository.Connections.Contains(connection) ? "Unavailable" : "CanBindExact";
+                : NativePanel.RepositorySources(repository).Contains(connection) ? "Unavailable" : "CanBindExact";
             return new RepositoryConnectionDto(connection, availability);
-        }).ToArray() ?? [];
-        return new(state, attached.Select(Definition).ToArray(), repository.DefaultBench, bench?.Id, reason, connections);
+        }).ToArray();
+        return new(state, attached.Select(Definition).ToArray(), repository.DefaultBench, bench?.Id, reason, connections)
+        {
+            DeclaredSourceLabel = repository.DeclaredSourceLabel,
+            DeclaredSourceStatus = repository.DeclaredSourceStatus,
+        };
     }
 
     private static void RequireAvailable(ViewSession session, Connection connection)
     {
-        if (session.RepositoryBindings is { } bindings && !bindings.Connections.Contains(connection))
+        if (session.RepositoryBindings is { } bindings && !NativePanel.RepositorySources(bindings).Contains(connection))
             throw new HttpFailure(403, "RepositoryConnectionUnavailable",
                 "Assign this registered connection in this user's repository bindings first. Existing Bench rules, drafts and pending operations were not retargeted.");
     }
@@ -85,7 +95,7 @@ public static partial class NativeBenchHost
         var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         var registry = Require(await panel.WorkspacesAsync(ct));
         if (!registry.Any(workspace => ViewSession.PathComparer.Equals(workspace.Root, path)
-            && bindings.Connections.Contains(workspace.Connection)))
+            && NativePanel.RepositorySources(bindings).Contains(workspace.Connection)))
             throw new HttpFailure(403, "RepositoryConnectionUnavailable",
                 "Choose a registered connection assigned to this repository. No source was opened.");
     }
@@ -103,8 +113,7 @@ public static partial class NativeBenchHost
             lock (session)
             {
                 if (ViewSession.PathComparer.Equals(session.RepositoryRoot, root)
-                    && session.RepositoryBindings?.RepositoryId == next?.RepositoryId
-                    && session.RepositoryBindings?.Revision == next?.Revision) return;
+                    && SameRepositorySources(session.RepositoryBindings, next)) return;
                 session.Agent.Invalidate();
                 session.Editor.Invalidate();
                 session.Plan.Invalidate();
@@ -194,9 +203,8 @@ public static partial class NativeBenchHost
                 throw new HttpFailure(409, "RepositorySelectionChanged", "Choose the attached Bench for this repository again.");
             var library = Require(await panel.ListAsync(ct));
             if (library.Benches.SingleOrDefault(bench => bench.Id == body.BenchId) is not { } bench
-                || bench.Revision != body.BenchRevision || !repository.AttachedBenches.Contains(bench.Id)
-                || !bench.Connections.Contains(body.Connection))
-                throw new HttpFailure(409, "BenchChanged", "The exact connection is no longer on the attached Bench.");
+                || bench.Revision != body.BenchRevision || !repository.AttachedBenches.Contains(bench.Id))
+                throw new HttpFailure(409, "BenchChanged", "The selected Bench or its repository attachment changed.");
             if (repository.ExcludedConnections.Contains(body.Connection))
                 throw new HttpFailure(403, "RepositoryConnectionExcluded", "The connection is explicitly excluded.");
             if (repository.Revision != body.ExpectedRevision)
@@ -206,6 +214,8 @@ public static partial class NativeBenchHost
                 await Write(http, repository);
                 return;
             }
+            if (repository.DeclaredConnection != body.Connection && !bench.Connections.Contains(body.Connection))
+                throw new HttpFailure(409, "SourceChanged", "The connection is neither declared by the repository nor required by the selected Bench.");
             var candidates = Require(await panel.WorkspacesAsync(ct)).Where(value => value.Connection == body.Connection).ToArray();
             NativeSourceStamp? prepared = null;
             if (candidates.Length == 0 && body.ExistingNativeDatabase is { } database)

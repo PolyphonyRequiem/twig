@@ -100,6 +100,12 @@ Twig.Infrastructure.Services.UserRepositoryBindings.AttachedBenches.get -> Syste
 Twig.Infrastructure.Services.UserRepositoryBindings.AttachedBenches.init -> void
 Twig.Infrastructure.Services.UserRepositoryBindings.ExcludedConnections.get -> System.Collections.Immutable.ImmutableArray<Twig.Core.Connection!>
 Twig.Infrastructure.Services.UserRepositoryBindings.ExcludedConnections.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.DeclaredConnection.get -> Twig.Core.Connection?
+Twig.Infrastructure.Services.UserRepositoryBindings.DeclaredConnection.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.DeclaredSourceLabel.get -> string?
+Twig.Infrastructure.Services.UserRepositoryBindings.DeclaredSourceLabel.init -> void
+Twig.Infrastructure.Services.UserRepositoryBindings.DeclaredSourceStatus.get -> string?
+Twig.Infrastructure.Services.UserRepositoryBindings.DeclaredSourceStatus.init -> void
 Twig.Infrastructure.Services.NativeSetupEffectKind.ManagedWorkspace = 21 -> Twig.Infrastructure.Services.NativeSetupEffectKind
 Twig.Infrastructure.Services.NativeConnectionSetup.InitializeManagedAsync(Twig.Infrastructure.Services.NativeSetupTarget! target, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeManagedSetupResult!>!>!
 Twig.Infrastructure.Services.NativeConnectionSetup.InitializeRepositoryPrivateAsync(string! database, Twig.Core.Connection! expected, System.Threading.CancellationToken ct) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeManagedSetupResult!>!>!

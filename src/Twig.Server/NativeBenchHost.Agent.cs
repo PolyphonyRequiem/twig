@@ -213,7 +213,7 @@ public static partial class NativeBenchHost
         {
             var plan = await Current(session, grant, ct);
             var observed = ConnectionObservation(await panel.ReadViewAsync(grant.Bench, grant.Anchor, grant.Sources, ct,
-                available: AvailableConnections(session)), app.Logger);
+                repository: session.RepositoryBindings), app.Logger);
             var current = await Current(session, grant, ct);
             if (current.Revision != plan.Revision || observed.Plan.Revision != plan.Revision
                 || current.BenchRevision != observed.View.Definition.Revision)
@@ -262,7 +262,7 @@ public static partial class NativeBenchHost
                     && value.Item == key && value.Connection == selector.Connection)).ToImmutableArray();
             ct.ThrowIfCancellationRequested();
             _ = Require(await panel.SaveAsync(new NativeBench(grant.Bench, captured.Definition.Name, next,
-                connections: captured.Definition.Connections),
+                connections: add ? captured.Definition.Connections.Append(source.Stamp.Connection) : captured.Definition.Connections),
                 captured.Definition.Revision, ct));
             session.Agent.Snapshot = null;
             session.Plan.Invalidate();

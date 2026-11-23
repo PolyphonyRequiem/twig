@@ -164,7 +164,11 @@ public sealed class ServerEndpointTests
             foreach (var key in new[] { "SystemDrive", "ProgramData", "ALLUSERSPROFILE", "TWIG_TELEMETRY_ENDPOINT" })
                 start.Environment.Remove(key);
             using var process = Process.Start(start)!;
-            await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+            try { await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30)); }
+            finally
+            {
+                if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(5000).ShouldBeTrue(); }
+            }
             process.ExitCode.ShouldBe(0);
             Directory.Exists(Path.Combine(fixture.Root, "%SystemDrive%")).ShouldBeFalse();
         }

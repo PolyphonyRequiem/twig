@@ -174,10 +174,12 @@ attempt nor grants Apply. Review/observe output no longer has `ticket` or
 `deliveryOnly` Apply fields are not accepted. Authentication, view ownership,
 CSRF and source admission still apply.
 
-This is incompatible with the old Canvas package. Release requires updating
-and validating the separately shipped `twig-bench-canvas` against
-`twig-bench-service-v2`, including stale staging, navigation, lost responses,
-and delivery-only continuation.
+The protocol identifier remains `twig-bench-service-v1` during development.
+Canvas clients that call Plan Apply must use the contract above; the protocol
+identifier does not imply support for the retired preview and confirmation
+routes. Before releasing, validate the separately shipped `twig-bench-canvas`
+against the current server, including stale staging, navigation, lost responses,
+and delivery-only continuation where the client uses Plan Apply.
 
 Connect the authenticated SSE stream **before** the first workspace read. The
 server registers its bounded subscriber before flushing `event: ready`. On

@@ -10,7 +10,7 @@ public sealed record CanvasAsset(byte[] Bytes, string Version);
 /// <summary>Shared verification contract for independently hosted immutable presentation packages.</summary>
 public static partial class CanvasAssets
 {
-    public const string Protocol = "twig-bench-service-v2";
+    public const string Protocol = "twig-bench-service-v1";
     public const string Application = "twig-canvas-assets";
     public static string ServerVersion => typeof(CanvasAssets).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
     public static readonly string[] RequiredFiles =

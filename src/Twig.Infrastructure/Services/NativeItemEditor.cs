@@ -242,6 +242,13 @@ public sealed partial class NativeItemEditor : IDisposable
         finally { gate.Release(); }
     }
 
+    public async Task<Result<bool>> SetSeedMembershipAsync(Guid localId, bool present, CancellationToken ct = default)
+    {
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        try { return await editor.SetSeedMembershipAsync(localId, present, ct).ConfigureAwait(false); }
+        finally { gate.Release(); }
+    }
+
     public async Task<Result<ImmutableArray<NativeOwnedSeed>>> ReadOwnedSeedsAsync(CancellationToken ct = default)
     {
         await gate.WaitAsync(ct).ConfigureAwait(false);

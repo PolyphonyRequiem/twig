@@ -16,6 +16,60 @@ public sealed class UserBenchStoreTests : IDisposable
     private UserBenchStore Store => new(Path.Combine(directory, "user", "benches.db"));
 
     [Fact]
+    public async Task SeedDeliveryPinsOnlyRemainingMembershipsInTheExactStoreAndConnection()
+    {
+        var store = Store;
+        var seed = new BenchSeedReference(ado, Guid.NewGuid(), ItemKey.Local(Guid.NewGuid()));
+        var other = seed with { StoreInstance = Guid.NewGuid() };
+        Required(await store.ObserveAsync(Path.Combine(directory, "one"), ado, seed.StoreInstance, [], default));
+        Required(await store.ObserveAsync(Path.Combine(directory, "two"), ado, other.StoreInstance, [], default));
+        var target = Key(ado, "42");
+        var pin = new Selector(SelectorKind.Pin, target, connection: ado);
+        var first = Required(await store.SaveAsync(new(Guid.NewGuid(), "Already pinned", [pin]), 0));
+        var second = Required(await store.SaveAsync(new(Guid.NewGuid(), "Also a member", []), 0));
+        var removed = Required(await store.SaveAsync(new(Guid.NewGuid(), "No longer a member", []), 0));
+        var deleted = Required(await store.SaveAsync(new(Guid.NewGuid(), "Deleted", []), 0));
+        foreach (var bench in new[] { first, second, removed, deleted })
+            Required(await store.SetSeedReferenceAsync(bench.Id, seed, true)).ShouldBeTrue();
+        Required(await store.SetSeedReferenceAsync(first.Id, seed, true)).ShouldBeFalse();
+        Required(await store.SetSeedReferenceAsync(first.Id, other, true)).ShouldBeTrue();
+        Required(await store.SetSeedReferenceAsync(removed.Id, seed, false)).ShouldBeTrue();
+        Required(await store.DeleteAsync(deleted.Id, 2));
+        var before = Required(await store.ReadAsync());
+        var impostor = new Connection(ado.Provider, ado.ResourceScope, ado.Destination, "another-identity");
+        (await store.DeliverSeedReferenceAsync(seed with { Connection = impostor }, target)).IsSuccess.ShouldBeFalse();
+        (await store.DeliverSeedReferenceAsync(seed, Key(github, "42"))).IsSuccess.ShouldBeFalse();
+        Required(await Store.DeliverSeedReferenceAsync(seed, target)).ShouldBeTrue();
+        Required(await Store.DeliverSeedReferenceAsync(seed, target)).ShouldBeFalse();
+        var after = Required(await store.ReadAsync());
+        after.Revision.ShouldBe(before.Revision + 1);
+        foreach (var bench in new[] { first, second })
+        {
+            var updated = after.Benches.Single(value => value.Id == bench.Id);
+            updated.Selectors.ShouldBe([pin]);
+            updated.Revision.ShouldBe(before.Benches.Single(value => value.Id == bench.Id).Revision + 1);
+        }
+        after.Benches.Single(value => value.Id == removed.Id).Selectors.ShouldBeEmpty();
+        after.Benches.Any(value => value.Id == deleted.Id).ShouldBeFalse();
+        Required(await store.ReadSeedReferencesAsync(first.Id)).ShouldBe([other]);
+        Required(await store.ReadSeedReferencesAsync(second.Id)).ShouldBeEmpty();
+    }
+
+    [Fact]
+    public async Task RemovingAndRestoringAConnectionDoesNotRestoreItsFormerSeedMembership()
+    {
+        var store = Store;
+        var seed = new BenchSeedReference(ado, Guid.NewGuid(), ItemKey.Local(Guid.NewGuid()));
+        Required(await store.ObserveAsync(directory, ado, seed.StoreInstance, [], default));
+        var bench = Required(await store.SaveAsync(new(Guid.NewGuid(), "Changed source", []), 0));
+        Required(await store.SetSeedReferenceAsync(bench.Id, seed, true));
+        Required(await store.SaveAsync(bench, 2));
+        Required(await store.SaveAsync(new(bench.Id, bench.Name, [], connections: [ado]), 3));
+        Required(await store.ReadSeedReferencesAsync(bench.Id)).ShouldBeEmpty();
+        Required(await store.DeliverSeedReferenceAsync(seed, Key(ado, "42"))).ShouldBeFalse();
+    }
+
+    [Fact]
     public async Task ConnectionDependenciesSurviveEmptyMembershipAndScopedRemoval()
     {
         Directory.CreateDirectory(directory);

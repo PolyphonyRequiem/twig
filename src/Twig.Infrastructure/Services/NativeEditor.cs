@@ -330,7 +330,8 @@ internal sealed partial class NativeEditor(CoreWorkspaceFactory factory, UserBen
             if (!retained.IsSuccess) return Result<CoreExecution>.Fail(retained.Error);
             capture = retained.Value;
         }
-        var result = await Workspace.SaveDraftAsync(preview.Value, ct).ConfigureAwait(false);
+        // The capture's delivery step revalidates the opened Bench before it advances any membership revisions.
+        var result = await Workspace.SaveDraftAsync(preview.Value, ct, deferSeedDelivery: op.Item.IsLocal).ConfigureAwait(false);
         if (op.Item.IsLocal)
         {
             var delivered = await ContinueSeedDeliveryAsync(capture.Id, preview.Value.Plan!.Digest, ct).ConfigureAwait(false);

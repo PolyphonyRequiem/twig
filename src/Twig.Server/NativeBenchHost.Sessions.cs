@@ -151,7 +151,7 @@ public static partial class NativeBenchHost
         if (selectionExists && state.CurrentBenchId is { } bench)
         {
             captured = Require(await panel.ReadViewAsync(bench, anchor, chosen, ct, observations,
-                repository: repository));
+                repository: repository, includeSeedReferences: true));
             var mapped = ViewMapping.ViewLabeled(captured.View, captured.Labels);
             if (mapped.CatalogId != shared.InstanceId || mapped.CatalogRevision != shared.Revision)
                 throw new HttpFailure(409, "BenchViewChanged", "The shared Benches changed during workspace loading.");

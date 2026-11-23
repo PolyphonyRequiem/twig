@@ -9,6 +9,57 @@ namespace Twig.Cli.Tests.Commands;
 
 public sealed partial class NativePublicationConsumerTests
 {
+    [Theory]
+    [InlineData("verified")]
+    [InlineData("interrupted-delivery")]
+    [InlineData("lost-acknowledgement")]
+    public async Task StandaloneSeedPublicationDeliversOnlyItsOriginalVerifiedIdentity(string outcome)
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        RunCoreLink(paths, ["seed", "new", "--title", "Standalone", "--type", "Task", "--no-parent"]).ShouldBe(0);
+        RunCoreLink(paths, ["bench", "create", "Explicit"]).ShouldBe(0);
+        var user = UserBenchStore.ForRegistry(_bindings.RegistryPath);
+        (await user.ObserveAsync(paths.RepoRoot, connection, store.InstanceId, [], default)).Value.ShouldBeTrue();
+        var bench = (await user.ReadAsync()).Value.Benches.Single();
+        var seed = (await store.ReadAsync(connection, default)).Value.RetainedItems.OfType<Seed>().Single();
+        var reference = new BenchSeedReference(connection, store.InstanceId, seed.Key);
+        (await user.SetSeedReferenceAsync(bench.Id, reference, true, default)).Value.ShouldBeTrue();
+
+        if (outcome == "interrupted-delivery") await SeedPinFailureAsync(_bindings.RegistryPath, true);
+        if (outcome == "lost-acknowledgement")
+            _transport.AfterCommit = () => throw new IOException("Lost original create response");
+        RunCoreLink(paths, ["seed", "publish", "--all"]).ShouldBe(outcome == "verified" ? 0 : 1);
+        var published = (await store.ReadAsync(connection, default)).Value;
+        var original = published.Journal.ShouldHaveSingleItem();
+        if (outcome != "verified")
+        {
+            (await user.ReadSeedReferencesAsync(bench.Id, default)).Value.ShouldHaveSingleItem().ShouldBe(reference);
+            (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBeEmpty();
+            var requests = _transport.PostCount;
+            if (outcome == "interrupted-delivery") await SeedPinFailureAsync(_bindings.RegistryPath, false);
+            RunCoreLink(paths, ["seed", "reconcile"]).ShouldBe(outcome == "interrupted-delivery" ? 0 : 1);
+            var after = (await store.ReadAsync(connection, default)).Value;
+            var journal = after.Journal.ShouldHaveSingleItem();
+            (journal.Digest, journal.Attempt, journal.Status).ShouldBe((original.Digest, original.Attempt, original.Status));
+            journal.Receipts.Length.ShouldBe(original.Receipts.Length);
+            _transport.PostCount.ShouldBe(requests);
+            if (outcome == "lost-acknowledgement")
+            {
+                original.Status.ShouldBe(OpStatus.Indeterminate);
+                after.RetainedItems.ShouldHaveSingleItem().Key.ShouldBe(seed.Key);
+                (await user.ReadSeedReferencesAsync(bench.Id, default)).Value.ShouldHaveSingleItem().ShouldBe(reference);
+                (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBeEmpty();
+                _transport.PostCount.ShouldBe(1);
+                return;
+            }
+        }
+        original.Status.ShouldBe(OpStatus.Verified);
+        var target = published.Mappings.ShouldHaveSingleItem().Remote;
+        (await user.ReadSeedReferencesAsync(bench.Id, default)).Value.ShouldBeEmpty();
+        (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldHaveSingleItem().Item.ShouldBe(target);
+        _transport.PostCount.ShouldBe(1);
+    }
+
     [Fact]
     public async Task NativeNormalSeedLifecycleUsesOneOwnedUuidAndVerifiedRemoteBenchPin()
     {
@@ -44,6 +95,8 @@ public sealed partial class NativePublicationConsumerTests
                 "An owned temporary seed must never become a permanent local-UUID Bench pin.");
             _transport.PostCount.ShouldBe(0);
         }
+        (await user.ObserveAsync(host.Root, host.Stamp.Connection, host.Stamp.StoreInstance, [], default)).IsSuccess.ShouldBeTrue();
+        (await user.SetSeedReferenceAsync(host.Bench, new(host.Stamp.Connection, host.Stamp.StoreInstance, seed), true)).Value.ShouldBeTrue();
         using (var reopened = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
         {
             var selected = await reopened.SelectAsync(seed);
@@ -65,6 +118,7 @@ public sealed partial class NativePublicationConsumerTests
         mapping.PlanDigest.ShouldBe(plan.Digest);
         complete.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
         var bench = (await user.ReadAsync()).Value.Benches.Single();
+        (await user.ReadSeedReferencesAsync(host.Bench)).Value.ShouldBeEmpty();
         bench.Selectors.ShouldContain(selector => selector.Item == mapping.Remote && selector.Connection == host.Stamp.Connection);
         bench.Selectors.ShouldNotContain(selector => selector.Item == seed);
         (await user.ReadEditorCapturesAsync(default)).Value.ShouldHaveSingleItem().Settled.ShouldBeTrue();
@@ -81,13 +135,21 @@ public sealed partial class NativePublicationConsumerTests
         var user = UserBenchStore.ForRegistry(host.Registry);
         NativeSeedPublication reference;
         ItemKey seed;
+        var otherBench = Guid.NewGuid();
         using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
         {
             var form = (await editor.CreateSeedAsync("Fixture.Task")).Value;
             seed = form.Item;
             var fields = NormalSeedFields(form, "Verified normal seed");
             if (failure == "origin") _transport.FailCurrentReadsAfterCommit = true;
-            else _transport.AfterCommit = () => SeedPinFailureAsync(host.Registry, true);
+            else
+            {
+                (await user.ObserveAsync(host.Root, host.Stamp.Connection, host.Stamp.StoreInstance, [], default)).IsSuccess.ShouldBeTrue();
+                (await user.SaveAsync(new(otherBench, "Other explicit membership", []), 0)).IsSuccess.ShouldBeTrue();
+                (await user.SetSeedReferenceAsync(otherBench, new(host.Stamp.Connection, host.Stamp.StoreInstance, seed),
+                    true, default)).Value.ShouldBeTrue();
+                _transport.AfterCommit = () => SeedPinFailureAsync(host.Registry, true);
+            }
             var result = await editor.SaveAsync(form.Ticket, fields);
             result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
             result.Value.Verified.ShouldBeTrue(result.Value.Error?.Message);
@@ -106,7 +168,7 @@ public sealed partial class NativePublicationConsumerTests
         var capture = (await user.ReadEditorCapturesAsync(default)).Value.ShouldHaveSingleItem();
         capture.Id.ShouldBe(reference.CaptureId);
         capture.Settled.ShouldBeFalse("Delivery failure must not retire the only original reference.");
-        var nativeBench = (await user.ReadAsync()).Value.Benches.Single();
+        var nativeBench = (await user.ReadAsync()).Value.Benches.Single(value => value.Id == host.Bench);
         nativeBench.Selectors.ShouldNotContain(selector => selector.Item == seed || selector.Item == before.Mappings.Single().Remote);
         _transport.PostCount.ShouldBe(1);
         _transport.FailCurrentReadsAfterCommit = false;
@@ -131,7 +193,13 @@ public sealed partial class NativePublicationConsumerTests
         after.Journal.Single().Attempt.ShouldBe(before.Journal.Single().Attempt);
         after.Journal.Single().Receipts.Length.ShouldBe(before.Journal.Single().Receipts.Length);
         after.Mappings.Single().ShouldBe(before.Mappings.Single());
-        var bench = (await user.ReadAsync()).Value.Benches.Single();
+        var library = (await user.ReadAsync()).Value;
+        if (failure == "pin")
+        {
+            (await user.ReadSeedReferencesAsync(otherBench)).Value.ShouldBeEmpty();
+            library.Benches.Single(value => value.Id == otherBench).Selectors.ShouldHaveSingleItem().Item.ShouldBe(after.Mappings.Single().Remote);
+        }
+        var bench = library.Benches.Single(value => value.Id == host.Bench);
         bench.Selectors.ShouldContain(extra);
         bench.Selectors.Count(selector => selector.Item == after.Mappings.Single().Remote).ShouldBe(1);
         bench.Selectors.ShouldNotContain(selector => selector.Item == seed);

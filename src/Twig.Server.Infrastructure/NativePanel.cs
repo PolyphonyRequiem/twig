@@ -250,7 +250,8 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
     public async Task<Result<NativePanelView>> ReadViewAsync(Guid benchId, NativePanelContext? anchor,
         IEnumerable<NativePanelContext> chosenContexts, CancellationToken ct,
         IReadOnlyDictionary<NativePanelContext, SourceObservation>? initialObservations = null,
-        IReadOnlySet<Connection>? available = null, UserRepositoryBindings? repository = null)
+        IReadOnlySet<Connection>? available = null, UserRepositoryBindings? repository = null,
+        bool includeSeedReferences = false)
     {
         if (repository is not null) available = RepositorySources(repository).ToHashSet();
         var shared = await definitions.ReadAsync(ct).ConfigureAwait(false);
@@ -259,6 +260,14 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
         if (bench is null) return Result<NativePanelView>.Fail(ErrorCode.NotFound, "The selected Bench was deleted; its cached items and drafts were not removed.");
         var plan = await definitions.ReadPlanStatusAsync(benchId, ct).ConfigureAwait(false);
         if (!plan.IsSuccess) return Result<NativePanelView>.Fail(plan.Error);
+        var references = includeSeedReferences && !plan.Value.Enabled
+            ? await definitions.ReadSeedReferencesAsync(benchId, ct).ConfigureAwait(false)
+            : Result<ImmutableArray<BenchSeedReference>>.Ok([]);
+        if (!references.IsSuccess) return Result<NativePanelView>.Fail(references.Error);
+        var byOrigin = references.Value.ToLookup(reference => (reference.Connection, reference.StoreInstance),
+            reference => reference.Item);
+        var captures = new Lazy<Task<Result<ImmutableArray<NativeEditorCapture>>>>(
+            () => definitions.ReadEditorCapturesAsync(ct, inspect: true));
         var contexts = chosenContexts.Where(context => context.Stamp.Connection != anchor?.Stamp.Connection)
             .GroupBy(context => context.Stamp.Connection).ToDictionary(group => group.Key, group => group.Last());
         if (anchor is not null) contexts[anchor.Stamp.Connection] = anchor;
@@ -276,6 +285,19 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
             views.Add(acquired.View);
             if (acquired.Selection is { } selection) selections.Add(selection);
             if (acquired.Drafts != 0) normalDraftCounts[acquired.View.SourceId] = acquired.Drafts;
+        }
+        if (!references.Value.IsEmpty)
+        {
+            var shown = views.Where(view => view.Error is null && view.Observation is not null)
+                .SelectMany(view => view.Items.Where(item => item.BenchMember && item.Identity.Key.IsLocal)
+                    .Select(item => new BenchSeedReference(view.Observation!.Binding.Connection,
+                        view.Observation.Binding.StoreInstance, item.Identity.Key))).ToHashSet();
+            if (references.Value.Any(reference => !shown.Contains(reference)))
+            {
+                labels[Guid.Empty] = "Unavailable seed membership";
+                views.Add(SourceView.Failed(Guid.Empty, new(ErrorCode.Unavailable,
+                    "Referenced seed membership is unavailable in this workspace.")));
+            }
         }
 
         async Task<(SourceSelection? Selection, SourceView View, string Label, int Drafts)> ReadConnection(Connection connection)
@@ -305,6 +327,34 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                 var intent = bench.Selectors.Where(selector => selector.Connection == connection).ToImmutableArray();
                 var observation = observed.Value;
                 var normalDebt = 0;
+                if (includeSeedReferences && !plan.Value.Enabled && observation.Snapshot.RetainedItems.Any(draft => draft is Seed))
+                {
+                    // A local key (even on the same connection) is not evidence of the origin store.
+                    // Never let a tentative mapping turn this read-only membership into a provider pin.
+                    var store = observation.Snapshot;
+                    var originKeys = byOrigin[(connection, observation.Binding.StoreInstance)].ToHashSet();
+                    originKeys.ExceptWith(store.Mappings.Where(mapping => observation.WithdrawnItems.Contains(mapping.Remote))
+                        .Select(mapping => mapping.Local));
+                    var eligible = store.RetainedItems.OfType<Seed>().Select(seed => seed.Key).Where(originKeys.Contains).ToHashSet();
+                    var retained = eligible.ToHashSet();
+                    // Keep existing creation-owned rows, independently of explicit memberships.
+                    var ownership = await captures.Value.ConfigureAwait(false);
+                    if (!ownership.IsSuccess) return Failed(ownership.Error);
+                    foreach (var capture in ownership.Value.Where(capture => capture.UserInstance == shared.Value.InstanceId
+                        && capture.BenchId == benchId && !capture.PlanMode && !capture.Cancelled && capture.ScopeId == Guid.Empty
+                        && capture.Origin == context.Stamp && capture.StoreInstance == context.Stamp.StoreInstance
+                        && Twig.Infrastructure.Persistence.NativePathComparer.Instance.Equals(capture.Root, context.Root)))
+                        if (UserBenchStore.ParseIntent(capture.IntentJson).Operations is [{ Kind: OpKind.Create } op])
+                            retained.Add(op.Item);
+                    // Already mapped draft debt belongs to its ordinary provider row, not to a local member.
+                    if (references.Value.IsEmpty) retained.UnionWith(store.Mappings.Select(mapping => mapping.Local));
+                    bool VisibleEndpoint(ItemKey key) => !key.IsLocal || retained.Contains(key);
+                    observation = observation with { Snapshot = new(store.Version, store.Items,
+                        store.Relationships.Where(edge => VisibleEndpoint(edge.From) && VisibleEndpoint(edge.To)),
+                        store.RetainedItems.Where(draft => draft is not Seed || retained.Contains(draft.Key)),
+                        store.Plans, store.Journal, store.Mappings.Where(mapping => !eligible.Contains(mapping.Local)), store.Benches) };
+                    intent = intent.AddRange(eligible.Select(key => new Selector(SelectorKind.Pin, key, connection: connection)));
+                }
                 if (plan.Value.Enabled)
                 {
                     normalDebt = observation.Snapshot.RetainedItems.Length;
@@ -331,6 +381,7 @@ public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway
                         Limitations = projected.Value.Limitations.Add(
                             $"{normalDebt} normal-mode draft(s) remain separate from this Plan. They are retained in protected draft browse and cannot be published by Plan Apply.")
                     }, label, normalDebt);
+                if (!references.Value.IsEmpty) return Failed(projected.Error);
                 // Membership failure must not discard this admitted context's protected draft evidence.
                 var empty = new SourceSelection(context.Source.Id, context.Source.Binding, []);
                 var protectedView = SourceProjection.Create(new(bench.Id, bench.Name, bench.Revision, [empty]), empty,

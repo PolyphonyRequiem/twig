@@ -10,6 +10,27 @@ public sealed record NativeOwnedSeed(ItemKey Item, Seed? Draft, Guid CaptureId, 
 
 internal sealed partial class NativeEditor
 {
+    internal async Task<Result<bool>> SetSeedMembershipAsync(Guid localId, bool present, CancellationToken ct)
+    {
+        if (localId.Version != 7 || plan.PlanMode || scope is not null || StoreInstance != origin.StoreInstance)
+            return Result<bool>.Fail(ErrorCode.InvalidInput, "Select a seed in its normal workspace, outside Plan mode.");
+        using var benchLease = user.AcquireAuthoringLease(bench.Id);
+        using var rootLease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        var valid = await ValidateAsync(ct).ConfigureAwait(false);
+        if (!valid.IsSuccess) return Result<bool>.Fail(valid.Error);
+        var key = ItemKey.Local(localId);
+        if (present)
+        {
+            var snapshot = await Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+            if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
+            if (!snapshot.Value.RetainedItems.OfType<Seed>().Any(seed => seed.Key == key)
+                || snapshot.Value.Mappings.Any(mapping => mapping.Local == key))
+                return Result<bool>.Fail(ErrorCode.NotFound, "There is no such unpublished seed in this source.");
+        }
+        return await user.SetSeedReferenceAsync(bench.Id, new(origin.Connection, origin.StoreInstance, key), present, ct)
+            .ConfigureAwait(false);
+    }
+
     private bool OwnsNormalSeed(NativeEditorCapture capture)
         => !plan.PlanMode && !capture.PlanMode && !capture.Cancelled && capture.ScopeId == Guid.Empty
             && capture.UserInstance == library.InstanceId && capture.BenchId == bench.Id
@@ -90,6 +111,8 @@ internal sealed partial class NativeEditor
         if (!pins.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, pins.Error));
         valid = await ValidateAsync(ct).ConfigureAwait(false);
         if (!valid.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, valid.Error));
+        var memberships = await Workspace.DeliverVerifiedSeedAsync(plan, 0, snapshot.Value, ct).ConfigureAwait(false);
+        if (!memberships.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, memberships.Error));
         var pinned = await NativeVerifiedDelivery.AddPinsAsync(user, capture.UserInstance, capture.BenchId, pins.Value, ct).ConfigureAwait(false);
         if (!pinned.IsSuccess) return Result<NativeSeedPublication>.Ok(Publication(capture, snapshot.Value, pinned.Error));
         var settledCapture = await NativeVerifiedDelivery.SettleCapturesAsync(user, capture.BenchId, pinned.Value.Revision,

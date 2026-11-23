@@ -15,7 +15,7 @@ using NativeBench = Twig.Core.Bench;
 
 namespace Twig.Server.Tests;
 
-public sealed class NativeWorkspaceTests : IAsyncDisposable
+public sealed partial class NativeWorkspaceTests : IAsyncDisposable
 {
     private readonly string root = Path.Combine(Path.GetTempPath(), "twig-workspace-" + Guid.NewGuid().ToString("N"));
     private readonly CatalogChanges changes = new();
@@ -34,7 +34,8 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
     {
         await Start();
         var source = await Source("admitted");
-        var draft = new Seed(ItemKey.Local(Guid.NewGuid()), "fixture.issue", FieldValues.Empty);
+        var key = ItemKey.Remote(source.Stamp.Connection.Provider, source.Stamp.Connection.ResourceScope, "42");
+        var draft = new LocalEdits(key, "fixture.issue", new(key, "fixture.issue", FieldValues.Empty, new(key, "1")), FieldValues.Empty);
         gateway.Snapshots[source.Root] = new(7, retainedItems: [draft]);
         var bench = await Bench("Selected", source.Stamp.Connection);
         SaveSelection(bench.Id);
@@ -534,12 +535,13 @@ public sealed class NativeWorkspaceTests : IAsyncDisposable
         client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
     }
 
-    private async Task<NativePanelContext> Source(string name, bool admit = true, string identity = "fixture-identity")
+    private async Task<NativePanelContext> Source(string name, bool admit = true, string identity = "fixture-identity",
+        Connection? mirror = null)
     {
         var path = Path.Combine(root, name);
         Directory.CreateDirectory(Path.Combine(path, ".twig"));
         var store = (await SqliteStore.CreateAsync(Path.Combine(path, ".twig", "core.db"))).Value;
-        var connection = new Connection(new("ado"), "fixture-collection", name, identity);
+        var connection = mirror ?? new Connection(new("ado"), "fixture-collection", name, identity);
         (await definitions.View(store, path, store.InstanceId).ReadAsync(connection, default)).IsSuccess.ShouldBeTrue();
         gateway.Stamps[path] = new(connection, store.InstanceId, "fixture-principal", "fixture-authority");
         gateway.Snapshots[path] = new(1);

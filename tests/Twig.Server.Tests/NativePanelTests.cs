@@ -238,9 +238,8 @@ internal static partial class NativePanelTests
             Check(view.Body!["sources"]!.AsArray().Count == 2 && view.Body["sources"]!.AsArray().Count(source => source!["errorCode"] is not null) == 1,
                 "A saved but unchosen connection must remain explicit unknown membership in the actual HTTP view, not disappear from the Bench.");
             var rows = view.Body!["sources"]![0]!["items"]!.AsArray();
-            Check(rows.Count == 2, "Excluded published draft and local seed must both remain visible.");
+            Check(rows.Count == 1, "Protected provider draft debt remains visible; unrelated standalone seeds do not.");
             Check(rows.Any(row => row!["isExcluded"]!.GetValue<bool>() && row["hasDraft"]!.GetValue<bool>()), "Excluded protected draft debt.");
-            Check(rows.Single(row => row!["isLocal"]!.GetValue<bool>())!["webUrl"] is null, "A local seed must have no fabricated web URL.");
             var teams = await Send("GET", prefix + "/planning/teams");
             Check(teams.Status == 200 && teams.Body!.AsArray().Count == 2, "Native canonical team discovery.");
             var planning = await Send("POST", prefix + "/planning/refresh", new JsonObject { ["team"] = Gateway.TeamA });

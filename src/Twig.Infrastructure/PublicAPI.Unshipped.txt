@@ -1,4 +1,23 @@
 #nullable enable
+Twig.Infrastructure.Services.BenchSeedReference
+Twig.Infrastructure.Services.BenchSeedReference.Connection.get -> Twig.Core.Connection!
+Twig.Infrastructure.Services.BenchSeedReference.Connection.init -> void
+Twig.Infrastructure.Services.BenchSeedReference.StoreInstance.get -> System.Guid
+Twig.Infrastructure.Services.BenchSeedReference.StoreInstance.init -> void
+Twig.Infrastructure.Services.BenchSeedReference.Item.get -> Twig.Core.ItemKey!
+Twig.Infrastructure.Services.BenchSeedReference.Item.init -> void
+Twig.Infrastructure.Services.BenchSeedReference.BenchSeedReference(Twig.Core.Connection! Connection, System.Guid StoreInstance, Twig.Core.ItemKey! Item) -> void
+Twig.Infrastructure.Services.BenchSeedReference.Deconstruct(out Twig.Core.Connection! Connection, out System.Guid StoreInstance, out Twig.Core.ItemKey! Item) -> void
+Twig.Infrastructure.Services.BenchSeedReference.Equals(Twig.Infrastructure.Services.BenchSeedReference? other) -> bool
+Twig.Infrastructure.Services.BenchSeedReference.<Clone>$() -> Twig.Infrastructure.Services.BenchSeedReference!
+override Twig.Infrastructure.Services.BenchSeedReference.Equals(object? obj) -> bool
+override Twig.Infrastructure.Services.BenchSeedReference.GetHashCode() -> int
+override Twig.Infrastructure.Services.BenchSeedReference.ToString() -> string!
+static Twig.Infrastructure.Services.BenchSeedReference.operator !=(Twig.Infrastructure.Services.BenchSeedReference? left, Twig.Infrastructure.Services.BenchSeedReference? right) -> bool
+static Twig.Infrastructure.Services.BenchSeedReference.operator ==(Twig.Infrastructure.Services.BenchSeedReference? left, Twig.Infrastructure.Services.BenchSeedReference? right) -> bool
+Twig.Infrastructure.Services.UserBenchStore.ReadSeedReferencesAsync(System.Guid benchId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.BenchSeedReference!>>!>!
+Twig.Infrastructure.Services.UserBenchStore.SetSeedReferenceAsync(System.Guid benchId, Twig.Infrastructure.Services.BenchSeedReference! reference, bool present, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<bool>!>!
+Twig.Infrastructure.Services.UserBenchStore.DeliverSeedReferenceAsync(Twig.Infrastructure.Services.BenchSeedReference! reference, Twig.Core.ItemKey! target, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<bool>!>!
 Twig.Infrastructure.Services.NativeEditForm.InputBaseline.get -> string!
 Twig.Infrastructure.Services.NativeEditForm.InputBaseline.init -> void
 Twig.Infrastructure.Services.NativeConnectionSetup.DiscoverAdoAsync(Twig.Infrastructure.Services.NativeAdoDiscoveryRequest! request, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeAdoDiscoveryPage!>!>!
@@ -197,6 +216,7 @@ static Twig.Infrastructure.Services.NativeRelationshipForm.operator ==(Twig.Infr
 Twig.Infrastructure.Services.NativeEditResult.SeedPublication.get -> Twig.Infrastructure.Services.NativeSeedPublication?
 Twig.Infrastructure.Services.NativeEditResult.SeedPublication.init -> void
 Twig.Infrastructure.Services.NativeItemEditor.ReadOwnedSeedsAsync(System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<System.Collections.Immutable.ImmutableArray<Twig.Infrastructure.Services.NativeOwnedSeed!>>!>!
+Twig.Infrastructure.Services.NativeItemEditor.SetSeedMembershipAsync(System.Guid localId, bool present, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<bool>!>!
 Twig.Infrastructure.Services.NativeItemEditor.ObserveSeedAsync(System.Guid captureId, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSeedPublication!>!>!
 Twig.Infrastructure.Services.NativeItemEditor.ContinueSeedDeliveryAsync(System.Guid captureId, string! exactDigest, System.Threading.CancellationToken ct = default(System.Threading.CancellationToken)) -> System.Threading.Tasks.Task<Twig.Core.Result<Twig.Infrastructure.Services.NativeSeedPublication!>!>!
 Twig.Infrastructure.Services.NativeSeedPublication

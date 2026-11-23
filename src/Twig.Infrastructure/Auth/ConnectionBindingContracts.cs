@@ -228,7 +228,7 @@ internal static class ConnectionOperationGate
             stream = new FileStream(Path.Combine(directory, "binding-operation.lock"), FileMode.OpenOrCreate,
                 FileAccess.ReadWrite, exclusive ? FileShare.None : FileShare.ReadWrite);
         }
-        catch (IOException ex)
+        catch (IOException ex) when (IsCheckoutSharingConflict(ex))
         {
             throw new ConnectionBindingResolutionException(ActiveFailureCode, "binding-operation-active: a checkout read, cache fill, write or native transition is still executing. Wait for it to settle, then retry; uncertain writes require native reconciliation.", ex);
         }
@@ -236,6 +236,12 @@ internal static class ConnectionOperationGate
         if (exclusive) ExclusiveScope.Value = lease;
         return lease;
     }
+
+    private static bool IsCheckoutSharingConflict(IOException error)
+        // Windows reports HRESULT_FROM_WIN32(ERROR_SHARING_VIOLATION); Unix FileStream uses raw flock errno.
+        => OperatingSystem.IsWindows() ? error.HResult == unchecked((int)0x80070020)
+            : error.HResult == (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD() ? 35 : 11);
+
     private sealed class Lease(FileStream stream, string? root, Lease? prior) : IDisposable
     {
         private int _disposed;

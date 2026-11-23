@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text.Json;
 using Twig.Core;
 using Twig.Formatters;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Content;
 using Twig.Infrastructure.Services;
 using Twig.Providers.Ado;
@@ -823,7 +824,13 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             return Error(output, "Specify one negative seed ID or --all.", 2);
         if (repository is not null && branch is null)
             return Error(output, "--repo requires --link-branch.", 2);
-        using var operation = Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true);
+        return await WithWorkspaceAdmissionAsync(output, dryRun ? "Publication preview" : "Publication",
+            () => PublishSeedsUnderLeaseAsync(id, all, dryRun, branch, repository, output, ct), ct);
+    }
+
+    private async Task<int> PublishSeedsUnderLeaseAsync(int? id, bool all, bool dryRun,
+        string? branch, string? repository, string output, CancellationToken ct)
+    {
         var opened = await factory.OpenAsync(ct);
         if (!opened.IsSuccess) return Error(output, opened.Error.Message);
         using var handle = opened.Value;
@@ -1341,49 +1348,55 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (string.IsNullOrWhiteSpace(file)) return Error(format, "An explicit Core plan file is required.", 2);
             var parsed = await CorePlanFiles.ReadAsync(factory.WorkspaceRoot, file, ct);
             if (!parsed.IsSuccess) return Error(format, parsed.Error.Message, parsed.Error.Code == ErrorCode.InvalidInput ? 2 : 1);
-            var opened = await factory.OpenAsync(ct);
-            if (!opened.IsSuccess) return Error(format, opened.Error.Message);
-            using var handle = opened.Value;
-            var workspace = handle.Workspace;
-            if (parsed.Value.Connection != workspace.Connection)
-                return Error(format, "The plan belongs to another immutable workspace connection.", 2);
-            var snapshot = await workspace.SnapshotAsync(ct);
-            if (!snapshot.IsSuccess) return Error(format, snapshot.Error.Message);
-            var plan = snapshot.Value.Plans.SingleOrDefault(value => value.Digest == parsed.Value.Digest);
-            var rows = snapshot.Value.Journal.Where(row => row.Digest == parsed.Value.Digest).OrderBy(row => row.Operation).ToArray();
-            var found = plan is not null;
-            if (plan is not null && (rows.Length != plan.Operations.Length
-                || rows.Where((row, ordinal) => row.Operation != ordinal).Any()))
-                return Error(format, "The retained plan has incomplete journal ordinals; no execution outcome was inferred.");
-            var operations = rows.Select(row => new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
-            {
-                ["ordinal"] = RenderCell.Integer(row.Operation),
-                ["id"] = RenderCell.String(parsed.Value.Operations[row.Operation].Id),
-                ["kind"] = RenderCell.String(parsed.Value.Operations[row.Operation].Kind.ToString()),
-                ["item"] = InspectionKey(parsed.Value.Operations[row.Operation].Item),
-                ["status"] = RenderCell.String(row.Status.ToString()),
-                ["attempt"] = InspectionText(row.Attempt == Guid.Empty ? null : row.Attempt.ToString("D")),
-                ["receipts"] = new("Receipts", new RenderValue.Array(row.Receipts.Select(receipt =>
-                    new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
-                    {
-                        ["status"] = RenderCell.String(receipt.Status.ToString()),
-                        ["attempt"] = RenderCell.String(receipt.Attempt.ToString("D")),
-                        ["evidence"] = new("Evidence", new RenderValue.Array(receipt.Evidence.Select(value => RenderCell.String(value)).ToArray())),
-                        ["publishedItem"] = InspectionKey(receipt.PublishedKey),
-                        ["revision"] = InspectionText(receipt.Revision?.Token),
-                        ["error"] = receipt.Error is { } error
-                            ? new("", new RenderValue.Object(new Dictionary<string, RenderCell>
-                            {
-                                ["code"] = RenderCell.String(error.Code.ToString()),
-                                ["message"] = RenderCell.String(error.Message),
-                                ["evidence"] = new("Evidence", new RenderValue.Array(error.Evidence.Select(value => RenderCell.String(value)).ToArray())),
-                            })) : new("", new RenderValue.Null()),
-                    }))).ToArray())),
-            }))).ToArray();
-            renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("planStatus",
+            return await WithWorkspaceAdmissionAsync(format, "Journal inspection",
+                () => ReadPlanStatusUnderLeaseAsync(parsed.Value, format, ct), ct);
+        });
+
+    private async Task<int> ReadPlanStatusUnderLeaseAsync(Plan planFile, string format, CancellationToken ct)
+    {
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Error(format, opened.Error.Message);
+        using var handle = opened.Value;
+        var workspace = handle.Workspace;
+        if (planFile.Connection != workspace.Connection)
+            return Error(format, "The plan belongs to another immutable workspace connection.", 2);
+        var snapshot = await workspace.SnapshotAsync(ct);
+        if (!snapshot.IsSuccess) return Error(format, snapshot.Error.Message);
+        var plan = snapshot.Value.Plans.SingleOrDefault(value => value.Digest == planFile.Digest);
+        var rows = snapshot.Value.Journal.Where(row => row.Digest == planFile.Digest).OrderBy(row => row.Operation).ToArray();
+        var found = plan is not null;
+        if (plan is not null && (rows.Length != plan.Operations.Length
+            || rows.Where((row, ordinal) => row.Operation != ordinal).Any()))
+            return Error(format, "The retained plan has incomplete journal ordinals; no execution outcome was inferred.");
+        var operations = rows.Select(row => new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
+        {
+            ["ordinal"] = RenderCell.Integer(row.Operation),
+            ["id"] = RenderCell.String(planFile.Operations[row.Operation].Id),
+            ["kind"] = RenderCell.String(planFile.Operations[row.Operation].Kind.ToString()),
+            ["item"] = InspectionKey(planFile.Operations[row.Operation].Item),
+            ["status"] = RenderCell.String(row.Status.ToString()),
+            ["attempt"] = InspectionText(row.Attempt == Guid.Empty ? null : row.Attempt.ToString("D")),
+            ["receipts"] = new("Receipts", new RenderValue.Array(row.Receipts.Select(receipt =>
+                new RenderCell("", new RenderValue.Object(new Dictionary<string, RenderCell>
+                {
+                    ["status"] = RenderCell.String(receipt.Status.ToString()),
+                    ["attempt"] = RenderCell.String(receipt.Attempt.ToString("D")),
+                    ["evidence"] = new("Evidence", new RenderValue.Array(receipt.Evidence.Select(value => RenderCell.String(value)).ToArray())),
+                    ["publishedItem"] = InspectionKey(receipt.PublishedKey),
+                    ["revision"] = InspectionText(receipt.Revision?.Token),
+                    ["error"] = receipt.Error is { } error
+                        ? new("", new RenderValue.Object(new Dictionary<string, RenderCell>
+                        {
+                            ["code"] = RenderCell.String(error.Code.ToString()),
+                            ["message"] = RenderCell.String(error.Message),
+                            ["evidence"] = new("Evidence", new RenderValue.Array(error.Evidence.Select(value => RenderCell.String(value)).ToArray())),
+                        })) : new("", new RenderValue.Null()),
+                }))).ToArray())),
+        }))).ToArray();
+        renderer.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Record("planStatus",
                 new Dictionary<string, RenderCell>
                 {
-                    ["digest"] = RenderCell.String(parsed.Value.Digest),
+                    ["digest"] = RenderCell.String(planFile.Digest),
                     ["found"] = RenderCell.Boolean(found),
                     ["allVerified"] = RenderCell.Boolean(found && rows.All(row => row.Status == OpStatus.Verified)),
                     ["operationCount"] = RenderCell.Integer(rows.Length),
@@ -1392,8 +1405,44 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                         ? "Journal inspected without applying, settling or replaying any operation."
                         : "No journal is retained for this exact canonical digest."),
                 })]));
-            return found ? 0 : 1;
-        });
+        return found ? 0 : 1;
+    }
+
+    private async Task<int> WithWorkspaceAdmissionAsync(string output, string operation, Func<Task<int>> run,
+        CancellationToken ct)
+    {
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        wait.CancelAfter(TimeSpan.FromSeconds(3));
+        IDisposable? lease = null;
+        try
+        {
+            // Acquire and run in the same async flow so nested operations inherit the exclusive lease.
+            while (lease is null)
+            {
+                wait.Token.ThrowIfCancellationRequested();
+                try { lease = ConnectionOperationGate.Acquire(factory.WorkspaceRoot, exclusive: true); }
+                catch (ConnectionBindingResolutionException ex) when (ex.FailureCode == ConnectionOperationGate.ActiveFailureCode)
+                {
+                    await Task.Delay(TimeSpan.FromMilliseconds(50), wait.Token);
+                }
+            }
+            wait.Token.ThrowIfCancellationRequested();
+        }
+        catch (OperationCanceledException)
+        {
+            lease?.Dispose();
+            return Error(output, ct.IsCancellationRequested
+                ? $"{operation} did not start: cancelled before acquiring the workspace lease."
+                : $"{operation} did not start: binding-operation-active: timed out waiting for the workspace lease.");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return Error(output, $"{operation} did not start: unable to open the workspace lease: {ex.Message}");
+        }
+
+        using (lease)
+            return await run();
+    }
 
     internal Task<int> PendingAsync(string output, CancellationToken ct)
         => InspectAsync("pending", output, async format =>

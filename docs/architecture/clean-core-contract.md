@@ -748,6 +748,10 @@ parent/resources/links, without native refresh, journal changes or implicit flus
 It preserves retained draft order, not a fabricated field-edit chronology. These
 inspection routes support human/structured/minimal output and safe optional command
 telemetry; bare-ID output is refused because it would discard the inspected evidence.
+`plan status` and `seed publish` wait up to three seconds for checkout lease
+contention before opening the workspace. A timeout or cancellation during that
+wait means the operation did not start. Other lease I/O failures are reported
+separately. The wait never retries a dispatched provider write.
 Plan latest/seed/reconciliation and rich interactive review remain cutover gaps.
 The fundamental smoke uses an isolated Core fixture and reaches that real
 evidence gate plus wrong-principal admission; initialization refusal is not a

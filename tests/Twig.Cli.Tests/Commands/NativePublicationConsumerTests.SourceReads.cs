@@ -3,7 +3,9 @@ using System.Text.Json.Nodes;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
+using Twig.Commands;
 using Twig.Core;
+using Twig.DependencyInjection;
 using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
@@ -600,6 +602,158 @@ public sealed partial class NativePublicationConsumerTests
         }
         (await NativeSourceReader.ReadAsync(".")).Error.Code.ShouldBe(ErrorCode.InvalidInput);
         _transport.TotalRequests.ShouldBe(0);
+    }
+
+    [Fact]
+    public async Task WorkspaceAdmissionPlanStatusWaitsForBenchRead()
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var capture = (await ReadSource(paths)).Value;
+        var key = ItemKey.Remote(connection.Provider, connection.ResourceScope, "42");
+        var snapshot = (await store.ReadAsync(connection, default)).Value;
+        var plan = new Plan(connection, "fixture-schema", snapshot.Version,
+            [new("fixture", OpKind.Batch, key, new Revision(key, "1"),
+                FieldValues.Empty.Set("System.Title", FieldValue.String("Fixture title")))]);
+        (await store.CommitAsync(connection, snapshot.Version,
+            new StoreSnapshot(snapshot.Version + 1, snapshot.Items, snapshot.Relationships, snapshot.RetainedItems,
+                [plan], [JournalEntry.Planned(plan.Digest, 0)], snapshot.Mappings, snapshot.Benches),
+            default)).IsSuccess.ShouldBeTrue();
+        var file = Path.Combine(paths.TwigDir, "contention-plan.json");
+        await File.WriteAllBytesAsync(file, global::Twig.Core.Core.PlanBytes(plan));
+        using var stderr = new StringWriter();
+        using var stdout = new StringWriter();
+        var originalError = Console.Error;
+        var originalOut = Console.Out;
+        Console.SetError(stderr);
+        Console.SetOut(stdout);
+        try
+        {
+            int Status() => RunCoreLink(paths, ["plan", "status", "--file", file, "-o", "minimal"]);
+            Status().ShouldBe(0, $"stderr: {stderr}; stdout: {stdout}");
+
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            _transport.BeforeProjectMetadata = async () =>
+            {
+                entered.SetResult();
+                await resume.Task.WaitAsync(timeout.Token);
+            };
+            var bench = ReadSource(paths, capture.Source, schema: true, timeout.Token);
+            Task<int>? status = null;
+            try
+            {
+                await entered.Task.WaitAsync(timeout.Token);
+                var sharing = Should.Throw<IOException>(() => new FileStream(
+                    Path.Combine(paths.TwigDir, "binding-operation.lock"),
+                    FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose());
+                status = Task.Run(Status, timeout.Token);
+                var completed = await Task.WhenAny(status, Task.Delay(250, timeout.Token));
+                if (completed == status)
+                    (await status).ShouldBe(0, $"Overlapped status stderr: {stderr}; lease probe HRESULT: 0x{sharing.HResult:X8}");
+                status.IsCompleted.ShouldBeFalse("status must not pass the Bench lease");
+            }
+            finally
+            {
+                resume.TrySetResult();
+                await bench.WaitAsync(timeout.Token);
+                if (status is not null) await status.WaitAsync(timeout.Token);
+            }
+            (await status!).ShouldBe(0, stderr.ToString());
+        }
+        finally { Console.SetError(originalError); Console.SetOut(originalOut); }
+    }
+
+    [Theory]
+    [InlineData("short-hold")]
+    [InlineData("timeout")]
+    [InlineData("cancelled")]
+    [InlineData("io-failure")]
+    [InlineData("lost-acknowledgement")]
+    public async Task WorkspaceAdmissionSeedPublishPreservesAttemptBoundary(string outcome)
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        string[] args = ["seed", "publish", "--all"];
+        var services = new ServiceCollection();
+        services.AddSingleton<IConnectionBindingService>(_bindings);
+        services.AddSingleton(new CoreTransportOverride(_transport.NewHandle));
+        services.AddTwigWorkspaceServices(paths.StartDir, args);
+        using var runtime = services.BuildServiceProvider();
+        var adapter = runtime.GetRequiredService<CoreCommandAdapter>();
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        var originalError = Console.Error;
+        var originalOut = Console.Out;
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            RunCoreLink(paths, ["seed", "new", "--title", "Fixture publication", "--type", "Task", "--no-parent", "-o", "json"])
+                .ShouldBe(0, stderr.ToString());
+            using var seedOutput = JsonDocument.Parse(stdout.ToString());
+            var alias = seedOutput.RootElement.GetProperty("id").GetInt32();
+            var before = (await store.ReadAsync(connection, default)).Value;
+            var requests = _transport.TotalRequests;
+            var lockPath = Path.Combine(paths.TwigDir, "binding-operation.lock");
+            using var cancellation = new CancellationTokenSource();
+            Task<int> Publish() => adapter.SeedPublishAsync(alias, false, false, false, null, null, "human", cancellation.Token);
+
+            if (outcome == "io-failure")
+            {
+                File.Delete(lockPath);
+                Directory.CreateDirectory(lockPath);
+                var failed = Publish();
+                failed.IsCompleted.ShouldBeTrue("an invalid lease path must not enter the retry delay");
+                (await failed).ShouldBe(1);
+                stderr.ToString().ShouldContain("Publication did not start: unable to open the workspace lease");
+                stderr.ToString().ShouldNotContain("binding-operation-active");
+            }
+            else
+            {
+                using var held = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                if (outcome == "lost-acknowledgement")
+                    _transport.AfterCommit = () => throw new IOException("Fixture lost the create acknowledgement");
+                var publishing = Publish();
+                publishing.IsCompleted.ShouldBeFalse("publication must wait before accessing provider or journal");
+                _transport.TotalRequests.ShouldBe(requests);
+                if (outcome is "short-hold" or "lost-acknowledgement") held.Dispose();
+                if (outcome == "cancelled") cancellation.Cancel();
+                (await publishing.WaitAsync(TimeSpan.FromSeconds(10))).ShouldBe(outcome == "short-hold" ? 0 : 1,
+                    stderr.ToString());
+            }
+
+            var after = (await store.ReadAsync(connection, default)).Value;
+            if (outcome == "short-hold")
+            {
+                _transport.PostCount.ShouldBe(1);
+                after.Journal.ShouldHaveSingleItem().Status.ShouldBe(OpStatus.Verified);
+                after.Mappings.ShouldHaveSingleItem().Local.ShouldBe(before.RetainedItems.Single().Key);
+            }
+            else if (outcome == "lost-acknowledgement")
+            {
+                var original = after.Journal.ShouldHaveSingleItem();
+                original.Status.ShouldBe(OpStatus.Indeterminate);
+                original.Attempt.ShouldNotBe(Guid.Empty);
+                after.Mappings.ShouldBeEmpty();
+                (await Publish()).ShouldBe(1, stderr.ToString());
+                _transport.PostCount.ShouldBe(1);
+                var retained = (await store.ReadAsync(connection, default)).Value.Journal.ShouldHaveSingleItem();
+                (retained.Digest, retained.Attempt, retained.Status).ShouldBe((original.Digest, original.Attempt, original.Status));
+            }
+            else
+            {
+                if (outcome != "io-failure")
+                    stderr.ToString().ShouldContain(outcome == "timeout"
+                        ? "Publication did not start: binding-operation-active: timed out"
+                        : "Publication did not start: cancelled");
+                _transport.TotalRequests.ShouldBe(requests);
+                _transport.PostCount.ShouldBe(0);
+                after.Version.ShouldBe(before.Version);
+                after.Journal.ShouldBeEmpty();
+                after.Mappings.ShouldBeEmpty();
+            }
+        }
+        finally { Console.SetError(originalError); Console.SetOut(originalOut); }
     }
 
     private Task<Result<NativeSourceObservation>> ReadSource(TwigPaths paths, NativeSourceStamp? expected = null,

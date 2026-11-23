@@ -412,6 +412,16 @@ public sealed class SqliteStoreTests : IDisposable
         var retained = await Read(await Open());
         var replay = Next(retained, journal: [retained.Journal[0], retained.Journal[1].Begin(Guid.NewGuid()).Value]);
         var result = await store.CommitAsync(Connection, retained.Version, replay, default);
+        if (outcome == OpStatus.Failed)
+        {
+            result.IsSuccess.ShouldBeTrue();
+            var reopened = await Read(await Open());
+            reopened.Journal[0].Attempt.ShouldBe(applying.Attempt);
+            reopened.Journal[0].Status.ShouldBe(OpStatus.Failed);
+            reopened.Journal[1].Status.ShouldBe(OpStatus.Applying);
+            reopened.Journal[1].Attempt.ShouldNotBe(applying.Attempt);
+            return;
+        }
         result.Error.Code.ShouldBe(ErrorCode.Conflict);
         result.Error.Evidence.ShouldContain(e => e.Contains("replacement digest", StringComparison.Ordinal));
         var unchanged = await Read(await Open());

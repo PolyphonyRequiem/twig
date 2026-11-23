@@ -2442,6 +2442,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         public int TotalRequests { get; private set; }
         public List<string> ObservedPaths { get; } = [];
         public int PostCount { get; private set; }
+        public bool RejectNextCreate { get; set; }
         public int CommittedWrites { get; private set; }
         public int PatchAttempts { get; private set; }
         public int ReadbacksAfterCommit { get; private set; }
@@ -2546,6 +2547,17 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
                 });
             if (path.Contains("/_apis/profile/profiles/me", StringComparison.Ordinal))
                 return Reply(HttpStatusCode.OK, new { displayName = "Same display", emailAddress = principal + "@fixture.example" });
+            if (path.EndsWith("/_apis/identities", StringComparison.Ordinal)
+                && request.RequestUri.Query.Contains("identityIds=", StringComparison.Ordinal))
+            {
+                var identityId = new[] { Actor, Sibling }.SingleOrDefault(candidate =>
+                    request.RequestUri.Query.StartsWith("?identityIds=" + candidate + "&", StringComparison.Ordinal));
+                return Reply(HttpStatusCode.OK, new { value = identityId is null ? [] : new object[] { new
+                {
+                    id = identityId, isActive = true,
+                    properties = new { Account = new Dictionary<string, string> { ["$value"] = identityId + "@fixture.example" } }
+                } } });
+            }
             if (FailSchema && path.EndsWith("/fields", StringComparison.Ordinal))
                 return Reply(SchemaFailureStatus ?? HttpStatusCode.BadRequest, new { message = "Fixture schema unavailable" });
             if (CoreMetadataEnabled && path.EndsWith("/_apis/wit/workitemtypes", StringComparison.OrdinalIgnoreCase)
@@ -2660,6 +2672,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             if (routeIndex < 0) return Reply(HttpStatusCode.OK, new { count = 0, value = Array.Empty<object>() });
             WorkRequests++;
             if (request.Method == HttpMethod.Post) PostCount++;
+            if (request.Method == HttpMethod.Post && RejectNextCreate)
+            {
+                RejectNextCreate = false;
+                return Reply(HttpStatusCode.BadRequest, new { message = "Fixture rejected create without effect" });
+            }
             var segments = path[(routeIndex + route.Length)..].Split('/');
             if (CoreMetadataEnabled && request.Method == HttpMethod.Post && segments[0] == "$Task")
             {

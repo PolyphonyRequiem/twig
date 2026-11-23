@@ -756,6 +756,76 @@ public sealed partial class NativePublicationConsumerTests
         finally { Console.SetError(originalError); Console.SetOut(originalOut); }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task SeedPreviewExportsExactPlanForScopedApply(bool rejectFirst)
+    {
+        var (paths, connection, store) = await RelationshipWorkspaceAsync();
+        var originalOut = Console.Out;
+        var originalError = Console.Error;
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        try
+        {
+            Console.SetOut(stdout);
+            Console.SetError(stderr);
+            JsonElement Run(int expected, params string[] args)
+            {
+                stdout.GetStringBuilder().Clear();
+                stderr.GetStringBuilder().Clear();
+                RunCoreLink(paths, args).ShouldBe(expected, stderr.ToString());
+                using var json = JsonDocument.Parse((expected == 0 ? stdout : stderr).ToString());
+                return json.RootElement.Clone();
+            }
+            string Seed(string title) => Run(0, "seed", "new", "--title", title, "--type", "Task", "--no-parent", "-o", "json")
+                .GetProperty("id").GetRawText();
+            var selected = Seed("Selected fixture");
+            Seed("Unselected fixture");
+            Run(2, "seed", "publish", selected, "-o", "json");
+            var preview = Run(0, "seed", "publish", selected, "--dry-run", "-o", "json");
+            var digest = preview.GetProperty("digest").GetString()!;
+            var planFile = Path.Combine(paths.TwigDir, "exported-plan.json");
+            await File.WriteAllTextAsync(planFile, preview.GetProperty("canonicalPlan").GetString()!);
+            var parsed = (await CorePlanFiles.ReadAsync(paths.RepoRoot, planFile, default)).Value;
+            parsed.Digest.ShouldBe(digest);
+            var item = parsed.Operations.ShouldHaveSingleItem().Item;
+            _transport.PostCount.ShouldBe(0);
+            Guid failedAttempt = default;
+            if (rejectFirst)
+            {
+                _transport.RejectNextCreate = true;
+                var args = new[] { "plan", "apply", "--file", planFile, "-o", "json" };
+                RunCoreLink(paths, args).ShouldBe(1);
+                var failed = (await store.ReadAsync(connection, default)).Value;
+                var rejected = failed.Journal.Single(row => row.Digest == digest);
+                rejected.Status.ShouldBe(OpStatus.Failed);
+                failedAttempt = rejected.Attempt;
+                failed.Mappings.ShouldBeEmpty();
+                RunCoreLink(paths, args).ShouldBe(1);
+                _transport.PostCount.ShouldBe(1);
+                var fresh = Run(0, "seed", "publish", selected, "--dry-run", "-o", "json");
+                fresh.GetProperty("digest").GetString().ShouldNotBe(digest);
+                await File.WriteAllTextAsync(planFile, fresh.GetProperty("canonicalPlan").GetString()!);
+                var freshPlan = (await CorePlanFiles.ReadAsync(paths.RepoRoot, planFile, default)).Value;
+                freshPlan.Operations.ShouldHaveSingleItem().Item.ShouldBe(item);
+            }
+            var result = Run(0, "plan", "apply", "--file", planFile, "-o", "json");
+            result.GetProperty("verified").GetBoolean().ShouldBeTrue();
+            _transport.PostCount.ShouldBe(rejectFirst ? 2 : 1);
+            var after = (await store.ReadAsync(connection, default)).Value;
+            if (rejectFirst)
+            {
+                var original = after.Journal.Single(row => row.Digest == digest);
+                original.Attempt.ShouldBe(failedAttempt);
+                original.Status.ShouldBe(OpStatus.Failed);
+            }
+            after.Mappings.ShouldHaveSingleItem().Local.ShouldBe(item);
+            after.RetainedItems.ShouldHaveSingleItem().Key.ShouldNotBe(item);
+        }
+        finally { Console.SetOut(originalOut); Console.SetError(originalError); }
+    }
+
     private Task<Result<NativeSourceObservation>> ReadSource(TwigPaths paths, NativeSourceStamp? expected = null,
         bool schema = false, CancellationToken ct = default)
         => NativeSourceReader.ReadAsync(paths.RepoRoot, expected, schema, services =>

@@ -841,6 +841,36 @@ public sealed partial class AdoProviderTests
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CreateUsesExactIdentityAccountInsteadOfSendingTheStorageGuid(bool mismatchedIdentity)
+    {
+        using var f = await Fixture.Create();
+        f.Http.RequireIdentityAccountOnCreate = true;
+        if (mismatchedIdentity) f.Http.ProfileDefect = "wrong-id";
+        var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
+            ("Custom.Owner", FieldValue.Identity(Fixture.Actor)));
+        var draft = new Seed(ItemKey.Local(Guid.NewGuid()), f.Http.Type, fields);
+        var stored = await f.Stored();
+        (await f.Store.CommitAsync(f.Connection, stored.Version, new(stored.Version + 1, retainedItems: [draft]), default))
+            .IsSuccess.ShouldBeTrue();
+        var plan = await f.Plan(CreateOperation(draft));
+        (await f.Provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
+        var applied = await f.Provider.ApplyAsync(plan, 0, Guid.NewGuid(), default);
+        if (mismatchedIdentity)
+        {
+            applied.IsSuccess.ShouldBeFalse();
+            f.Http.Writes.ShouldBe(0);
+        }
+        else
+        {
+            applied.Value.Status.ShouldBe(OpStatus.Applied);
+            (await f.Provider.VerifyAsync(plan, applied.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+            f.Http.Writes.ShouldBe(1);
+        }
+    }
+
+    [Theory]
     [InlineData("network")]
     [InlineData("canceled")]
     [InlineData("malformed")]
@@ -927,14 +957,18 @@ public sealed partial class AdoProviderTests
         f.Http.Writes.ShouldBe(2);
     }
 
-    [Fact]
-    public async Task CoreCreationPreservesDescriptionMarkupWithoutTheRetiredOriginParser()
+    [Theory]
+    [InlineData("<p><em><token></em></p>", null, OpStatus.Verified)]
+    [InlineData("<p>One</p><p>Two</p>", "<p>One </p><p>Two </p>", OpStatus.Verified)]
+    [InlineData("<p>One</p><p>Two</p>", "<p>One more</p><p>Two </p>", OpStatus.Partial)]
+    [InlineData("<p><em>One</em></p>", "<p><em>One</em> </p>", OpStatus.Partial)]
+    public async Task CoreCreationPreservesDescriptionMarkupWithoutTheRetiredOriginParser(
+        string description, string? readback, OpStatus expected)
     {
         using var f = await Fixture.Create();
         f.Http.Defect = "description-html";
         var schema = await f.Schema();
         schema.Types.Single().Fields.Single(field => field.Reference == "System.Description").Kind.ShouldBe(FieldKind.Html);
-        const string description = "<p><em><token></em></p>";
         var seed = ItemKey.Local(Guid.NewGuid());
         var fields = Fields(("System.State", FieldValue.String(f.Http.Initial)),
             ("System.Description", FieldValue.RichText(description, FieldKind.Html)));
@@ -950,7 +984,15 @@ public sealed partial class AdoProviderTests
         using var payload = JsonDocument.Parse(f.Http.LastPayload!);
         payload.RootElement.EnumerateArray().Single(entry => entry.GetProperty("path").GetString() == "/fields/System.Description")
             .GetProperty("value").GetString().ShouldBe(description);
-        (await f.Provider.VerifyAsync(plan, result.Value, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        f.Http.DescriptionReadback = readback;
+        (await f.Provider.VerifyAsync(plan, result.Value, default)).Value.Status.ShouldBe(expected);
+        if (expected == OpStatus.Partial)
+        {
+            f.Http.DescriptionReadback = description;
+            (await f.Provider.RecoverAsync(plan, 0)).Value.Status.ShouldBe(OpStatus.Verified);
+            (await f.Stored()).Journal.Single().Receipts.Select(receipt => receipt.Status)
+                .ShouldBe([OpStatus.Applied, OpStatus.Partial, OpStatus.Verified]);
+        }
         f.Http.Writes.ShouldBe(1);
     }
 
@@ -1559,6 +1601,7 @@ public sealed partial class AdoProviderTests
         internal List<string> ReadAccessPaths = [];
         internal string? ChoiceDefect;
         internal string? LastPayload;
+        internal string? DescriptionReadback;
         internal Func<Task>? AfterWrite;
         internal Dictionary<int, JsonObject> Items = [];
         private readonly Dictionary<(int, int), JsonObject> _revisions = [];
@@ -1612,7 +1655,7 @@ public sealed partial class AdoProviderTests
                 if (query.Contains("identityIds=", StringComparison.Ordinal))
                 {
                     ProfileRequests.Add(request.RequestUri);
-                    return Rows($$"""{"id":"{{(ProfileDefect == "wrong-id" ? Fixture.Process : Fixture.Actor)}}","providerDisplayName":"Native Full Name","subjectDescriptor":"aad.synthetic"}""");
+                    return Rows($$$"""{"id":"{{{(ProfileDefect == "wrong-id" ? Fixture.Process : Fixture.Actor)}}}","providerDisplayName":"Native Full Name","subjectDescriptor":"aad.synthetic","isActive":true,"properties":{"Account":{"$value":"owner@example.test"} } }""");
                 }
                 if (ChoiceDefect == "denied") return Status(403);
                 var identity = ChoiceDefect == "invalid" ? "display-name-is-not-an-id" : Fixture.Actor;
@@ -1793,6 +1836,7 @@ public sealed partial class AdoProviderTests
                     if (Defect == "readback-canceled") throw new OperationCanceledException("Synthetic readback cancellation");
                     var revision = int.Parse(tail[2], System.Globalization.CultureInfo.InvariantCulture);
                     var root = _revisions[(id, revision)].DeepClone();
+                    if (DescriptionReadback is not null) root["fields"]!["System.Description"] = DescriptionReadback;
                     if (IncludeClassification && !query.Contains("$expand=all", StringComparison.OrdinalIgnoreCase))
                     {
                         root["fields"]!.AsObject().Remove("System.AreaId");
@@ -1946,6 +1990,8 @@ public sealed partial class AdoProviderTests
             return response;
         }
         private IEnumerable<string> NativeTypes() => AdditionalType is null ? [Type] : [Type, AdditionalType];
+        internal bool RequireIdentityAccountOnCreate;
+
         private async Task<HttpResponseMessage> Write(HttpRequestMessage request, string path, CancellationToken ct)
         {
             Writes++;
@@ -1967,6 +2013,11 @@ public sealed partial class AdoProviderTests
                 if (op == "test")
                 {
                     if (entry.GetProperty("value").GetInt32() != item["rev"]!.GetValue<int>()) return Status(412);
+                }
+                else if (create && RequireIdentityAccountOnCreate && field == "/fields/Custom.Owner")
+                {
+                    if (entry.GetProperty("value").GetString() != "owner@example.test") return Status(400);
+                    item["fields"]!["Custom.Owner"] = new JsonObject { ["id"] = Fixture.Actor };
                 }
                 else if (field.StartsWith("/fields/"))
                     item["fields"]![field[8..]] = JsonNode.Parse(entry.GetProperty("value").GetRawText());

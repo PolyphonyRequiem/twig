@@ -13,14 +13,7 @@ public sealed partial class AdoProvider
                 || identities.Any(id => string.IsNullOrWhiteSpace(id) || id.Length > 256 || id.Any(char.IsControl)))
                 throw Wire.Refuse(ErrorCode.InvalidInput, "Profile reads require 1-16 distinct native identity IDs.");
             // Only the known Azure DevOps identity service may receive this collection's credential.
-            var organization = bound.OrganizationUrl;
-            var segments = organization.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
-            var identityRoot = organization.Host == "dev.azure.com" && organization.IsDefaultPort && segments.Length == 1
-                ? new Uri($"https://vssps.dev.azure.com/{segments[0]}/")
-                : organization.Host.EndsWith(".visualstudio.com", StringComparison.Ordinal) && organization.IsDefaultPort && segments.Length == 0
-                    ? new Uri($"https://vssps.dev.azure.com/{organization.Host[..^".visualstudio.com".Length]}/")
-                    : organization;
-            var identityBound = bound with { OrganizationUrl = identityRoot };
+            var identityBound = IdentityAuthority(bound);
             var profiles = ImmutableArray.CreateBuilder<IdentityProfile>();
             foreach (var id in identities)
             {
@@ -57,4 +50,30 @@ public sealed partial class AdoProvider
             }
             return profiles.ToImmutable();
         }, ct));
+
+    private static Bound IdentityAuthority(Bound bound)
+    {
+        var organization = bound.OrganizationUrl;
+        var segments = organization.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var identityRoot = organization.Host == "dev.azure.com" && organization.IsDefaultPort && segments.Length == 1
+            ? new Uri($"https://vssps.dev.azure.com/{segments[0]}/")
+            : organization.Host.EndsWith(".visualstudio.com", StringComparison.Ordinal) && organization.IsDefaultPort && segments.Length == 0
+                ? new Uri($"https://vssps.dev.azure.com/{organization.Host[..^".visualstudio.com".Length]}/")
+                : organization;
+        return bound with { OrganizationUrl = identityRoot };
+    }
+
+    private async Task<string> ResolveWriteIdentity(Bound bound, string id, CancellationToken ct)
+    {
+        var identity = await Get(IdentityAuthority(bound),
+            $"_apis/identities?identityIds={Wire.Escape(id)}&queryMembership=None&api-version=7.1", ct);
+        var rows = Wire.Rows(identity);
+        if (rows.Length != 1 || Wire.Text(rows[0], "id") != id
+            || !rows[0].TryGetProperty("isActive", out var active) || !active.GetBoolean())
+            throw Wire.Refuse(ErrorCode.Conflict, "ADO did not resolve the exact active identity for the write.");
+        var account = Wire.Text(rows[0].GetProperty("properties").GetProperty("Account"), "$value");
+        if (string.IsNullOrWhiteSpace(account) || account.Length > 256 || account.Any(char.IsControl) || Guid.TryParse(account, out _))
+            throw Wire.Invalid("ADO did not return a usable identity account for the write.");
+        return account;
+    }
 }

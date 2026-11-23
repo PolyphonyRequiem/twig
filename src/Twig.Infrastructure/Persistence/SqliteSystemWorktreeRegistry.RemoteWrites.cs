@@ -123,7 +123,8 @@ internal sealed partial class SqliteSystemWorktreeRegistry
                     if (admitted.Request.CoreCorrelation is { } original
                         && (original.Attempt == core.Attempt
                             || original.PlanDigest == core.PlanDigest && original.Operation == core.Operation
-                            || core.CreationIdentity is not null && original.CreationIdentity == core.CreationIdentity))
+                            || core.CreationIdentity is not null && original.CreationIdentity == core.CreationIdentity
+                                && !WasDefinitivelyRejected(admitted, intent, prior.IsDBNull(1) ? null : prior.GetString(1))))
                         return NativeResults.Fail("remote-write-core-attempt-fenced: this operation, attempt or creation UUID has already been admitted; no replacement request is authorized.");
                     if (!prior.IsDBNull(1)) continue;
                     if (core.CreationIdentity is not null && admitted.Request.EffectKind == "workitem-create"
@@ -142,6 +143,22 @@ internal sealed partial class SqliteSystemWorktreeRegistry
             await cmd.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             return NativeResults.Ok();
         }, ct);
+
+    private static bool WasDefinitivelyRejected(ConnectionRemoteWriteIntent original,
+        ConnectionRemoteWriteIntent replacement, string? receiptJson)
+    {
+        if (receiptJson is null || original.Request.EffectKind != "workitem-create"
+            || replacement.Request.EffectKind != original.Request.EffectKind
+            || replacement.Request.Target != original.Request.Target
+            || !ConnectionRemoteWriteAdmission.SameAuthority(replacement.Origin, original.Origin))
+            return false;
+        var receipt = JsonSerializer.Deserialize(receiptJson, TwigJsonContext.Default.ConnectionRemoteWriteReceipt);
+        return receipt is { Version: 1, Kind: "rejected", ObservationId.Length: > 0 }
+            && receipt.IntentId == original.IntentId && receipt.RequestDigest == original.RequestDigest
+            && ConnectionRemoteWriteAdmission.SameAuthority(receipt.AuthorizingOrigin, original.Origin)
+            && JsonSerializer.Deserialize(receipt.EvidenceJson, TwigJsonContext.Default.ConnectionRemoteWriteResponse) is { } response
+            && ConnectionRemoteWriteAdmission.ClassifyAcknowledgement(original.Request, response) == "rejected";
+    }
 
     internal Task<Result<bool>> ObserveConnectionRemoteWriteAsync(ConnectionRemoteWriteIntent intent,
         ConnectionRemoteWriteObservation observation, ConnectionRemoteWriteReceipt? receipt, CancellationToken ct = default)

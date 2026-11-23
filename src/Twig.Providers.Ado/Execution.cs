@@ -123,8 +123,11 @@ public sealed partial class AdoProvider
         {
             var stored = await Snapshot(ct);
             var row = stored.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == acknowledgement.Operation);
-            if (acknowledgement.Digest != plan.Digest || row is null || row.Status != OpStatus.Applied
-                || row.Attempt != acknowledgement.Attempt || row.Receipts.Length != 1
+            var rechecking = row?.CanRecheckAcknowledgedCreate == true
+                && plan.Operations.ElementAtOrDefault(acknowledgement.Operation)?.Kind == OpKind.Create;
+            if (acknowledgement.Digest != plan.Digest || row is null
+                || (!rechecking && (row.Status != OpStatus.Applied || row.Receipts.Length != 1))
+                || row.Attempt != acknowledgement.Attempt
                 || !SameReceipt(row.Receipts[0], acknowledgement))
                 throw Wire.Refuse(ErrorCode.Conflict, "Verification requires the exact durable Applied acknowledgement, not supplied identity guesses.");
             Receipt receipt;
@@ -152,7 +155,8 @@ public sealed partial class AdoProvider
                     var matches = op.Kind switch
                     {
                         OpKind.Create or OpKind.Batch => (op.Type is null || op.Type == item.Type)
-                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
+                            && op.Fields.All(f => item.Fields.TryGetValue(f.Key, out var value)
+                                && (value.Equals(f.Value) || op.Kind == OpKind.Create && MatchesCreateDescription(f.Key, f.Value, value)))
                             && op.CreateEvidence.All(f => item.Fields.TryGetValue(f.Key, out var value) && value.Equals(f.Value))
                             && (op.Body is null || item.Fields.TryGetValue("System.History", out var note) && note.Text == op.Body.Text)
                             && (op.Kind != OpKind.Create || op.Other is null
@@ -202,7 +206,8 @@ public sealed partial class AdoProvider
                     acknowledgement.Revision, acknowledgement.PublishedKey,
                     new(ErrorCode.Indeterminate, "Applied is retained; readback failure cannot establish no effect."));
             }
-            return await PersistReceipt(plan, receipt, observations);
+            return rechecking && receipt.Status != OpStatus.Verified
+                ? row.Receipts[^1] : await PersistReceipt(plan, receipt, observations);
         });
 
     // Recovery only continues a durable acknowledgement's readback. Applying/unknown has no positive creation evidence.
@@ -214,6 +219,8 @@ public sealed partial class AdoProvider
         if (row is null || operation < 0 || operation >= plan.Operations.Length || plan.Connection != _connection)
             return Result<Receipt>.Fail(ErrorCode.Conflict, "Recovery requires retained intent in this exact connection.");
         if (row.Status == OpStatus.Applied) return await VerifyAsync(plan, row.Receipts[0], ct);
+        if (row.CanRecheckAcknowledgedCreate && plan.Operations[operation].Kind == OpKind.Create)
+            return await VerifyAsync(plan, row.Receipts[0], ct);
         if (row.Status == OpStatus.Applying)
             return Result<Receipt>.Ok(await PersistReceipt(plan,
                 new(plan.Digest, operation, row.Attempt, OpStatus.Indeterminate,
@@ -222,6 +229,20 @@ public sealed partial class AdoProvider
         return row.Receipts.IsEmpty
             ? Result<Receipt>.Fail(ErrorCode.Conflict, "An unattempted operation is not recovery.")
             : Result<Receipt>.Ok(row.Receipts[^1]);
+    }
+
+    private static bool MatchesCreateDescription(string reference, FieldValue expected, FieldValue actual)
+    {
+        if (reference != "System.Description" || expected.Kind != FieldKind.Html || actual.Kind != FieldKind.Html)
+            return false;
+
+        // ADO can pad plain paragraph text before the closing tag. Do not normalize arbitrary markup.
+        const string paragraphs = @"\A(?:[ \t\r\n]*<p>[^<>]*</p>)+[ \t\r\n]*\z";
+        const System.Text.RegularExpressions.RegexOptions options = System.Text.RegularExpressions.RegexOptions.NonBacktracking;
+        return System.Text.RegularExpressions.Regex.IsMatch(expected.Text!, paragraphs, options)
+            && System.Text.RegularExpressions.Regex.IsMatch(actual.Text!, paragraphs, options)
+            && System.Text.RegularExpressions.Regex.Replace(expected.Text!, " +</p>", "</p>", options)
+                == System.Text.RegularExpressions.Regex.Replace(actual.Text!, " +</p>", "</p>", options);
     }
 
     private async Task<(string Route, byte[] Payload)> Patch(Bound bound, Discovery schema, Op op, CancellationToken ct)
@@ -300,6 +321,15 @@ public sealed partial class AdoProvider
                 if (remove is null) throw Wire.Refuse(ErrorCode.Conflict, "Exact native relationship to remove is absent.");
             }
         }
+        // WIT writes expect an account value, while the plan and verified readback use the stable identity ID.
+        var accounts = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var id in op.Fields.Where(field => !op.CreateEvidence.ContainsKey(field.Key)
+                && field.Value.Kind == FieldKind.Identity).Select(field => field.Value.Text!).Distinct(StringComparer.Ordinal))
+        {
+            if (!Guid.TryParseExact(id, "D", out var key) || key == Guid.Empty || key.ToString("D") != id)
+                throw Wire.Refuse(ErrorCode.InvalidInput, "ADO writes require a canonical native identity ID.");
+            accounts.Add(id, await ResolveWriteIdentity(bound, id, ct));
+        }
         var payload = Wire.Json(json =>
         {
             json.WriteStartArray();
@@ -307,7 +337,11 @@ public sealed partial class AdoProvider
             if (op.Type is not null && op.Kind != OpKind.Create)
                 PatchEntry("add", "/fields/System.WorkItemType", () => json.WriteStringValue(schema.TypeNames[op.Type]));
             foreach (var (field, value) in op.Fields.Where(field => !op.CreateEvidence.ContainsKey(field.Key)))
-                PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () => Wire.WriteValue(json, value));
+                PatchEntry("add", "/fields/" + field.Replace("~", "~0").Replace("/", "~1"), () =>
+                {
+                    if (value.Kind == FieldKind.Identity) json.WriteStringValue(accounts[value.Text!]);
+                    else Wire.WriteValue(json, value);
+                });
             if (op.Kind == OpKind.Comment || op.Kind == OpKind.Batch && op.Body is not null)
                 PatchEntry("add", "/fields/System.History", () => json.WriteStringValue(op.Body!.Text));
             if (op.Resource is not null)

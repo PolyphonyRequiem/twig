@@ -248,7 +248,9 @@ internal static class NativeCoreExecution
                     if (previous.Status == OpStatus.Planned) continue;
                     var overlaps = Targets(op, prior.Value).Intersect(targets).Any();
                     if (op.Kind == OpKind.Create && plan.Operations[operation].Kind == OpKind.Create
-                        && op.Item == plan.Operations[operation].Item)
+                        && op.Item == plan.Operations[operation].Item
+                        && !(priorSource == source && previousPlan.Connection == plan.Connection
+                            && previous.Digest != plan.Digest && previous.DefinitivelyHadNoEffect))
                         return Result<IDisposable>.Fail(ErrorCode.Indeterminate, "This permanent creation UUID was already attempted; no replacement request is allowed.");
                     if (previous.Status == OpStatus.Verified || NoEffect(previous)) continue;
                     var unmappedCreate = op.Kind == OpKind.Create && !prior.Value.Mappings.Any(value => value.Local == op.Item);
@@ -271,9 +273,7 @@ internal static class NativeCoreExecution
         finally { lease?.Dispose(); }
     }
 
-    internal static bool NoEffect(JournalEntry row) => row.Status == OpStatus.Failed && row.Receipts.Any(receipt =>
-        receipt.Status == OpStatus.Failed && receipt.PublishedKey is null && receipt.Revision is null && receipt.Error is not null
-        && receipt.Digest == row.Digest && receipt.Operation == row.Operation && receipt.Attempt == row.Attempt);
+    internal static bool NoEffect(JournalEntry row) => row.DefinitivelyHadNoEffect;
 
     internal static bool ReferencesMatch(StoreSnapshot snapshot, IEnumerable<CoreAttemptReference> references)
         => references.All(reference => snapshot.Plans.FirstOrDefault(value => value.Digest == reference.Digest) is { } plan

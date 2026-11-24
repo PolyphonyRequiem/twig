@@ -112,6 +112,54 @@ public sealed class AadAccountClaimTests : IDisposable
         (await bindings.ListIdentitiesAsync()).Single().ShouldBe(original);
     }
 
+    [Theory]
+    [InlineData("rejected", "AAD rejected the enrollment refresh token (invalid_grant).")]
+    [InlineData("unavailable", "Could not exchange the enrollment refresh token for an Azure DevOps access token.")]
+    [InlineData("malformed", "The enrollment access token is not a decodable JWT.")]
+    [InlineData("audience", "The enrollment access token does not carry the Azure DevOps audience.")]
+    [InlineData("tenant-missing", "The enrollment access token is missing a tenant claim.")]
+    [InlineData("object-missing", "The enrollment access token is missing an oid claim.")]
+    [InlineData("tenant-mismatch", "The enrollment credential and access token have different tenant claims.")]
+    [InlineData("object-mismatch", "The enrollment credential and access token have different oid claims.")]
+    public async Task NativeEnrollmentReportsSafeReasonAfterSuccessfulSignIn(string scenario, string reason)
+    {
+        var credential = Credential();
+        credential.RefreshToken = "private-refresh-token";
+        if (scenario == "tenant-mismatch") credential.TenantId = "private-tenant";
+        if (scenario == "object-mismatch") credential.ObjectId = "private-object";
+        var accessToken = scenario switch
+        {
+            "rejected" or "unavailable" => null,
+            "malformed" => "private-malformed-token",
+            "audience" => JwtTestFactory.Build(audience: "private-audience"),
+            "tenant-missing" => JwtTestFactory.Build(tenantId: null),
+            "object-missing" => JwtTestFactory.Build(tenantId: Tenant),
+            _ => Token("{}"),
+        };
+        _refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((accessToken, (string?)null, scenario == "rejected"));
+        var effects = new NativeSetupEffects();
+
+        var result = await NativeSetupEnrollment.EnrollAsync("private-alias", "microsoft.com",
+            (_, _) => Task.FromResult(InteractiveAuthResult.Success(credential)),
+            () => new ConnectionBindingService(_home, _refresher, setupEffects: effects),
+            ownsBindings: true, effects, default);
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        result.Error.Message.ShouldBe(reason);
+        result.Error.Message.ShouldNotContain("private");
+        var failure = NativeConnectionSetup.ReadFailure(result.Error).Value;
+        failure.Phase.ShouldBe(NativeSetupPhase.Enrollment);
+        failure.Cancelled.ShouldBeFalse();
+        failure.Effects.ShouldContain(new NativeSetupEffect(
+            NativeSetupEffectKind.InteractiveSignIn, NativeSetupEffectState.Confirmed));
+        failure.Effects.ShouldNotContain(effect => effect.Kind == NativeSetupEffectKind.CredentialWrite
+            || effect.Kind == NativeSetupEffectKind.IdentityRegistration);
+        Directory.GetFiles(Path.Combine(_home, "credentials")).ShouldBeEmpty();
+    }
+
     private void SetToken(string claims, string principal = Principal)
         => _refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
                 Arg.Any<string>(), Arg.Any<CancellationToken>())

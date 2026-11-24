@@ -89,6 +89,13 @@ escape hatch. Use a fresh workspace for a different connection.
 
 ## Storage and failure recovery
 
+Native AAD enrollment reports fixed, credential-free reasons for refresh-token
+exchange and access-token claim failures. These distinguish AAD rejection,
+exchange unavailability, malformed tokens, wrong audience, missing claims and
+principal mismatches without exposing token contents, identity aliases or claim
+values. The native phase and possible/confirmed local effects still describe
+partial setup; a diagnostic is not permission to retry or replay an operation.
+
 An explicit absolute `TWIG_USER_HOME` isolates native metadata. Credentials are
 stored separately from portable repository configuration and normal output.
 Private PAT files use owner-only permissions; file-backed storage is not an OS

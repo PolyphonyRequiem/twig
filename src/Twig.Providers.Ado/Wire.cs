@@ -85,7 +85,7 @@ internal static class Wire
         FieldKind.Html => FieldValue.RichText(text, FieldKind.Html),
         FieldKind.Integer => FieldValue.Integer(long.Parse(text, CultureInfo.InvariantCulture)),
         FieldKind.Decimal => FieldValue.Decimal(decimal.Parse(text, CultureInfo.InvariantCulture)),
-        FieldKind.Boolean => FieldValue.Bool(bool.Parse(text)),
+        FieldKind.Boolean => FieldValue.Bool(text switch { "0" => false, "1" => true, _ => bool.Parse(text) }),
         FieldKind.Instant => FieldValue.At(DateTimeOffset.Parse(text, CultureInfo.InvariantCulture)),
         FieldKind.Identity => FieldValue.Identity(text),
         _ => throw Invalid("Opaque rule value cannot be evaluated safely."),

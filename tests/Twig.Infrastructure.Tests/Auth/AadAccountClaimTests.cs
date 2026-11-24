@@ -174,13 +174,13 @@ public sealed class AadAccountClaimTests : IDisposable
         AuthorityHost = "login.microsoftonline.com",
     };
 
-    internal static string Token(string claims, string principal = Principal)
+    internal static string Token(string claims, string principal = Principal, string tenant = Tenant)
     {
         var payload = JsonSerializer.Deserialize<Dictionary<string, object>>(claims)!;
         payload["aud"] = JwtTestFactory.AdoResourceId;
-        payload["tid"] = Tenant;
+        payload["tid"] = tenant;
         payload["oid"] = principal;
-        payload["iss"] = "https://sts.windows.net/" + Tenant + "/";
+        payload["iss"] = "https://sts.windows.net/" + tenant + "/";
         payload["exp"] = DateTimeOffset.UtcNow.AddHours(1).ToUnixTimeSeconds();
         var encoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload)))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');

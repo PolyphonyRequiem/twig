@@ -95,18 +95,7 @@ internal sealed class DeviceCodeFlow
                         "Device code grant succeeded but no refresh_token was returned.");
                 }
 
-                var claims = IdTokenDecoder.Decode(exchange.Tokens.IdToken);
-                return InteractiveAuthResult.Success(new TwigRefreshTokenStoreEntry
-                {
-                    RefreshToken = exchange.Tokens.RefreshToken,
-                    ClientId = clientId,
-                    TenantId = claims.TenantId ?? tenant,
-                    AuthorityHost = AuthorizeRequestBuilder.DefaultAuthorityHost,
-                    UserPrincipalName = claims.UserPrincipalName,
-                    ObjectId = claims.ObjectId,
-                    BootstrappedAt = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                    Source = "login-device",
-                });
+                return InteractiveAuthResult.FromTokens(exchange.Tokens, clientId, tenant, "login-device");
             }
 
             switch (exchange.ErrorCode)

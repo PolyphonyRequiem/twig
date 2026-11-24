@@ -1,3 +1,5 @@
+using System.Globalization;
+
 namespace Twig.Infrastructure.Auth.InteractiveAuth;
 
 /// <summary>
@@ -16,6 +18,49 @@ internal sealed record InteractiveAuthResult
 
     public static InteractiveAuthResult Success(TwigRefreshTokenStoreEntry entry)
         => new() { Entry = entry };
+
+    internal static InteractiveAuthResult FromTokens(
+        AuthCodeTokenResponse tokens, string clientId, string tenant, string source)
+    {
+        var claims = IdTokenDecoder.Decode(tokens.IdToken);
+        var enrollmentTenant = claims.TenantId ?? tenant;
+        var enrollmentObject = claims.ObjectId;
+        var accountName = claims.UserPrincipalName;
+        if (string.IsNullOrWhiteSpace(claims.TenantId) && tenant.Contains('.')
+            && Uri.CheckHostName(tenant) == UriHostNameType.Dns)
+        {
+            // The domain selects the authority; only authenticated issuance supplies its tenant ID.
+            var accessClaims = JwtAccessTokenInspector.TryDecode(tokens.AccessToken);
+            if (accessClaims is not { IsValidAdoAudience: true }
+                || !Guid.TryParse(accessClaims.TenantId, out var issuedTenant)
+                || string.IsNullOrWhiteSpace(accessClaims.ObjectId))
+                return Failure(InteractiveAuthErrorKind.TokenExchangeFailed,
+                    "Token exchange did not supply an Azure DevOps access token with tenant ID and oid claims for the requested tenant domain.");
+            enrollmentTenant = issuedTenant.ToString("D");
+            if (!string.IsNullOrWhiteSpace(enrollmentObject)
+                && !string.Equals(enrollmentObject, accessClaims.ObjectId, StringComparison.OrdinalIgnoreCase))
+                return Failure(InteractiveAuthErrorKind.TokenExchangeFailed,
+                    "The sign-in tokens have different oid claims.");
+            enrollmentObject = accessClaims.ObjectId;
+            accountName ??= accessClaims.AccountName;
+        }
+        if (Guid.TryParse(tenant, out var requestedTenant)
+            && (!Guid.TryParse(enrollmentTenant, out var resolvedTenant) || requestedTenant != resolvedTenant))
+            return Failure(InteractiveAuthErrorKind.TokenExchangeFailed,
+                "The requested tenant ID and sign-in token have different tenant claims.");
+
+        return Success(new TwigRefreshTokenStoreEntry
+        {
+            RefreshToken = tokens.RefreshToken,
+            ClientId = clientId,
+            TenantId = enrollmentTenant,
+            AuthorityHost = AuthorizeRequestBuilder.DefaultAuthorityHost,
+            UserPrincipalName = accountName,
+            ObjectId = enrollmentObject,
+            BootstrappedAt = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture),
+            Source = source,
+        });
+    }
 
     public static InteractiveAuthResult Failure(InteractiveAuthErrorKind kind, string message)
         => new() { ErrorKind = kind, ErrorMessage = message };

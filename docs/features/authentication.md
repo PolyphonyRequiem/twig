@@ -17,6 +17,14 @@ Normal sign-in uses interactive loopback PKCE. Device code is available only
 where tenant policy permits it. Azure CLI is not required and is not a credential
 fallback for normal work.
 
+Tenant domains are authority selectors, not token tenant IDs. When sign-in
+returns no ID-token tenant claim, Twig resolves a domain from the Azure DevOps
+access token issued by that authenticated exchange before registering the
+identity. Registration still checks the refreshed token against that tenant and
+principal and rejects an explicitly supplied mismatching tenant ID. This
+normalization is shared by PKCE and device-code sign-in; it does not add a
+credential fallback or an automatic retry.
+
 Adding another connection does not require enrolling the same account again.
 The native Canvas setup can list saved AAD identities and explicitly select an
 exact identity for discovery, reusing its stored credential without launching

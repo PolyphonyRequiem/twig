@@ -118,35 +118,35 @@ internal sealed class ConnectionBindingService : IConnectionBindingService, IDis
             rt, clientId, tenantId, authorityHost, ct).ConfigureAwait(false);
         if (accessToken is null)
         {
-            throw new InvalidOperationException(invalidGrant
-                ? $"Refresh token for identity '{normalizedName}' was rejected by AAD (invalid_grant). Run the login flow again to collect a fresh refresh token."
-                : $"Could not exchange the supplied refresh token for an ADO access token (identity '{normalizedName}'). Check network connectivity and tenant/authority configuration.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable, invalidGrant
+                ? "AAD rejected the enrollment refresh token (invalid_grant)."
+                : "Could not exchange the enrollment refresh token for an Azure DevOps access token."));
         }
 
         // Check principal claims on the token returned by authenticated issuance.
         // Decoding is consistency checking, not local signature verification.
         var info = JwtAccessTokenInspector.TryDecode(accessToken);
         if (info is null)
-            throw new InvalidOperationException(
-                $"Minted access token for '{normalizedName}' is not a decodable JWT; refusing to register an unverifiable principal.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable,
+                "The enrollment access token is not a decodable JWT."));
         if (!info.IsValidAdoAudience)
-            throw new InvalidOperationException(
-                $"Minted access token for '{normalizedName}' does not carry the Azure DevOps audience. Observed audience: {info.Audience ?? "(none)"}.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable,
+                "The enrollment access token does not carry the Azure DevOps audience."));
         if (string.IsNullOrWhiteSpace(info.TenantId))
-            throw new InvalidOperationException(
-                $"Minted access token for '{normalizedName}' is missing a tenant claim; refusing to register an unverifiable principal.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable,
+                "The enrollment access token is missing a tenant claim."));
         if (string.IsNullOrWhiteSpace(info.ObjectId))
-            throw new InvalidOperationException(
-                $"Minted access token for '{normalizedName}' is missing an oid claim; refusing to register an unverifiable principal.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable,
+                "The enrollment access token is missing an oid claim."));
         if (IsMultiTenantAuthorityAlias(tenantId))
             tenantId = info.TenantId;
         else if (!string.Equals(info.TenantId, tenantId, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
-                $"Refresh entry tenant_id ({tenantId}) disagrees with the minted token tenant ({info.TenantId}); refusing to register a mismatched principal.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable,
+                "The enrollment credential and access token have different tenant claims."));
         if (!string.IsNullOrWhiteSpace(credential.ObjectId)
             && !string.Equals(credential.ObjectId, info.ObjectId, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException(
-                $"Refresh entry oid ({credential.ObjectId}) disagrees with the minted token oid ({info.ObjectId}); refusing to register a mismatched principal.");
+            throw new NativeSetupException(new(Twig.Core.ErrorCode.Unavailable,
+                "The enrollment credential and access token have different oid claims."));
 
         var issuer = Require(info.Issuer, "iss (minted token issuer)");
         var objectId = info.ObjectId!;

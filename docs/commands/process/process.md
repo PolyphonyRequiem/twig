@@ -14,6 +14,9 @@ Acquires the pinned provider's actual Core schema and lists its types.
 With a type argument, uses [`process <type>`](process-type.md).
 References, states, fields, rules and known gaps come from discovery, never
 an assumed ADO template. A native API shape is not proof of runtime permission.
+ADO Boolean defaults and rule operands encoded as `"0"`/`"1"` or
+`"False"`/`"True"` are normalized to typed false/true values. Other encodings
+refuse discovery rather than inventing a default.
 
 ## Effects
 

@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http;
+using NSubstitute;
 using Shouldly;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Auth.InteractiveAuth;
 using Xunit;
 
@@ -51,6 +53,42 @@ public class DeviceCodeFlowTests
         reported.ShouldNotBeNull();
         reported!.UserCode.ShouldBe("ABCD1234");
         reported.VerificationUri.ShouldBe("https://microsoft.com/devicelogin");
+    }
+
+    [Fact]
+    public async Task RunAsync_TenantDomainWithoutIdTokenRegistersCanonicalIssuedTenant()
+    {
+        const string tenantId = "11111111-1111-1111-1111-111111111111";
+        var home = Path.Combine(Path.GetTempPath(), "twig-domain-device-" + Guid.NewGuid().ToString("N"));
+        var accessToken = AadAccountClaimTests.Token("{}");
+        var handler = new ScriptedHandler(new[]
+        {
+            (HttpStatusCode.OK, DeviceCodeOk),
+            (HttpStatusCode.OK, TokenSuccess.Replace("\"at\"", "\"" + accessToken + "\"", StringComparison.Ordinal)),
+        });
+        var flow = new DeviceCodeFlow(new AuthCodeExchanger(handler), handler, (_, _) => Task.CompletedTask, null);
+        var refresher = Substitute.For<ITokenRefresher>();
+        refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((accessToken, (string?)null, false));
+        try
+        {
+            var result = await flow.RunAsync("client-id", "microsoft.com", _ => { });
+
+            result.Succeeded.ShouldBeTrue(result.ErrorMessage);
+            result.Entry!.TenantId.ShouldBe(tenantId);
+            result.Entry.Source.ShouldBe("login-device");
+            handler.Requests[1].RequestUri!.AbsolutePath.ShouldStartWith("/microsoft.com/");
+            using var bindings = new ConnectionBindingService(home, refresher);
+            (await bindings.RegisterAadIdentityAsync("explicit", result.Entry)).TenantId.ShouldBe(tenantId);
+            await refresher.Received(1).TryRefreshAsync("rt", "client-id", tenantId,
+                AuthorizeRequestBuilder.DefaultAuthorityHost, Arg.Any<CancellationToken>());
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(home)) Directory.Delete(home, recursive: true);
+        }
     }
 
     [Fact]

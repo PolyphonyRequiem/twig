@@ -179,20 +179,7 @@ internal sealed class LoopbackPkceFlow
                     "Token exchange succeeded but no refresh_token was returned (scope likely missing offline_access).");
             }
 
-            var claims = IdTokenDecoder.Decode(exchange.Tokens.IdToken);
-            var entry = new TwigRefreshTokenStoreEntry
-            {
-                RefreshToken = exchange.Tokens.RefreshToken,
-                ClientId = clientId,
-                TenantId = claims.TenantId ?? tenant,
-                AuthorityHost = AuthorizeRequestBuilder.DefaultAuthorityHost,
-                UserPrincipalName = claims.UserPrincipalName,
-                ObjectId = claims.ObjectId,
-                BootstrappedAt = DateTimeOffset.UtcNow.ToString("o", CultureInfo.InvariantCulture),
-                Source = "login-pkce",
-            };
-
-            return InteractiveAuthResult.Success(entry);
+            return InteractiveAuthResult.FromTokens(exchange.Tokens, clientId, tenant, "login-pkce");
         }
         finally
         {

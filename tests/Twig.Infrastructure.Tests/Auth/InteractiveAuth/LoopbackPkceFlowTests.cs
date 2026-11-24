@@ -140,6 +140,118 @@ public class LoopbackPkceFlowTests
         finally { v6.Stop(); }
     }
 
+    [Theory]
+    [InlineData("microsoft.com", true)]
+    [InlineData("MICROSOFT.COM", true)]
+    [InlineData("11111111-1111-1111-1111-111111111111", true)]
+    [InlineData("44444444-4444-4444-4444-444444444444", false)]
+    [InlineData("microsoft.com", false, "44444444-4444-4444-4444-444444444444")]
+    [InlineData("microsoft.com", false, null, "33333333-3333-3333-3333-333333333333")]
+    public async Task NativeSetupWithoutIdTokenResolvesTenantDomainButRejectsDifferentTenantId(
+        string tenant, bool succeeds, string? refreshedTenant = null, string? refreshedObject = null)
+    {
+        const string tokenTenant = "11111111-1111-1111-1111-111111111111";
+        var home = Path.Combine(Path.GetTempPath(), "twig-domain-pkce-" + Guid.NewGuid().ToString("N"));
+        var accessToken = AadAccountClaimTests.Token("{}");
+        var refresher = Substitute.For<ITokenRefresher>();
+        refresher.TryRefreshAsync(Arg.Any<string>(), Arg.Any<string>(), Arg.Any<string>(),
+                Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns((AadAccountClaimTests.Token("{}",
+                    principal: refreshedObject ?? "22222222-2222-2222-2222-222222222222",
+                    tenant: refreshedTenant ?? tokenTenant),
+                (string?)null, false));
+        var port = LoopbackPkceFlow.PickFreePort();
+        var (handler, capturedUrl) = NewExchangerStub(
+            TokenSuccess.Replace("\"at\"", "\"" + accessToken + "\"", StringComparison.Ordinal));
+        var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port,
+            _ => false, TimeSpan.FromSeconds(10));
+        var setup = new NativeConnectionSetup(effects => new ConnectionBindingService(home, refresher, setupEffects: effects),
+            () => flow, ownsBindings: true);
+        try
+        {
+            string? url = null;
+            var pending = setup.EnrollAadAsync(new("explicit", tenant), value => url = value.AbsoluteUri);
+            var state = await ExtractStateAsync(url, () => Volatile.Read(ref url));
+            await SendRedirectAsync(port, "?code=synthetic&state=" + Uri.EscapeDataString(state));
+            var result = await pending;
+
+            result.IsSuccess.ShouldBe(succeeds, result.IsSuccess ? null : result.Error.Message);
+            capturedUrl().ShouldStartWith("https://login.microsoftonline.com/" + tenant + "/");
+            if (succeeds)
+            {
+                result.Value.TenantId.ShouldBe(tokenTenant);
+                await refresher.Received(1).TryRefreshAsync("rt", NativeSetupEnrollment.ClientId, tokenTenant,
+                    AuthorizeRequestBuilder.DefaultAuthorityHost, Arg.Any<CancellationToken>());
+                using var reopened = new ConnectionBindingService(home, refresher);
+                (await reopened.ListIdentitiesAsync()).Single().TenantId.ShouldBe(tokenTenant);
+            }
+            else
+            {
+                result.Error.Message.ShouldBe(refreshedObject is null
+                    ? "The enrollment credential and access token have different tenant claims."
+                    : "The enrollment credential and access token have different oid claims.");
+                NativeConnectionSetup.ReadFailure(result.Error).Value.Effects
+                    .ShouldNotContain(effect => effect.Kind == NativeSetupEffectKind.CredentialWrite);
+                Directory.GetFiles(Path.Combine(home, "credentials")).ShouldBeEmpty();
+            }
+            AssertPortReleased(port);
+        }
+        finally
+        {
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            if (Directory.Exists(home)) Directory.Delete(home, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData("opaque")]
+    [InlineData("wrong-audience")]
+    [InlineData("missing-tenant")]
+    [InlineData("invalid-tenant")]
+    [InlineData("missing-object")]
+    [InlineData("id-token-mismatch")]
+    public async Task NativeSetupRejectsUnresolvedOrContradictoryTenantBeforeOpeningBindings(string scenario)
+    {
+        const string tenantId = "11111111-1111-1111-1111-111111111111";
+        var tenant = scenario == "id-token-mismatch" ? tenantId : "microsoft.com";
+        var accessToken = scenario switch
+        {
+            "wrong-audience" => JwtTestFactory.BuildWrongAudience(),
+            "missing-tenant" => JwtTestFactory.Build(tenantId: null),
+            "invalid-tenant" => JwtTestFactory.Build(tenantId: "private-tenant"),
+            "missing-object" => JwtTestFactory.Build(tenantId: tenantId),
+            "id-token-mismatch" => AadAccountClaimTests.Token("{}"),
+            _ => "private-opaque-token",
+        };
+        var response = TokenSuccess.Replace("\"at\"", "\"" + accessToken + "\"", StringComparison.Ordinal);
+        if (scenario == "id-token-mismatch")
+            response = response.Replace("\"id_token\":\"\"", "\"id_token\":\""
+                + AadAccountClaimTests.Token("{}", tenant: "44444444-4444-4444-4444-444444444444") + "\"",
+                StringComparison.Ordinal);
+        var port = LoopbackPkceFlow.PickFreePort();
+        var (handler, _) = NewExchangerStub(response);
+        var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port, _ => false, TimeSpan.FromSeconds(10));
+        var bindingCalls = 0;
+        var setup = new NativeConnectionSetup(_ => { bindingCalls++; throw new InvalidOperationException("must not resolve"); },
+            () => flow);
+        string? url = null;
+        var pending = setup.EnrollAadAsync(new("explicit", tenant), value => url = value.AbsoluteUri);
+        var state = await ExtractStateAsync(url, () => Volatile.Read(ref url));
+        await SendRedirectAsync(port, "?code=synthetic&state=" + Uri.EscapeDataString(state));
+        var result = await pending;
+
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        result.Error.Message.ShouldContain(scenario == "id-token-mismatch"
+            ? "requested tenant ID and sign-in token have different tenant claims"
+            : "did not supply an Azure DevOps access token with tenant ID and oid claims");
+        result.Error.Message.ShouldNotContain("private");
+        bindingCalls.ShouldBe(0);
+        NativeConnectionSetup.ReadFailure(result.Error).Value.Effects
+            .ShouldNotContain(effect => effect.Kind == NativeSetupEffectKind.CredentialWrite);
+        AssertPortReleased(port);
+    }
+
     [Fact]
     public async Task RunAsync_HappyPath_RoundTripsThroughRealLoopbackListener()
     {

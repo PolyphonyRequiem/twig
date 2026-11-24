@@ -1,3 +1,4 @@
+using System.Text.Json.Nodes;
 using Shouldly;
 using Twig.Core;
 using Xunit;
@@ -14,6 +15,7 @@ public sealed partial class AdoProviderTests
     public async Task NativeBooleanDefaultsAndRuleOperandsRetainTheirTypedMeaning(string value, bool expected)
     {
         using var f = await Fixture.Create();
+        f.Http.IncludeBooleanField = true;
         f.Http.BooleanDefaultValue = value;
         f.Http.NativeRulesJson = $$"""
             {"isDisabled":false,"conditions":[{"conditionType":"when","field":"Custom.Toggle","value":"{{value}}"}],
@@ -37,12 +39,76 @@ public sealed partial class AdoProviderTests
     }
 
     [Theory]
+    [InlineData("0", false)]
+    [InlineData("1", true)]
+    [InlineData("false", false)]
+    [InlineData("true", true)]
+    [InlineData("FALSE", false)]
+    [InlineData("True", true)]
+    [InlineData(" false ", false)]
+    [InlineData(" true ", true)]
+    public async Task SchemaDiscoveryAcceptsTextualBooleanDefaults(string value, bool expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeBooleanField = true;
+        f.Http.BooleanDefaultValue = value;
+        var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        discovered.IsSuccess.ShouldBeTrue(discovered.IsSuccess ? "" : discovered.Error.Message);
+        discovered.Value.Types.Single().Rules.ShouldContain(rule => rule.Field == "Custom.Toggle"
+            && rule.Action == RuleAction.Default && rule.Values.SequenceEqual(new[] { FieldValue.Bool(expected) }));
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("0", false)]
+    [InlineData("1", true)]
+    [InlineData("false", false)]
+    [InlineData("true", true)]
+    [InlineData("FALSE", false)]
+    [InlineData("True", true)]
+    public async Task SchemaDiscoveryTypesBooleanConditionsAndActions(string value, bool expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeBooleanField = true;
+        f.Http.NativeRulesJson = $$"""
+            {"isDisabled":false,"conditions":[
+              {"conditionType":"when","field":"Custom.Toggle","value":"{{value}}"},
+              {"conditionType":"whenNot","field":"Custom.Toggle","value":"{{value}}"},
+              {"conditionType":"whenWas","field":"Custom.Toggle","value":"{{value}}"}],
+             "actions":[
+              {"actionType":"copyValue","targetField":"Custom.Toggle","value":"{{value}}"},
+              {"actionType":"setDefaultValue","targetField":"Custom.Toggle","value":"{{value}}"}]}
+            """;
+        var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+        discovered.IsSuccess.ShouldBeTrue(discovered.IsSuccess ? "" : discovered.Error.Message);
+        var type = discovered.Value.Types.Single();
+        type.Gaps.ShouldBeEmpty();
+        var rules = type.Rules.Where(rule => rule.Field == "Custom.Toggle").ToArray();
+        rules.Select(rule => rule.Action).ShouldBe([RuleAction.Supplied, RuleAction.Default]);
+        foreach (var rule in rules)
+        {
+            rule.Values.ShouldBe([FieldValue.Bool(expected)]);
+            rule.Conditions.Select(condition => condition.Kind)
+                .ShouldBe([ConditionKind.Equal, ConditionKind.NotEqual, ConditionKind.Was]);
+            foreach (var condition in rule.Conditions)
+            {
+                condition.Field.ShouldBe("Custom.Toggle");
+                condition.Value.ShouldBe(FieldValue.Bool(expected));
+            }
+        }
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
     [InlineData("2")]
     [InlineData("-1")]
     [InlineData("private-invalid-value")]
     public async Task NativeBooleanDefaultsRefuseUnknownValuesWithoutInventingFalse(string value)
     {
         using var f = await Fixture.Create();
+        f.Http.IncludeBooleanField = true;
         f.Http.BooleanDefaultValue = value;
 
         var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
@@ -51,6 +117,66 @@ public sealed partial class AdoProviderTests
         discovered.Error.Code.ShouldBe(ErrorCode.Unavailable);
         discovered.Error.Message.ShouldNotContain(value);
         f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData("-1")]
+    [InlineData("00")]
+    [InlineData("01")]
+    [InlineData("1.0")]
+    [InlineData(" 0 ")]
+    [InlineData(" 1 ")]
+    [InlineData("yes")]
+    public async Task SchemaDiscoveryRefusesUnsupportedBooleanDefaultsConditionsAndActions(string value)
+    {
+        foreach (var location in new[] { "default", "condition", "action" })
+        {
+            using var f = await Fixture.Create();
+            f.Http.IncludeBooleanField = true;
+            if (location == "default") f.Http.BooleanDefaultValue = value;
+            else f.Http.NativeRulesJson = location == "condition" ? $$"""
+                {"isDisabled":false,"conditions":[{"conditionType":"when","field":"Custom.Toggle","value":"{{value}}"}],
+                 "actions":[{"actionType":"makeRequired","targetField":"Custom.Empty"}]}
+                """ : $$"""
+                {"isDisabled":false,"conditions":[],
+                 "actions":[{"actionType":"copyValue","targetField":"Custom.Toggle","value":"{{value}}"}]}
+                """;
+            var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+            discovered.IsSuccess.ShouldBeFalse(location);
+            discovered.Error.Code.ShouldBe(ErrorCode.Unavailable);
+            discovered.Error.Message.ShouldContain("valid Boolean");
+            f.Http.Writes.ShouldBe(0);
+            (await f.Stored()).Version.ShouldBe(0);
+        }
+    }
+
+    [Theory]
+    [InlineData("false", true, false)]
+    [InlineData("true", true, true)]
+    [InlineData("\"0\"", false, false)]
+    [InlineData("\"1\"", false, false)]
+    [InlineData("\"false\"", false, false)]
+    [InlineData("\"true\"", false, false)]
+    [InlineData("0", false, false)]
+    [InlineData("1", false, false)]
+    [InlineData("2", false, false)]
+    public async Task ItemReadsStillRequireJsonBooleanTokens(string json, bool accepted, bool expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.IncludeBooleanField = true;
+        f.Http.Items[1]["fields"]!["Custom.Toggle"] = JsonNode.Parse(json);
+        var observed = await f.Provider.ReadAsync(f.Connection, [f.Key(1)], default);
+        observed.IsSuccess.ShouldBe(accepted);
+        if (accepted)
+            observed.Value.Items.Single().Fields["Custom.Toggle"].ShouldBe(FieldValue.Bool(expected));
+        else
+        {
+            observed.Error.Code.ShouldBe(ErrorCode.Unavailable);
+            observed.Error.Message.ShouldContain("Invalid/incomplete ADO response");
+        }
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
     }
 
     [Theory]

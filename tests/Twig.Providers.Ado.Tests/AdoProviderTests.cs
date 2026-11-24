@@ -1564,8 +1564,9 @@ public sealed partial class AdoProviderTests
         internal string? ProjectTypesJson;
         internal string? ProcessTypesJson;
         internal string? NativeRulesJson;
-        internal string? BooleanDefaultValue;
         internal bool IncludeDateField;
+        internal bool IncludeBooleanField;
+        internal string? BooleanDefaultValue;
         internal bool IncludeClassification;
         internal int IterationChildId = 15;
         internal string Initial;
@@ -1947,8 +1948,8 @@ public sealed partial class AdoProviderTests
             {
                 var names = new[] { "System.State", "System.History", "Custom.Closure", "Custom.Points", "Custom.Owner", "Custom.Empty", "Custom.Unset" }
                     .Concat(Defect == "empty-typed-rule" ? ["Custom.Quantity", "Custom.Toggle", "Custom.Date"] : [])
-                    .Concat(BooleanDefaultValue is not null ? ["Custom.Toggle"] : [])
                     .Concat(IncludeDateField ? ["Custom.Date"] : [])
+                    .Concat(IncludeBooleanField ? ["Custom.Toggle"] : [])
                     .Concat(IncludeClassification ? ["System.WorkItemType", "System.AreaId", "System.AreaPath", "System.IterationId", "System.IterationPath"] : [])
                     .Concat(Defect == "description-html" ? ["System.Description"] : []);
                 var global = !path.Contains("/work/processes/");
@@ -1983,7 +1984,8 @@ public sealed partial class AdoProviderTests
                         else field["required"] = createAssigned;
                         if (Defect == "default-value" && name == "Custom.Empty") field["defaultValue"] = "server default";
                         if (Defect == "opaque-default-value" && name == "Custom.Owner") field["defaultValue"] = "@unresolved";
-                        if (name == "Custom.Toggle" && BooleanDefaultValue is not null) field["defaultValue"] = BooleanDefaultValue;
+                        if (name == "Custom.Toggle" && BooleanDefaultValue is not null)
+                            field["defaultValue"] = BooleanDefaultValue;
                     }
                     return field.ToJsonString();
                 })));

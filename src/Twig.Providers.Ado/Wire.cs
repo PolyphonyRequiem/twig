@@ -90,7 +90,7 @@ internal static class Wire
             "0" => false,
             "1" => true,
             _ => bool.TryParse(text, out var value) ? value
-                : throw Invalid("Native Boolean rule value must be true, false, 0 or 1."),
+                : throw Invalid("Native Boolean rule value is not a valid Boolean; expected true, false, 0 or 1."),
         }),
         FieldKind.Instant => FieldValue.At(DateTimeOffset.Parse(text, CultureInfo.InvariantCulture)),
         FieldKind.Identity => FieldValue.Identity(text),

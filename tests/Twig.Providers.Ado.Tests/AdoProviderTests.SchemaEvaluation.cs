@@ -7,6 +7,53 @@ namespace Twig.Providers.Ado.Tests;
 public sealed partial class AdoProviderTests
 {
     [Theory]
+    [InlineData("0", false)]
+    [InlineData("1", true)]
+    [InlineData("False", false)]
+    [InlineData("True", true)]
+    public async Task NativeBooleanDefaultsAndRuleOperandsRetainTheirTypedMeaning(string value, bool expected)
+    {
+        using var f = await Fixture.Create();
+        f.Http.BooleanDefaultValue = value;
+        f.Http.NativeRulesJson = $$"""
+            {"isDisabled":false,"conditions":[{"conditionType":"when","field":"Custom.Toggle","value":"{{value}}"}],
+             "actions":[{"actionType":"copyValue","targetField":"Custom.Toggle","value":"{{value}}"}]}
+            """;
+
+        var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+
+        discovered.IsSuccess.ShouldBeTrue(discovered.IsSuccess ? "" : discovered.Error.Message);
+        var type = discovered.Value.Types.Single();
+        type.Fields.Single(field => field.Reference == "Custom.Toggle").Kind.ShouldBe(FieldKind.Boolean);
+        type.Rules.ShouldContain(rule => rule.Field == "Custom.Toggle" && rule.Action == RuleAction.Default
+            && rule.Values.Contains(FieldValue.Bool(expected)));
+        type.Rules.ShouldContain(rule => rule.Field == "Custom.Toggle" && rule.Action == RuleAction.Supplied
+            && rule.Values.Contains(FieldValue.Bool(expected))
+            && rule.Conditions.Any(condition => condition.Field == "Custom.Toggle"
+                && condition.Kind == ConditionKind.Equal && condition.Value != null
+                && condition.Value.Equals(FieldValue.Bool(expected))));
+        f.Http.Writes.ShouldBe(0);
+        (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData("2")]
+    [InlineData("-1")]
+    [InlineData("private-invalid-value")]
+    public async Task NativeBooleanDefaultsRefuseUnknownValuesWithoutInventingFalse(string value)
+    {
+        using var f = await Fixture.Create();
+        f.Http.BooleanDefaultValue = value;
+
+        var discovered = await f.Provider.DiscoverSchemaAsync(f.Connection, default, includePresentation: true);
+
+        discovered.IsSuccess.ShouldBeFalse();
+        discovered.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        discovered.Error.Message.ShouldNotContain(value);
+        f.Http.Writes.ShouldBe(0);
+    }
+
+    [Theory]
     [InlineData("copyFromCurrentUser", "Custom.Owner")]
     [InlineData("copyFromServerCurrentUser", "Custom.Owner")]
     [InlineData("copyFromServerClock", "Custom.Date")]

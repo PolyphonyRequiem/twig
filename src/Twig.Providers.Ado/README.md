@@ -84,6 +84,11 @@ clears. The process-fields API omits `required` for optional fields; explicit
 An empty identity, numeric, Boolean or date rule operand represents an unset
 value (Core null), not a fabricated identity or a scalar parse failure.
 Empty text remains distinct.
+Boolean schema defaults, condition operands and constant action values accept
+the exact textual `0`/`1` forms as false/true alongside the existing `true`/`false`
+forms. Other numeric spellings are refused, not interpreted as truthiness.
+Ordinary item fields still require JSON Boolean tokens; this schema translation
+does not loosen item reads or native metadata flags.
 Disabled native rules retain their raw semantics in disabled fingerprinted
 rules without granting authority. Unknown enabled rules/metadata, opaque field
 kinds, unresolved default-value semantics, missing transitions or incomplete

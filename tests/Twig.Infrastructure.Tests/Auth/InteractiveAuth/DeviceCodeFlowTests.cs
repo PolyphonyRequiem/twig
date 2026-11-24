@@ -13,6 +13,9 @@ namespace Twig.Infrastructure.Tests.Auth.InteractiveAuth;
 /// </summary>
 public class DeviceCodeFlowTests
 {
+    private const string IssuedTenant = "11111111-1111-1111-1111-111111111111";
+    private const string OtherTenant = "44444444-4444-4444-4444-444444444444";
+
     private const string DeviceCodeOk = """
         {
           "device_code": "the-device-code",
@@ -76,6 +79,39 @@ public class DeviceCodeFlowTests
         result.Succeeded.ShouldBeTrue();
         // 3 polls = 3 delay calls.
         delayCalls.ShouldBe(3);
+    }
+
+    [Theory]
+    [InlineData("microsoft.com", JwtTestFactory.AdoResourceId, null, IssuedTenant)]
+    [InlineData("microsoft.com", JwtTestFactory.AdoResourceUri, null, IssuedTenant)]
+    [InlineData("microsoft.com", "https://management.azure.com/", null, "microsoft.com")]
+    [InlineData("microsoft.com", null, null, "microsoft.com")]
+    [InlineData("microsoft.com", JwtTestFactory.AdoResourceId, OtherTenant, OtherTenant)]
+    [InlineData(OtherTenant, JwtTestFactory.AdoResourceId, null, OtherTenant)]
+    [InlineData("organizations", JwtTestFactory.AdoResourceId, null, "organizations")]
+    [InlineData("common", JwtTestFactory.AdoResourceId, null, "common")]
+    [InlineData("consumers", JwtTestFactory.AdoResourceId, null, "consumers")]
+    public async Task TenantFallbackRequiresDomainAndAdoAudienceAndPreservesIdToken(
+        string tenant, string? audience, string? idTokenTenant, string expectedTenant)
+    {
+        var response = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            access_token = JwtTestFactory.Build(audience: audience, tenantId: IssuedTenant),
+            refresh_token = "synthetic-refresh",
+            id_token = idTokenTenant is null ? null : JwtTestFactory.Build(tenantId: idTokenTenant),
+        });
+        var handler = new ScriptedHandler(new[]
+        {
+            (HttpStatusCode.OK, DeviceCodeOk),
+            (HttpStatusCode.OK, response),
+        });
+        var flow = new DeviceCodeFlow(new AuthCodeExchanger(handler), handler,
+            delay: (_, _) => Task.CompletedTask, requestTimeout: null);
+
+        var result = await flow.RunAsync("synthetic-client", tenant, _ => { });
+
+        result.Succeeded.ShouldBeTrue();
+        result.Entry!.TenantId.ShouldBe(expectedTenant);
     }
 
     [Fact]

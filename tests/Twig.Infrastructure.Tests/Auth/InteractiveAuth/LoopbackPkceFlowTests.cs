@@ -21,6 +21,9 @@ namespace Twig.Infrastructure.Tests.Auth.InteractiveAuth;
 /// </summary>
 public class LoopbackPkceFlowTests
 {
+    private const string IssuedTenant = "11111111-1111-1111-1111-111111111111";
+    private const string OtherTenant = "44444444-4444-4444-4444-444444444444";
+
     private const string TokenSuccess = """
         {"access_token":"at","refresh_token":"rt","id_token":"","expires_in":3600}
         """;
@@ -73,8 +76,10 @@ public class LoopbackPkceFlowTests
         AssertPortReleased(port);
     }
 
-    [Fact]
-    public async Task NativeSetupPkceEnrollmentUsesActualNativeClaimAndSameAliasGuards()
+    [Theory]
+    [InlineData("organizations")]
+    [InlineData("microsoft.com")]
+    public async Task NativeSetupPkceEnrollmentUsesActualNativeClaimAndSameAliasGuards(string tenant)
     {
         var home = Path.Combine(Path.GetTempPath(), "twig-native-pkce-" + Guid.NewGuid().ToString("N"));
         var refresher = Substitute.For<ITokenRefresher>();
@@ -87,12 +92,16 @@ public class LoopbackPkceFlowTests
             var first = await Enroll();
             first.IsSuccess.ShouldBeTrue(first.IsSuccess ? "" : first.Error.Message);
             first.Value.Alias.ShouldBe("explicit");
+            first.Value.TenantId.ShouldBe(IssuedTenant);
             using var registry = new ConnectionBindingService(home, refresher);
             var binding = await registry.CreateBindingAsync("fixture", "Work", "explicit", true);
             var renewed = await Enroll();
             renewed.IsSuccess.ShouldBeTrue();
             renewed.Value.IdentityId.ShouldBe(first.Value.IdentityId);
             (await registry.CreateBindingAsync("fixture", "Work", "explicit", true)).ShouldBe(binding);
+            var credentialPath = Directory.GetFiles(Path.Combine(home, "credentials"), "*.json").ShouldHaveSingleItem();
+            new TwigRefreshTokenStore(credentialPath).TryRead().ShouldNotBeNull().TenantId.ShouldBe(IssuedTenant);
+            var credentialBeforeCollision = File.ReadAllText(credentialPath);
             principal = "33333333-3333-3333-3333-333333333333";
             var refused = await Enroll();
             refused.IsSuccess.ShouldBeFalse();
@@ -100,6 +109,7 @@ public class LoopbackPkceFlowTests
             NativeConnectionSetup.ReadFailure(refused.Error).Value.Effects
                 .ShouldNotContain(effect => effect.Kind == NativeSetupEffectKind.CredentialWrite);
             (await registry.ListIdentitiesAsync()).Single().ObjectId.ShouldBe(first.Value.ObjectId);
+            File.ReadAllText(credentialPath).ShouldBe(credentialBeforeCollision);
         }
         finally
         {
@@ -110,13 +120,19 @@ public class LoopbackPkceFlowTests
         async Task<Result<NativeAadEnrollment>> Enroll()
         {
             var port = LoopbackPkceFlow.PickFreePort();
-            var (handler, _) = NewExchangerStub(TokenSuccess);
+            var response = System.Text.Json.JsonSerializer.Serialize(new
+            {
+                access_token = AadAccountClaimTests.Token("{}", principal),
+                refresh_token = "synthetic-refresh",
+                expires_in = 3600,
+            });
+            var (handler, _) = NewExchangerStub(response);
             var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port,
                 _ => throw new InvalidOperationException("public enrollment must not launch a browser"), TimeSpan.FromSeconds(10));
             var setup = new NativeConnectionSetup(effects => new ConnectionBindingService(home, refresher, setupEffects: effects),
                 () => flow, ownsBindings: true);
             string? url = null;
-            var pending = setup.EnrollAadAsync(new("explicit"), value => url = value.AbsoluteUri);
+            var pending = setup.EnrollAadAsync(new("explicit", tenant), value => url = value.AbsoluteUri);
             var state = await ExtractStateAsync(url, () => Volatile.Read(ref url));
             url.ShouldNotBeNull().ShouldContain("code_challenge_method=S256");
             await SendRedirectAsync(port, "?code=synthetic&state=" + Uri.EscapeDataString(state));
@@ -124,6 +140,41 @@ public class LoopbackPkceFlowTests
             AssertPortReleased(port);
             return result;
         }
+    }
+
+    [Theory]
+    [InlineData("microsoft.com", JwtTestFactory.AdoResourceId, null, IssuedTenant)]
+    [InlineData("microsoft.com", JwtTestFactory.AdoResourceUri, null, IssuedTenant)]
+    [InlineData("microsoft.com", "https://management.azure.com/", null, "microsoft.com")]
+    [InlineData("microsoft.com", null, null, "microsoft.com")]
+    [InlineData("microsoft.com", JwtTestFactory.AdoResourceId, OtherTenant, OtherTenant)]
+    [InlineData(OtherTenant, JwtTestFactory.AdoResourceId, null, OtherTenant)]
+    [InlineData("organizations", JwtTestFactory.AdoResourceId, null, "organizations")]
+    [InlineData("common", JwtTestFactory.AdoResourceId, null, "common")]
+    [InlineData("consumers", JwtTestFactory.AdoResourceId, null, "consumers")]
+    public async Task TenantFallbackRequiresDomainAndAdoAudienceAndPreservesIdToken(
+        string tenant, string? audience, string? idTokenTenant, string expectedTenant)
+    {
+        var response = System.Text.Json.JsonSerializer.Serialize(new
+        {
+            access_token = JwtTestFactory.Build(audience: audience, tenantId: IssuedTenant),
+            refresh_token = "synthetic-refresh",
+            id_token = idTokenTenant is null ? null : JwtTestFactory.Build(tenantId: idTokenTenant),
+        });
+        var port = LoopbackPkceFlow.PickFreePort();
+        var (handler, _) = NewExchangerStub(response);
+        var flow = new LoopbackPkceFlow(new AuthCodeExchanger(handler), () => port,
+            _ => false, TimeSpan.FromSeconds(10));
+        string? url = null;
+        var pending = flow.RunAsync("synthetic-client", tenant, false, value => url = value);
+        var state = await ExtractStateAsync(url, () => Volatile.Read(ref url));
+        await SendRedirectAsync(port, "?code=synthetic&state=" + Uri.EscapeDataString(state));
+
+        var result = await pending;
+
+        result.Succeeded.ShouldBeTrue();
+        result.Entry!.TenantId.ShouldBe(expectedTenant);
+        AssertPortReleased(port);
     }
 
     private static void AssertPortReleased(int port)

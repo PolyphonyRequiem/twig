@@ -53,6 +53,11 @@ Use your actual organization, project, and work-item ID.
 [`twig auth pat`](docs/features/authentication.md) is available instead of
 interactive sign-in. Azure CLI is not required.
 
+For a specific directory, add `--tenant <tenant-GUID-or-domain>` to
+`twig auth login`. Named domains such as `microsoft.com` resolve to the concrete
+tenant in the issued Azure DevOps token; registration still verifies the
+refreshed token's tenant and principal.
+
 ### GitHub
 
 Sign in using `gh` first, then bind the exact account to your connection:

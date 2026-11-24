@@ -180,11 +180,15 @@ internal sealed class LoopbackPkceFlow
             }
 
             var claims = IdTokenDecoder.Decode(exchange.Tokens.IdToken);
+            // A domain selects an authority; registration checks its issued concrete tenant.
+            var issuedTenant = claims.TenantId is null && tenant.Contains('.')
+                && JwtAccessTokenInspector.TryDecode(exchange.Tokens.AccessToken) is { IsValidAdoAudience: true } accessClaims
+                    ? accessClaims.TenantId : null;
             var entry = new TwigRefreshTokenStoreEntry
             {
                 RefreshToken = exchange.Tokens.RefreshToken,
                 ClientId = clientId,
-                TenantId = claims.TenantId ?? tenant,
+                TenantId = claims.TenantId ?? issuedTenant ?? tenant,
                 AuthorityHost = AuthorizeRequestBuilder.DefaultAuthorityHost,
                 UserPrincipalName = claims.UserPrincipalName,
                 ObjectId = claims.ObjectId,

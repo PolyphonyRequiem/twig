@@ -10,12 +10,21 @@ Enroll a named AAD identity:
 
 ```sh
 twig auth login --identity work
-twig auth login --identity corporate --tenant <tenant-id>
+twig auth login --identity corporate --tenant <tenant-GUID-or-domain>
 ```
 
 Normal sign-in uses interactive loopback PKCE. Device code is available only
 where tenant policy permits it. Azure CLI is not required and is not a credential
 fallback for normal work.
+
+`--tenant` accepts a directory GUID or a named domain such as `microsoft.com`.
+For PKCE and device code, when no ID-token tenant is returned, a domain resolves
+to the tenant claim in the access token from the authenticated exchange only
+if that token has the Azure DevOps audience. Registration then independently
+refreshes the credential and checks the concrete tenant and principal before
+persisting it. Explicit GUIDs, the default `organizations` authority, and
+ID-token-first behavior retain their existing checks; a different principal
+cannot overwrite an existing identity alias.
 
 Adding another connection does not require enrolling the same account again.
 The native Canvas setup can list saved AAD identities and explicitly select an

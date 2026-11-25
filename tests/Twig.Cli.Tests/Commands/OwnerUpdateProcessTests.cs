@@ -80,6 +80,14 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
         => RunOwnerScenario(false, create: true, reboot: true);
 
     [QualificationFact, SupportedOSPlatform("windows")]
+    public Task StopBoundsNoncooperativeCreateDrainAndRestartRecoversOnlyOriginalEffect()
+        => RunOwnerScenario(false, create: true, reboot: true, drain: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task MissingDestinationFenceForAnUnsettledCreateRefusesOwnerRestart()
+        => RunOwnerScenario(false, create: true, reboot: true, missingClaim: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
     public Task AdoCreateKeepsItsParentQueuedWhileDisjointWorkCompletesBeforeReadback()
         => RunOwnerScenario(false, create: true, remote: "ado");
 
@@ -125,7 +133,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
         bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false,
         bool interruptedPlan = false, bool admittedPlan = false, bool canvas = false, bool verifiedPlan = false,
-        bool membership = false, string? late = null)
+        bool membership = false, string? late = null, bool drain = false, bool missingClaim = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -510,11 +518,35 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 if (reboot)
                 {
                     var first = Match((await Cli(null, "seed", "--find", "--local-id", seedId)).Output);
-                    owner!.Kill(true);
+                    if (drain)
+                    {
+                        var stop = Cli(null, "server", "stop", "-o", "json");
+                        await Task.Delay(1000);
+                        owner!.HasExited.ShouldBeFalse();
+                        Should.Throw<IOException>(() => File.Open(Path.Combine(home, "server.lock"),
+                            FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose());
+                        await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(10));
+                        (await stop).Code.ShouldBe(0);
+                    }
+                    else owner!.Kill(true);
                     await owner.WaitForExitAsync();
                     owner.Dispose();
                     owner = null;
                     (await publication).Code.ShouldNotBe(0);
+                    if (missingClaim)
+                    {
+                        using var db = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={Path.Combine(home, "benches.db")};Pooling=False");
+                        await db.OpenAsync();
+                        using var damage = db.CreateCommand();
+                        damage.CommandText = "DELETE FROM update_claims WHERE resource=$destination;";
+                        damage.Parameters.AddWithValue("$destination", NativeCoreExecution.Destination(handle.Workspace.Connection));
+                        (await damage.ExecuteNonQueryAsync()).ShouldBe(1);
+                        owner = Run(server, false, ["--data-dir", home, "--port", port, "--https-certificate", certificate]);
+                        await owner.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(5));
+                        owner.ExitCode.ShouldNotBe(0);
+                        (await owner.StandardError.ReadToEndAsync()).ShouldContain("claim inventory");
+                        return;
+                    }
                     await File.WriteAllTextAsync(Path.Combine(root, "release-receipt"), "");
                     await File.WriteAllTextAsync(Path.Combine(root, "release-readback"), "");
                     await StartOwner();
@@ -925,6 +957,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     if (verifiedPlan) start.Environment["TWIG_TEST_VERIFIED_PLAN"] = "1";
                     if (remote is not null && create) start.Environment["TWIG_TEST_REMOTE_CREATE"] = "1";
                     if (begin) start.Environment["TWIG_TEST_RACE_BEGIN"] = "1";
+                    if (drain) start.Environment["TWIG_TEST_NONCOOPERATIVE_RECEIPT"] = "1";
                 }
                 return Process.Start(start)!;
             }

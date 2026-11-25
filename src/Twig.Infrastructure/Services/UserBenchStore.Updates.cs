@@ -140,6 +140,61 @@ public sealed partial class UserBenchStore
 
     internal IOriginalUpdateBarrier Barrier(OriginalUpdate original, Guid boot) => new UpdateBarrier(this, original, boot);
 
+    internal async Task CheckOwnerClaimsAsync(bool restart, CancellationToken ct)
+    {
+        // Never recreate missing admission tables on restart. The original SQLite claims,
+        // not a new in-memory queue, continue to arbitrate admission after this check.
+        await using var db = await Open(ct, readOnly: restart);
+        using var tx = db.BeginTransaction(deferred: restart);
+        using var cmd = db.CreateCommand();
+        cmd.Transaction = tx;
+        if (!restart)
+        {
+            cmd.CommandText = UpdateSchema;
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
+        cmd.CommandText = "PRAGMA foreign_key_check;";
+        using (var bad = await cmd.ExecuteReaderAsync(ct))
+            if (await bad.ReadAsync(ct)) throw new InvalidDataException("Orphaned claim inventory.");
+        cmd.CommandText = """
+            SELECT a.plan,a.digest,a.submission,a.state,t.ticket,r.item
+            FROM update_actions a LEFT JOIN update_admission t USING(submission)
+              LEFT JOIN create_reservations r USING(attempt)
+            WHERE a.state NOT IN ('Complete','Cancelled','NotStarted','RejectedNoEffect','ReviewRequired');
+            """;
+        using var keys = db.CreateCommand();
+        keys.Transaction = tx;
+        keys.CommandText = "SELECT resource,mutation FROM update_claims WHERE submission=$id";
+        var id = keys.Parameters.Add("$id", SqliteType.Text);
+        using (var rows = await cmd.ExecuteReaderAsync(ct))
+        {
+            while (await rows.ReadAsync(ct))
+            {
+                if (rows.IsDBNull(4) && rows.GetString(3) == "Queued") continue;
+                using var json = JsonDocument.Parse((byte[])rows[0]);
+                var plan = CorePlanFiles.Parse(json.RootElement);
+                if (rows.IsDBNull(4) || plan.Digest != rows.GetString(1))
+                    throw new InvalidDataException("Incomplete original claim inventory.");
+                var expected = Claims(plan);
+                if (!rows.IsDBNull(5))
+                {
+                    var op = plan.Operations.Single();
+                    if (op.Kind != OpKind.Create || op.Links.Any(l => l.Other.IsLocal) || op.Other?.IsLocal == true)
+                        throw new InvalidDataException("Cannot prove the reserved endpoint claim inventory.");
+                    expected.Remove(NativeCoreExecution.Destination(plan.Connection));
+                    expected["item:" + rows.GetString(5)] = expected["graph:" + rows.GetString(5)] = true;
+                }
+                id.Value = rows.GetString(2);
+                using var actual = await keys.ExecuteReaderAsync(ct);
+                while (await actual.ReadAsync(ct))
+                    if (!expected.Remove(actual.GetString(0), out var exclusive) || actual.GetInt32(1) != (exclusive ? 1 : 0))
+                        throw new InvalidDataException("Unexpected original claim inventory.");
+                if (expected.Count != 0) throw new InvalidDataException("Missing original claim inventory.");
+            }
+        }
+        tx.Commit();
+    }
+
     private static bool BoundReview(Plan plan, UpdateOrigin origin, Guid revision) => plan.Review is { } review
         && review.Revision == revision && review.Store == origin.Store && review.Actor == origin.Actor;
 

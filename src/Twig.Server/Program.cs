@@ -199,18 +199,38 @@ var panel = new NativePanel(definitions, new NativeSourceGateway(), native);
 var processInstance = Guid.NewGuid();
 var sessions = new ViewSessions(Path.Combine(data, fixture is null ? "presentation" : "presentation-v2"));
 using var stopSignal = ServerLauncher.CreateStopSignal(processInstance, fixture is not null);
-fixture?.RecordRun(processInstance, buildId);
+// Kestrel's timeout does not cover the pipe listeners, detached operations or disposal.
+// Exit this owner with the OS lease still held rather than releasing a nonquiescent claim.
+using var drainDeadline = fixture is null ? null : new Timer(_ => Environment.Exit(1));
 await using var app = NativeBenchHost.Build(new(port, data, Certificate: certificate, WindowsSignIn: true,
     CanvasInstallRoot: canvasRoot, ServerId: serverId, ProcessInstance: processInstance, ExecutionV2: fixture is not null), panel, sessions, changes, setup);
+using var armDeadline = app.Lifetime.ApplicationStopping.Register(() =>
+    drainDeadline?.Change(TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan));
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
     null, Timeout.Infinite, executeOnlyOnce: true);
 var stopping = app.Lifetime.ApplicationStopping;
 if (fixture is not null)
 {
+    try
+    {
+        if (instance.Created && File.Exists(Path.Combine(data, "owner.run")))
+            throw new InvalidDataException("A recorded owner lost its authority identity.");
+        if (!instance.Created && !File.Exists(Path.Combine(data, "released-benches.db")))
+            throw new InvalidDataException("The recorded owner's publication inventory is missing.");
+        await definitions.CheckOwnerClaimsAsync(!instance.Created, stopping);
+    }
+    catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or
+        Microsoft.Data.Sqlite.SqliteException or JsonException or InvalidOperationException or ArgumentException or FormatException)
+    {
+        Console.Error.WriteLine("Owner claim inventory could not be established; no requests admitted. " + error.Message);
+        Environment.ExitCode = 2;
+        return;
+    }
     var display = app.Services.GetRequiredService<ReleasedBenchDisplay>();
     var root = Path.Combine(fixture.Root, "work");
     display.RecoverWorkspace(Path.Combine(root, ".twig", "core.db"));
     await display.RecoverPlans(root, definitions, stopping);
+    fixture.RecordRun(processInstance, buildId);
 }
 var execution = fixture is null ? null : app.Services.GetRequiredService<OwnerCommandEndpoint>();
 await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)

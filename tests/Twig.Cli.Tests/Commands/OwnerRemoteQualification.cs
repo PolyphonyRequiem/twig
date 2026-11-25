@@ -84,6 +84,8 @@ internal static class StartupHook
 
         private async Task Park(string phase, CancellationToken ct)
         {
+            if (phase == "receipt" && Environment.GetEnvironmentVariable("TWIG_TEST_NONCOOPERATIVE_RECEIPT") == "1")
+                ct = CancellationToken.None;
             await File.WriteAllTextAsync(Path.Combine(root, "parked-" + phase), "", ct);
             while (!File.Exists(Path.Combine(root, "release-" + phase))) await Task.Delay(25, ct);
         }

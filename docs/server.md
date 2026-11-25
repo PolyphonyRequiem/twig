@@ -88,9 +88,10 @@ replacement; neither reconnect nor `DeliveryConflict` authorizes one.
 For a retained Plan in the isolated Twig qualification database, use
 `twig plan observe <digest> --bench <bench-uuid> -o json`. Each unit identifies
 its scope, capture, Core operation and original attempt (if any). `continue`
-observes the original attempt. The owner withholds scoped delivery because it
-cannot yet publish the scope, origin and shared Bench pin changes together;
-it does not consume captures or publish a partially updated page. `abandon-unadmitted`
+observes the original attempt and can settle an admitted, already-converged
+Twig edit through the publication ledger. This preserves existing Bench pins;
+it does not admit untouched work or dispatch a provider operation. Other scoped
+deliveries that lack joint publication evidence remain protected. `abandon-unadmitted`
 permanently stops admissions on that digest, without consuming any drafts or
 releasing attempted-unit claims. Neither verb publishes provider work. An
 interrupted local relationship's edge and Applied outcome are one SQLite commit:

@@ -15,7 +15,7 @@ internal sealed partial class OwnerPlanJson : JsonSerializerContext;
 internal static class OwnerPlanCommand
 {
     internal static async Task<int> ExecuteAsync(string home, UserBenchStore user, string directory, string[] args,
-        TextWriter output, TextWriter errors, CancellationToken ct)
+        TextWriter output, TextWriter errors, IOwnerBenchPublication? publication, CancellationToken ct)
     {
         try
         {
@@ -58,14 +58,13 @@ internal static class OwnerPlanCommand
                 RejectLink(scope.DatabasePath);
             }
             var review = Require(await NativePlanReview.OpenAsync(root, digest, ct));
-            var outcome = Require(verb switch {
-                "abandon-unadmitted" => await review.AbandonUnadmittedAsync(ct),
-                _ => await review.ObserveAsync(ct)
-            });
-            var detail = outcome.Error?.Message;
-            if (detail is null && verb == "continue" && outcome.Units.Any(unit => unit.State is not ("Unadmitted" or "Abandoned" or "Delivered")))
-                detail = "Original attempt observed. Scoped settlement is withheld until scope, origin and shared Bench pins can publish together.";
-            output.WriteLine(JsonSerializer.Serialize(new OwnerPlanReply(digest, outcome.Status, outcome.Units, detail),
+            var outcome = verb == "abandon-unadmitted" ? Require(await review.AbandonUnadmittedAsync(ct)) : Require(await review.ObserveAsync(ct));
+            if (verb == "continue" && outcome.Units.Any(unit => unit.State is not ("Unadmitted" or "Abandoned")))
+            {
+                if (publication is null) throw new InvalidDataException("Scoped settlement requires the original owner publication ledger.");
+                outcome = Require(await publication.ContinuePlanAsync(root, handle.Source, user, review, ct));
+            }
+            output.WriteLine(JsonSerializer.Serialize(new OwnerPlanReply(digest, outcome.Status, outcome.Units, outcome.Error?.Message),
                 OwnerPlanJson.Default.OwnerPlanReply));
             return 0;
         }

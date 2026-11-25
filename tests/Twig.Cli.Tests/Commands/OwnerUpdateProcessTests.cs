@@ -92,7 +92,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     public Task PlanCliAfterOwnerLossNeverConsumesAnUnadmittedCapture() => RunOwnerScenario(false, interruptedPlan: true);
 
     [QualificationFact, SupportedOSPlatform("windows")]
-    public Task PlanCliWithholdsScopedSettlementWithoutARecoverableBenchPublication()
+    public Task PlanCliSettlesOnlyTheAdmittedConvergedCaptureAndKeepsItsOriginalBenchPin()
         => RunOwnerScenario(false, interruptedPlan: true, admittedPlan: true);
 
     [SupportedOSPlatform("windows")]
@@ -156,12 +156,14 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             if (interruptedPlan)
             {
                 var user = UserBenchStore.ForRegistry(bindings.RegistryPath);
-                var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Plan fixture", []), 0)).Value;
+                var item = (await handle!.Workspace.SnapshotAsync(default)).Value.Items.Single().Key;
+                var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Plan fixture",
+                    admittedPlan ? [new(SelectorKind.Pin, item, connection: handle.Source.Connection)] : []), 0)).Value;
                 var status = (await user.ReadPlanStatusAsync(bench.Id)).Value;
                 (await user.ChangePlanModeAsync(status.UserInstance, bench.Id, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
                 void Configure(IServiceCollection services) => services.AddSingleton<IConnectionBindingService>(bindings);
                 using var editor = (await NativeItemEditor.OpenAsync(work, bench.Id, handle!.Source, Configure, default)).Value;
-                var form = (await editor.SelectAsync((await handle.Workspace.SnapshotAsync(default)).Value.Items.Single().Key)).Value;
+                var form = (await editor.SelectAsync(item)).Value;
                 (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set(NativeProvider.Title, admittedPlan
                     ? form.Values[NativeProvider.Title] : FieldValue.String("never published")))).IsSuccess.ShouldBeTrue();
                 var staged = (await user.ReadPlanStatusAsync(bench.Id)).Value;
@@ -173,18 +175,31 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     (await user.AdvancePlanReviewAsync(retained, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
                     (await user.AdmitPlanCaptureAsync(retained, 0, plan.Document.Scopes.Single().Captures.Single().Id, default)).IsSuccess.ShouldBeTrue();
                 }
+                var scope = plan.Document.Scopes.Single().Scope;
+                var scopeStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
+                long? settledVersion = null;
                 await StartOwner();
-                foreach (var (verb, state) in new[] { ("observe", "Unadmitted"), ("continue", "Unadmitted"),
-                    ("abandon-unadmitted", "Abandoned"), ("observe", "Abandoned") })
+                var commands = admittedPlan
+                    ? new[] { ("observe", "Admitted"), ("continue", "Delivered"), ("continue", "Delivered"), ("observe", "Delivered") }
+                    : [("observe", "Unadmitted"), ("continue", "Unadmitted"), ("abandon-unadmitted", "Abandoned"), ("observe", "Abandoned")];
+                foreach (var (verb, state) in commands)
                 {
                     var reply = await Cli(null, "plan", verb, plan.Digest, "--bench", bench.Id.ToString("D"), "-o", "json");
                     reply.Code.ShouldBe(0, reply.Error);
                     using var json = JsonDocument.Parse(reply.Output);
-                    json.RootElement.GetProperty("units")[0].GetProperty("state").GetString().ShouldBe(admittedPlan ? "Admitted" : state);
-                    if (admittedPlan && verb == "continue") json.RootElement.GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain("withheld");
+                    json.RootElement.GetProperty("units")[0].GetProperty("state").GetString().ShouldBe(state, reply.Output);
+                    if (admittedPlan && verb == "continue")
+                    {
+                        var settled = (await scopeStore.ReadAsync(scope.Source.Connection, default)).Value;
+                        settled.RetainedItems.ShouldBeEmpty();
+                        settled.Journal.ShouldBeEmpty();
+                        if (settledVersion is not null) settled.Version.ShouldBe(settledVersion.Value);
+                        settledVersion = settled.Version;
+                        await Restart();
+                    }
                 }
-                (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBeFalse();
-                (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBeEmpty();
+                (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBe(admittedPlan);
+                (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBe(bench.Selectors);
                 (await handle.Workspace.ObserveItemsAsync([form.Item], default)).Value.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("original");
                 return;
             }

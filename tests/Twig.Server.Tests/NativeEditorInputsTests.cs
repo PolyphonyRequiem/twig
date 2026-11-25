@@ -41,6 +41,84 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
     private string Work => Path.Combine(root, "work");
 
     [Theory]
+    [InlineData("plan-scope")]
+    [InlineData("plan-receipt")]
+    [InlineData("newer-edit")]
+    public async Task VerifiedSeedAndEditDeliverTheirOriginalsAndOneMappedPinAcrossRestart(string cut)
+    {
+        await Start(planMode: true, executionV2: true);
+        using var editor = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value;
+        var edit = (await editor.SelectAsync(item)).Value;
+        Assert.True((await editor.StageAsync(edit.Ticket, FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("edited")))).IsSuccess);
+        var seed = (await editor.CreateSeedAsync(edit.Type)).Value;
+        Assert.True((await editor.StageAsync(seed.Ticket, FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("created"))
+            .Set(edit.StateField, edit.Values[edit.StateField]))).IsSuccess);
+        var status = (await definitions.ReadPlanStatusAsync(bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(Work, bench, status.Sources, gateway.Configure, default)).Value;
+        var scope = Assert.Single(review.Document.Scopes).Scope;
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString());
+        await db.OpenAsync();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            CREATE TRIGGER park_cleanup BEFORE UPDATE OF document ON core_snapshots
+            WHEN json_array_length(NEW.document,'$.Drafts')=0 AND json_array_length(OLD.document,'$.Drafts')>0
+            BEGIN SELECT RAISE(ABORT,'park verified cleanup'); END;
+            """;
+        await cmd.ExecuteNonQueryAsync();
+        var apply = (await review.ApplyAsync()).Value;
+        Assert.Equal("VerifiedDeliveryPending", apply.Status);
+        cmd.CommandText = "DROP TRIGGER park_cleanup";
+        await cmd.ExecuteNonQueryAsync();
+        var scoped = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
+        var before = (await scoped.ReadAsync(handle.Source.Connection, default)).Value;
+        var mapping = Assert.Single(before.Mappings);
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        var replaced = await display.ContinuePlanAsync(Work, handle.Source with { StoreInstance = Guid.NewGuid() }, definitions, review, default);
+        Assert.False(replaced.IsSuccess);
+        if (cut == "newer-edit")
+        {
+            var draft = Assert.Single(before.RetainedItems.OfType<LocalEdits>());
+            var newer = draft with { CaptureRevision = Guid.NewGuid() };
+            Assert.True((await scoped.CommitAsync(handle.Source.Connection, before.Version, new(before.Version + 1,
+                before.Items, before.Relationships, before.RetainedItems.Where(d => d.Key != draft.Key).Append(newer),
+                before.Plans, before.Journal, before.Mappings, before.Benches), default)).IsSuccess);
+            var partial = (await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value;
+            Assert.Equal("VerifiedDeliveryPending", partial.Status);
+            Assert.Contains("draft changed", partial.Error!.Message);
+            Assert.Single(partial.Units, u => u.State == "Delivered");
+            Assert.Single(partial.Units, u => u.State == "Verified");
+            Assert.Equal(newer.CaptureRevision, Assert.IsType<LocalEdits>(Assert.Single(
+                (await scoped.ReadAsync(handle.Source.Connection, default)).Value.RetainedItems)).CaptureRevision);
+            Assert.Contains(Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors, s => s.Item == mapping.Remote);
+            return;
+        }
+        var fault = false;
+        display.StepBoundary = async (where, _) =>
+        {
+            if (where == cut && !(await scoped.ReadAsync(handle.Source.Connection, default)).Value.RetainedItems.Any(d => d.Key == mapping.Local))
+            {
+                fault = true;
+                throw new IOException("cut mapped seed delivery");
+            }
+        };
+        var interrupted = await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+        Assert.True(fault, interrupted.IsSuccess ? interrupted.Value.Status : interrupted.Error.Message);
+        var boot = new ReleasedBenchDisplay(Path.Combine(root, "home", "released-benches.db"));
+        await boot.RecoverPlans(Work, definitions, default);
+        var finished = await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+        Assert.True(finished.IsSuccess, finished.IsSuccess ? "" : finished.Error.Message);
+        Assert.Equal("Complete", finished.Value.Status);
+        Assert.All(finished.Value.Units, unit => Assert.Equal("Delivered", unit.State));
+        var final = (await scoped.ReadAsync(handle.Source.Connection, default)).Value;
+        Assert.Empty(final.RetainedItems);
+        Assert.Equal(before.Journal.Select(j => j.Attempt), final.Journal.Select(j => j.Attempt));
+        Assert.Equal(mapping, Assert.Single(final.Mappings));
+        Assert.Equal(2, (await definitions.ReadAsync()).Value.Benches.Single().Selectors.Length);
+        Assert.Single((await definitions.ReadAsync()).Value.Benches.Single().Selectors, s => s.Item == mapping.Remote);
+        Assert.Equal("Complete", (await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value.Status);
+    }
+
+    [Theory]
     [InlineData("plan-manifest")]
     [InlineData("plan-scope")]
     [InlineData("plan-reserved")]

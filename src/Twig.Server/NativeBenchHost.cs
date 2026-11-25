@@ -18,6 +18,8 @@ public static partial class NativeBenchHost
     private const int DefinitionBodyLimit = 2 * 1024 * 1024 + 16384;
     private static bool QualifiedOwnerRoute(HttpRequest request) => (request.Method, request.Path.Value?.Split('/')) switch
     {
+        ("GET", ["", "api", "v2", "views", var view, "benches", var bench, "partitions", var partition, "page"])
+            => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _) && Guid.TryParseExact(partition, "D", out _),
         ("GET", ["", "api", "v1", "status" or "owner-status" or "windows-profile"]) => true,
         ("POST", ["", "api", "v1", "canvas-views" or "windows-profile" or "windows-enroll" or "windows-renew" or "windows-agent"]) => true,
         ("GET", ["", "api", "v1", "views", var id, "benches" or "events" or "session" or "presentation"])
@@ -48,6 +50,8 @@ public static partial class NativeBenchHost
             throw new ArgumentException("Same-owner Windows authentication requires the existing trusted stable HTTPS localhost endpoint.");
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
         if (options.ExecutionV2)
+            builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db")));
+        if (options.ExecutionV2)
             builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = TimeSpan.FromSeconds(10));
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
@@ -74,6 +78,7 @@ public static partial class NativeBenchHost
             server.Limits.MaxConcurrentConnections = 32;
         });
         var app = builder.Build();
+        if (options.ExecutionV2) MapReleasedDisplay(app, sessions, options);
         var diagnostics = new NativeSourceDiagnostics(app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Bench.SourceDiagnostics"));
         app.Use(async (context, next) =>
         {

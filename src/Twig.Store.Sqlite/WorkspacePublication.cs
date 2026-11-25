@@ -65,14 +65,16 @@ internal abstract class WorkspacePublication
         cmd.Transaction = tx;
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS core_publication_steps(
-              id TEXT PRIMARY KEY, instance TEXT NOT NULL, connection TEXT NOT NULL, version INTEGER NOT NULL, hash TEXT NOT NULL) STRICT;
-            INSERT INTO core_publication_steps VALUES ($id,$instance,$connection,$version,$hash);
+              id TEXT PRIMARY KEY, instance TEXT NOT NULL, connection TEXT NOT NULL, version INTEGER NOT NULL, hash TEXT NOT NULL,
+              predecessor_hash TEXT NOT NULL, UNIQUE(instance, connection, version)) STRICT;
+            INSERT INTO core_publication_steps VALUES ($id,$instance,$connection,$version,$hash,$prior);
             """;
         cmd.Parameters.AddWithValue("$id", step.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$instance", step.Instance.ToString("D"));
         cmd.Parameters.AddWithValue("$connection", step.Connection);
         cmd.Parameters.AddWithValue("$version", step.After);
         cmd.Parameters.AddWithValue("$hash", step.Hash);
+        cmd.Parameters.AddWithValue("$prior", step.BeforeHash);
         cmd.ExecuteNonQuery();
     }
 }

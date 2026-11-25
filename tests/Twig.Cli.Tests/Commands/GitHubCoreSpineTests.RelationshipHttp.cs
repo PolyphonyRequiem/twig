@@ -214,9 +214,16 @@ public sealed partial class GitHubCoreSpineTests
                     var preserved = await native.PreserveAsync().WaitAsync(ct);
                     var refused = await Request("/editor/local/apply", originalReference);
                     if (damage == "generation") refused.Status.ShouldBe(409, "Original reviewed ticket cannot survive real profile retirement.");
+                    else if (damage == "store")
+                    {
+                        refused.Status.ShouldBe(200);
+                        refused.Body["outcome"]!["status"]!.GetValue<string>().ShouldBe("Verified",
+                            "A version-only commit does not change either endpoint or the reviewed edge.");
+                        await native.AssertStateAsync(1).WaitAsync(ct);
+                    }
                     else (refused.Status >= 400 || refused.Body["outcome"]!["status"]!.GetValue<string>() != "Verified")
                         .ShouldBeTrue("Changed " + damage + " cannot apply.");
-                    await preserved().WaitAsync(ct);
+                    if (damage != "store") await preserved().WaitAsync(ct);
                 }
                 else if (scenario == "protected")
                 {

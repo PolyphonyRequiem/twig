@@ -202,7 +202,7 @@ public static partial class NativeBenchHost
                 Failure(receipt.Error))).ToArray() ?? [], Failure(operationError ?? outcome.Error));
         return new(state.Ticket, review.CaptureId, plan.Digest, Encoding.UTF8.GetString(Twig.Core.Core.PlanBytes(plan)),
             new(op.Kind.ToString(), Endpoint(op.Item), Endpoint(op.Other), op.Relation, op.ExpectedLocalVersion,
-                plan.ExpectedStoreVersion, plan.SchemaFingerprint),
+                plan.SchemaFingerprint),
             new(false, state.Native!.PlanId, state.Native.PlanRevision, state.Native.ScopeId, state.Native.StoreInstance),
             source.Stamp.AuthorityStamp, state.Epoch,
             LocalUnattempted(outcome),

@@ -83,7 +83,7 @@ public sealed class CoreInvariantTests
         var key = ItemKey.Remote(connection.Provider, "s", "1");
         var plan = new Plan(connection, "schema", 0,
             [new("op", OpKind.Batch, key, new Revision(key, "r"), Fields(("state", FieldValue.String("open"))))]);
-        const string expected = """{"version":3,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","storeVersion":0,"policyIdentity":null,"policyRevision":null,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null,"resource":null}]}""";
+        const string expected = """{"version":4,"connection":{"provider":"p","scope":"s","destination":"d","identity":"i"},"schema":"schema","review":null,"policyIdentity":null,"policyRevision":null,"operations":[{"id":"op","kind":1,"item":["remote","p","s","1"],"revision":{"item":["remote","p","s","1"],"token":"r"},"type":null,"fields":{"state":[1,"open"]},"other":null,"relation":null,"origin":0,"concurrency":0,"localVersion":null,"body":null,"resource":null}]}""";
         Encoding.UTF8.GetString(Rules.PlanBytes(plan)).ShouldBe(expected);
         plan.Digest.ShouldBe(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(expected))).ToLowerInvariant());
         var output = Rules.PlanBytes(plan);
@@ -121,12 +121,12 @@ public sealed class CoreInvariantTests
         var one = Batch(Fields(("count", FieldValue.Integer(2)), ("gate", FieldValue.String("x"))), schema);
         var reordered = Batch(Fields(("gate", FieldValue.String("x")), ("count", FieldValue.Integer(2))), schema);
         one.Digest.ShouldBe(reordered.Digest);
+        new Plan(Connection, one.SchemaFingerprint, 1, one.Operations).Digest.ShouldBe(one.Digest);
         var variants = new[]
         {
             new Plan(new(Provider, "scope", "other-destination", "principal"), one.SchemaFingerprint, 0, one.Operations),
             new Plan(new(Provider, "scope", "immutable-target", "other-principal"), one.SchemaFingerprint, 0, one.Operations),
             new Plan(Connection, "other-schema", 0, one.Operations),
-            new Plan(Connection, one.SchemaFingerprint, 1, one.Operations),
             Batch(one.Operations[0].Fields, schema, "rev-2"),
             Batch(one.Operations[0].Fields, schema, concurrency: ConcurrencyMode.ObservedNonAtomic),
             Batch(Fields(("count", FieldValue.Integer(3)), ("gate", FieldValue.String("x"))), schema),
@@ -332,13 +332,13 @@ public sealed class CoreInvariantTests
     }
 
     [Fact]
-    public void DigestSchemaStoreAndRevisionPreconditionsAreIndependent()
+    public void SchemaAndItemRevisionChangesRefuseRegardlessOfStoreVersion()
     {
         var schema = Schema();
         var plan = Batch(Fields(("count", FieldValue.Integer(1))), schema);
         var errors = Rules.Validate(plan, Schema(rules: []), new(1, [Item("moved")]), Capabilities);
         errors.ShouldContain(e => e.Code == ErrorCode.SchemaChanged);
-        errors.Count(e => e.Code == ErrorCode.Conflict).ShouldBe(2);
+        errors.Count(e => e.Code == ErrorCode.Conflict).ShouldBe(1);
     }
 
     [Fact]
@@ -349,8 +349,7 @@ public sealed class CoreInvariantTests
         var plan = Batch(Fields(("count", FieldValue.Integer(1))), schema);
         var planned = JournalEntry.Planned(plan.Digest, 0);
         var imported = new StoreSnapshot(1, [item], plans: [plan], journal: [planned]);
-        Rules.Validate(plan, schema, imported, Capabilities)
-            .ShouldContain(e => e.Code == ErrorCode.Conflict);
+        Rules.Validate(plan, schema, imported, Capabilities).ShouldBeEmpty();
         Rules.ValidateEffect(plan, 0, schema, imported, Capabilities).ShouldBeEmpty();
         var attempted = new StoreSnapshot(2, [item], plans: [plan],
             journal: [planned.Begin(Guid.NewGuid()).Value]);
@@ -481,7 +480,8 @@ public sealed class CoreInvariantTests
         Rules.Validate(plan, schema, new(0, retainedItems: [edited]), Capabilities)
             .ShouldContain(e => e.Code == ErrorCode.Conflict);
         var attempting = JournalEntry.Planned(plan.Digest, 0).Begin(Guid.NewGuid()).Value;
-        var replacement = new Plan(Connection, schema.Fingerprint, 1, [create]);
+        var replacement = new Plan(Connection, schema.Fingerprint, 1, [create], review:
+            new(Guid.NewGuid(), Guid.NewGuid(), Connection.IdentityRef, "reviewed-seed"));
         replacement.Digest.ShouldNotBe(plan.Digest);
         Rules.Validate(replacement, schema,
             new(1, retainedItems: [draft], plans: [plan], journal: [attempting]), Capabilities)

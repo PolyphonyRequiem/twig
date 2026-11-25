@@ -16,6 +16,96 @@ public sealed class UserBenchStoreTests : IDisposable
     private UserBenchStore Store => new(Path.Combine(directory, "user", "benches.db"));
 
     [Fact]
+    public async Task ConflictingSubmissionsKeepTheirOrderAcrossCredentialsAndMirrorsWhileDisjointWorkPasses()
+    {
+        var boot = Guid.NewGuid();
+        Required(await Store.ReadAsync());
+        async Task<OriginalUpdate> Submit(string item, string identity)
+        {
+            var connection = new Connection(ado.Provider, ado.ResourceScope, ado.Destination, identity);
+            var origin = new UpdateOrigin(Guid.NewGuid(), connection, identity, item);
+            var review = Guid.NewGuid();
+            var key = Key(connection, item);
+            var plan = new Plan(connection, "schema", 0, [new(review.ToString(), OpKind.Batch, key,
+                new(key, "v1"), FieldValues.Empty.Set("title", FieldValue.String("value")))]);
+            Required(await Store.BindUpdateAsync(origin, review, "input", plan, boot, default));
+            return Required(await Store.OriginalUpdateAsync(origin, review, default));
+        }
+        var active = await Submit("42", "first");
+        var earlier = await Submit("42", "second");
+        var later = await Submit("42", "third");
+        var disjoint = await Submit("43", "second");
+        Task<Result<bool>> Claim(OriginalUpdate action) => Store.MoveUpdateAsync(action, "Claimed", boot, default);
+        Required(await Claim(active)).ShouldBeTrue();
+        Required(await Claim(earlier)).ShouldBeFalse();
+        Required(await Claim(later)).ShouldBeFalse();
+        Required(await Claim(disjoint)).ShouldBeTrue();
+        Required(await Store.MoveUpdateAsync(active with { Identity = active.Identity with { State = "Claimed" } },
+            "NotStarted", boot, default)).ShouldBeTrue();
+        Required(await Claim(later)).ShouldBeFalse();
+        Required(await Claim(earlier)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task PostDispatchLocalContentionKeepsOriginalIdentityAndClaimsButNotProviderCapacity()
+    {
+        var boot = Guid.NewGuid();
+        Required(await Store.ReadAsync());
+        async Task<OriginalUpdate> Bind(string id)
+        {
+            var review = Guid.NewGuid();
+            var key = Key(ado, id);
+            var origin = new UpdateOrigin(Guid.NewGuid(), ado, "actor", id);
+            var plan = new Plan(ado, "schema", 0, [new("update", OpKind.Batch, key, new(key, "v1"),
+                FieldValues.Empty.Set("title", FieldValue.String("changed")))]);
+            Required(await Store.BindUpdateAsync(origin, review, "hash", plan, boot, default));
+            return Required(await Store.OriginalUpdateAsync(origin, review, default));
+        }
+        async Task<bool> Claim(OriginalUpdate u) => Required(await Store.MoveUpdateAsync(u, "Claimed", boot, default));
+        var first = await Bind("1");
+        (await Claim(first)).ShouldBeTrue();
+        foreach (var id in new[] { "2", "3", "4" }) (await Claim(await Bind(id))).ShouldBeTrue();
+        var fifth = await Bind("5");
+        (await Claim(fifth)).ShouldBeFalse();
+        var overlapping = await Bind("1");
+        await Store.Barrier(first, boot).OpenAsync(first.Plan, first.Attempt, new("PATCH", "target", new string('a', 64), "actor", "project"), default);
+        Required(await Store.MoveUpdateAsync(first with { Identity = first.Identity with { State = "Running" } }, "Pending", boot, default)).ShouldBeTrue();
+        (await Claim(overlapping)).ShouldBeFalse();
+        (await Claim(fifth)).ShouldBeTrue();
+    }
+
+    [Fact]
+    public async Task SharedPolicyEndpointReadsCanOverlapButAnEndpointMutationWaitsForAllReaders()
+    {
+        var boot = Guid.NewGuid();
+        Required(await Store.ReadAsync());
+        var endpoint = Key(ado, "42");
+        async Task<OriginalUpdate> Bind(string id, bool changeType)
+        {
+            var review = Guid.NewGuid();
+            var origin = new UpdateOrigin(Guid.NewGuid(), ado, "actor", id);
+            var item = Key(ado, id);
+            var plan = new Plan(ado, "schema", 0, [new("change", OpKind.Batch, item, new(item, "v1"),
+                FieldValues.Empty.Set("title", FieldValue.String("x")), changeType ? "new-type" : null)],
+                review: new(review, origin.Store, origin.Actor, "capture") { Graph = [new(endpoint, "observed-type-and-edges")] });
+            Required(await Store.BindUpdateAsync(origin, review, "input", plan, boot, default));
+            return Required(await Store.OriginalUpdateAsync(origin, review, default));
+        }
+        var reader1 = await Bind("43", false);
+        var reader2 = await Bind("44", false);
+        var writer = await Bind("42", true);
+        async Task<bool> Claim(OriginalUpdate u) => Required(await Store.MoveUpdateAsync(u, "Claimed", boot, default));
+        async Task Release(OriginalUpdate u) => Required(await Store.MoveUpdateAsync(u with { Identity = u.Identity with { State = "Claimed" } }, "NotStarted", boot, default));
+        (await Claim(reader1)).ShouldBeTrue();
+        (await Claim(reader2)).ShouldBeTrue();
+        (await Claim(writer)).ShouldBeFalse();
+        await Release(reader1);
+        (await Claim(writer)).ShouldBeFalse();
+        await Release(reader2);
+        (await Claim(writer)).ShouldBeTrue();
+    }
+
+    [Fact]
     public async Task ConcurrentBindingsSurviveLostReplyAndLookupCannotDiscloseAnotherOriginsUpdate()
     {
         var scope = new UpdateOrigin(Guid.NewGuid(), ado, "principal", "42");

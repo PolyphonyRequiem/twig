@@ -44,6 +44,27 @@ on the first command prepares and submits in one invocation. Reusing the same
 review with different input is a conflict. An unclaimed review from a prior
 daemon boot remains queued; it cannot start a provider write after restart.
 
+In that same isolated workspace, `twig update <field> <value> --id <item> --local`
+retains an edit without publishing it. Two reviewed updates to distinct items can
+proceed while a third item is edited locally. Admission orders submitted reviews
+for the same native item across credentials and mirrors. Merely preparing a review
+does not reserve the item. If the original effect verifies but the local capture
+has changed, observation returns `DeliveryConflict`; it neither resends the update
+nor discards the later edit.
+
+ADO and GitHub also accept `twig note --id <item> --text <text> --review <uuid>`
+in this fixture. The Twig provider does not implement comments. A review keeps
+its original action and submission identities if it yields `Pending` after
+three local version conflicts. A post-dispatch observation inspects the original
+attempt; it is not a retry of the mutation.
+
+`OwnerUpdateProcessTests` exercises the matched CLI and server with a private
+SQLite Twig authority and deterministic HTTP substitutes for Azure DevOps and
+GitHub. Each case parks A for 30 seconds and requires B and the local edit to
+finish before A returns. The remote-provider cases also verify a comment on B
+before A returns. These cases do not qualify creates, installed command routes,
+or live provider availability.
+
 If the reply is lost, `twig update --find --id <item>` returns only original
 identities and states visible to the current actor, not field values. Multiple
 matches are explicit. `twig update --observe <uuid> --id <item>` checks the

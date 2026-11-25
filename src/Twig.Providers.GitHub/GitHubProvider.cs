@@ -15,7 +15,7 @@ public sealed partial class GitHubProvider : IProvider, IOriginalUpdateProvider,
     private readonly string _repository;
     private ProviderCapabilities _capabilities = new([], [], [], false, false);
 
-    public GitHubProvider(Connection connection, GitHubAccess access, IStore store, HttpMessageHandler? transport = null)
+    public GitHubProvider(Connection connection, GitHubAccess access, IStore store, HttpMessageHandler? transport = null, TimeSpan? timeout = null)
     {
         if (connection.Provider.Value != "github"
             || !Uri.TryCreate(connection.ResourceScope, UriKind.Absolute, out var origin)
@@ -29,7 +29,7 @@ public sealed partial class GitHubProvider : IProvider, IOriginalUpdateProvider,
         if (Destination(_owner, _repository) != connection.Destination)
             throw new ArgumentException("Destination identity is not canonical.", nameof(connection));
         (_connection, _access, _store) = (connection, access, store);
-        _http = new(transport ?? new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(20) };
+        _http = new(transport ?? new SocketsHttpHandler { AllowAutoRedirect = false }) { Timeout = timeout ?? TimeSpan.FromSeconds(20) };
     }
 
     public static string Destination(string ownerId, string repositoryId) => Wire.Utf8(Wire.Json(json =>

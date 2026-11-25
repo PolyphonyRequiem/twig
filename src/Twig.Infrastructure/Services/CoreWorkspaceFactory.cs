@@ -30,7 +30,8 @@ internal sealed class CoreWorkspaceHandle(CoreWorkspace workspace, IDisposable p
 
 internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, TwigPaths paths,
     IConnectionBindingService bindings, IAuthenticationProvider authentication, CoreTransportOverride? transport = null,
-    CoreGitHubWorkspaceHost? github = null, NativeHistoricalEvidence? history = null)
+    CoreGitHubWorkspaceHost? github = null, NativeHistoricalEvidence? history = null, bool executionOwner = false,
+    Func<IStore,IStore>? nativeMirror = null)
 {
     internal const string FileName = "core-workspace.json";
     internal string WorkspaceRoot => paths.RepoRoot;
@@ -77,7 +78,8 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         var admitted = await store.CheckWorkspaceAsync(document.Connection, ct).ConfigureAwait(false);
         if (!admitted.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(admitted.Error);
         if (document.Connection.Provider.Value == "twig")
-            return await new CoreNativeWorkspaceHost(paths, bindings, configuration.NativeDatabase).OpenAsync(document, store, ct).ConfigureAwait(false);
+            return await new CoreNativeWorkspaceHost(paths, bindings, configuration.NativeDatabase)
+                .OpenAsync(document, store, ct, mirror: executionOwner ? nativeMirror : null).ConfigureAwait(false);
         if (document.Connection.Provider.Value != "ado")
             return document.Connection.Provider.Value == "github" && github is not null
                 ? await github.OpenAsync(document, store, ct).ConfigureAwait(false)
@@ -87,13 +89,13 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
             || origin.Identity.AdoPrincipalId is { } principal && principal != document.PrincipalId)
             return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "The selected native binding or actor differs from the initialized Core workspace.");
         var access = new CleanCoreAdoAccess(authentication, bindings, configuration, paths, origin,
-            document.Connection, document.PrincipalId, store);
+            document.Connection, document.PrincipalId, store, executionOwner);
         var source = NativeSourceReader.Stamp(document, paths.RepoRoot, origin);
         var benches = UserBenchStore.ForRegistry(bindings.RegistryPath);
         var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
             new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
         if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
-        var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler());
+        var provider = new AdoProvider(document.Connection, access, store, transport?.CreateHandler(), executionOwner ? TimeSpan.FromMinutes(1) : null);
         var workspace = new CoreWorkspace(document.Connection, provider, store,
             new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,
             benches, configuration.Team, bindings.RegistryPath);
@@ -281,7 +283,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
 internal static class CoreWorkspaceRegistration
 {
     internal static IServiceCollection AddCoreWorkspaceServices(this IServiceCollection services,
-        TwigConfiguration configuration, TwigPaths paths)
+        TwigConfiguration configuration, TwigPaths paths, bool executionOwner = false)
     {
         services.AddCoreBootstrapServices(configuration, paths);
         services.AddSingleton<IAuthenticationProvider>(sp =>
@@ -294,10 +296,11 @@ internal static class CoreWorkspaceRegistration
         services.AddSingleton(sp => new CoreWorkspaceFactory(configuration, paths,
             sp.GetRequiredService<IConnectionBindingService>(), sp.GetRequiredService<IAuthenticationProvider>(),
             sp.GetService<CoreTransportOverride>(), configuration.ResolveWorkItemProviderKind() == "github"
-                ? sp.GetService<CoreGitHubWorkspaceHost>() : null, sp.GetService<NativeHistoricalEvidence>()));
+                ? sp.GetService<CoreGitHubWorkspaceHost>() : null, sp.GetService<NativeHistoricalEvidence>(), executionOwner,
+            sp.GetService<Func<IStore,IStore>>()));
         services.AddSingleton(sp => new CoreGitHubWorkspaceHost(configuration, paths,
             sp.GetRequiredService<IConnectionBindingService>(), sp.GetService<IGitHubTokenSource>(),
-            sp.GetService<CoreTransportOverride>(), sp.GetService<IBoundedProcessRunner>()));
+            sp.GetService<CoreTransportOverride>(), sp.GetService<IBoundedProcessRunner>(), executionOwner));
         return services;
     }
 

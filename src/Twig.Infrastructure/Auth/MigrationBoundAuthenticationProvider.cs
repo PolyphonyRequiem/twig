@@ -6,7 +6,7 @@ using Twig.Infrastructure.Config;
 namespace Twig.Infrastructure.Auth;
 
 /// <summary>Freezes checkout authority; an old provider refuses changes until explicit reconnect.</summary>
-internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
+internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IFrozenCredentialSource, IDisposable
 {
     private readonly IAuthenticationProvider _inner;
     private readonly ResolvedConnectionBinding _binding;
@@ -226,6 +226,13 @@ internal sealed class MigrationBoundAuthenticationProvider : IAuthenticationProv
         using var lease = await AcquireOperationAsync(ct).ConfigureAwait(false);
         var token = await _inner.GetAccessTokenAsync(ct).ConfigureAwait(false);
         return token;
+    }
+
+    async Task<string> IFrozenCredentialSource.GetFrozenTokenAsync(CancellationToken ct)
+    {
+        using (await AcquireOperationAsync(ct).ConfigureAwait(false)) { }
+        var token = await _inner.GetAccessTokenAsync(ct).ConfigureAwait(false);
+        using (await AcquireOperationAsync(ct).ConfigureAwait(false)) return token;
     }
 
     public async Task<AuthenticationIdentity> GetBoundIdentityAsync(CancellationToken ct = default)

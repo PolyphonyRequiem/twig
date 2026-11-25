@@ -207,7 +207,7 @@ var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.
 var stopping = app.Lifetime.ApplicationStopping;
 await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)
     : new CommandListener(Twig.CommandEndpoint.ExecutionPipe(serverId, processInstance),
-        new OwnerCommandEndpoint(processInstance, data, definitions).ServeAsync, stopping);
+        new OwnerCommandEndpoint(processInstance, data, definitions, app.Services).ServeAsync, stopping);
 await using var legacy = fixture is null ? null : new CommandListener(Twig.CommandEndpoint.PipeName(data, serverId),
     OwnerCommandEndpoint.RefuseLegacyAsync, stopping);
 await app.StartAsync();

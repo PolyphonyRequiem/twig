@@ -43,14 +43,8 @@ internal static class NativeLocalRelationshipEvidence
         var retained = state.Plans.SingleOrDefault(value => value.Digest == plan.Digest);
         var row = state.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
         if (capture.Ready && (retained is null || row is null || state.Version < capture.StoreVersion)
-            || retained is not null && Encoding.UTF8.GetString(Model.PlanBytes(retained)) != capture.IntentJson
-            || !capture.Ready && retained is null && state.Version != plan.ExpectedStoreVersion)
+            || retained is not null && Encoding.UTF8.GetString(Model.PlanBytes(retained)) != capture.IntentJson)
             return Refuse("The original local plan, journal or store-version evidence is unavailable.");
-        if (row is null || row.Status == OpStatus.Planned)
-        {
-            if (capture.Ready && state.Version != capture.StoreVersion)
-                return Refuse("Local store state moved after the original review; no rebase or replacement is permitted.");
-        }
         var edges = state.Relationships.Where(edge => edge.Origin == RelationshipOrigin.Local
             && edge.Kind == op.Relation && CoreWorkspace.LocalTouches(state, edge, from, to)).ToArray();
         if (edges.Length > 1) return Refuse("Parallel logical local edge rows are not admissible.");

@@ -12,7 +12,7 @@ namespace Twig.Infrastructure.GitHub;
 
 internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, TwigPaths paths,
     IConnectionBindingService nativeBindings, IGitHubTokenSource? selectedCredential = null, CoreTransportOverride? transport = null,
-    IBoundedProcessRunner? processes = null)
+    IBoundedProcessRunner? processes = null, bool executionOwner = false)
 {
     internal async Task<Result<bool>> InitializeAsync(string databasePath, CancellationToken ct)
     {
@@ -110,12 +110,12 @@ internal sealed class CoreGitHubWorkspaceHost(TwigConfiguration configuration, T
                 return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "The selected immutable GitHub target generation or credential/actor differs from the initialized Core store.");
             var credentials = selectedCredential ?? Credential(scope!);
             var access = new CleanCoreGitHubAccess(configuration, paths, scope!, targets, origin, credentials,
-                document.Connection, document.PrincipalId, store, nativeBindings.RegistryPath);
+                document.Connection, document.PrincipalId, store, nativeBindings.RegistryPath, executionOwner);
             var benches = UserBenchStore.ForRegistry(nativeBindings.RegistryPath);
             var registered = await NativeCoreExecution.RegisterAsync(nativeBindings.RegistryPath,
                 new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
             if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
-            provider = new(document.Connection, access, store, transport?.CreateHandler());
+            provider = new(document.Connection, access, store, transport?.CreateHandler(), executionOwner ? TimeSpan.FromMinutes(1) : null);
             var workspace = new CoreWorkspace(document.Connection, provider, store,
                 new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot, document.DatabaseInstance,
                 scoped ? null : benches, executionRegistryPath: nativeBindings.RegistryPath);

@@ -11,6 +11,8 @@ public enum ErrorCode
 public sealed record Error(ErrorCode Code, string Message)
 {
     public ImmutableArray<string> Evidence { get; init; } = [];
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool StoreVersionChanged { get; init; }
 }
 
 public sealed class Result<T>

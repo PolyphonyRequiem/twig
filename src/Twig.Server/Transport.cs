@@ -179,7 +179,7 @@ public sealed record LocalRelationshipReadBody(Guid SourceId, Guid BenchId, stri
 public sealed record LocalRelationshipReviewBody(Guid Ticket, bool Adding, EditorInputReference? Inputs = null);
 public sealed record LocalRelationshipReferenceBody(Guid Ticket, Guid CaptureId, string Digest, int Operation, Guid Attempt);
 public sealed record LocalRelationshipEffectDto(string Kind, RelationshipEndpointDto Target, RelationshipEndpointDto Endpoint,
-    string Relation, long? ExpectedLocalVersion, long ExpectedStoreVersion, string SchemaFingerprint);
+    string Relation, long? ExpectedLocalVersion, string SchemaFingerprint);
 public sealed record LocalRelationshipReceiptDto(string Digest, int Operation, Guid Attempt, string Status, string[] Evidence, Failure? Error);
 public sealed record LocalRelationshipOutcomeDto(string Digest, int Operation, Guid Attempt, string Status, bool Settled,
     LocalRelationshipReceiptDto[] Receipts, Failure? Error);

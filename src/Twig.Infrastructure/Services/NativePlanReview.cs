@@ -84,6 +84,7 @@ public sealed class NativePlanReview
                 var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
                 if (!captures.IsSuccess) return Result<NativePlanReview>.Fail(captures.Error);
                 var results = ImmutableArray.CreateBuilder<NativePlanReviewScope>();
+                var reviewRevision = Guid.CreateVersion7();
                 foreach (var scope in scopes)
                 {
                     using var sourceRuntime = await Runtime(scope.OriginRoot, configure, ct).ConfigureAwait(false);
@@ -141,7 +142,9 @@ public sealed class NativePlanReview
                     Plan? combined = null;
                     if (operations.Count != 0)
                     {
-                        var prepared = await handle.Workspace.PrepareAsync(operations, ct, metadata.Value).ConfigureAwait(false);
+                        var binding = new ReviewBinding(reviewRevision, scope.StoreInstance, handle.Source.PrincipalId,
+                            string.Join(';', ordered.Select(capture => $"{capture.Id:D}:{capture.DraftFingerprint}")));
+                        var prepared = await handle.Workspace.PrepareAsync(operations, ct, metadata.Value, binding: binding).ConfigureAwait(false);
                         if (!prepared.IsSuccess) return Result<NativePlanReview>.Fail(prepared.Error);
                         combined = prepared.Value;
                     }
@@ -154,7 +157,7 @@ public sealed class NativePlanReview
                 }
                 if (results.Count == 0)
                     return Result<NativePlanReview>.Fail(ErrorCode.NotFound, "This Plan has no staged intent to review.");
-                var document = new NativePlanReviewDocument(1, Guid.CreateVersion7(), library.Value.InstanceId, library.Value.Revision,
+                var document = new NativePlanReviewDocument(1, reviewRevision, library.Value.InstanceId, library.Value.Revision,
                     benchId, bench.Revision, plan.Value.Id, plan.Value.Revision, results.ToImmutable());
                 return Result<NativePlanReview>.Ok(new(root, user,
                     new(UserBenchStore.PlanReviewDigest(document), document, false, 0, 0), configure)

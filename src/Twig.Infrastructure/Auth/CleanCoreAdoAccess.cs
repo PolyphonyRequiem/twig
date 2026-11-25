@@ -17,7 +17,7 @@ namespace Twig.Infrastructure.Auth;
 /// <summary>Retains native binding/generation admission across one clean-core provider operation.</summary>
 internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication, IConnectionBindingService bindings,
     TwigConfiguration configuration, TwigPaths paths, ResolvedConnectionBinding origin, Connection connection,
-    string principal, IStore store) : AdoAccess, IOriginalResponseSource
+    string principal, IStore store, bool executionOwner = false) : AdoAccess, IOriginalResponseSource
 {
     private readonly IAuthenticationProvider _authentication = authentication;
     private readonly ResolvedConnectionBinding _origin = origin;
@@ -26,12 +26,13 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     private readonly IStore _store = store;
     private readonly IConnectionBindingService _bindings = bindings;
     private readonly TwigPaths _paths = paths;
+    private readonly bool _executionOwner = executionOwner;
     private readonly Guid _storeInstance = (store as SqliteStore)?.InstanceId ?? Guid.Empty;
 
     public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
     {
         if (plan.Connection != _connection || _storeInstance == Guid.Empty || attempt == Guid.Empty
-            || plan.Operations is not [{ Kind: OpKind.Batch } op])
+            || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment } op])
             return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original ADO update binding differs.");
         using var registry = new SqliteSystemWorktreeRegistry(_bindings.RegistryPath, TimeProvider.System);
         var read = await registry.ReadConnectionRemoteWritesAsync(_origin.Operation.WorktreeFingerprint, ct: ct);
@@ -89,7 +90,16 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
                 || !ConnectionRemoteWriteAdmission.SameAuthority(observed, _origin))
                 return Refuse("The native binding/generation lease does not belong to this runtime.");
             if (!fresh) await RevalidateAsync(ct).ConfigureAwait(false);
-            var token = await _authentication.GetAccessTokenAsync(ct).ConfigureAwait(false);
+            string token;
+            if (_executionOwner)
+            {
+                lease.Dispose();
+                lease = null;
+                if (_authentication is not IFrozenCredentialSource frozen) return Refuse("Missing immutable credential source.");
+                token = await frozen.GetFrozenTokenAsync(ct).ConfigureAwait(false);
+                await RevalidateAsync(ct).ConfigureAwait(false);
+            }
+            else token = await _authentication.GetAccessTokenAsync(ct).ConfigureAwait(false);
             var authorization = token.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase)
                 || token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
                 ? AuthenticationHeaderValue.Parse(token) : new AuthenticationHeaderValue("Bearer", token);
@@ -128,7 +138,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
             throw new InvalidOperationException("clean-core-binding-changed: the original native checkout authority is no longer selected.");
     }
 
-    private sealed class Session(CleanCoreAdoAccess access, IDisposable lease, string token,
+    private sealed class Session(CleanCoreAdoAccess access, IDisposable? lease, string token,
         AuthenticationHeaderValue authorization) : AdoSession
     {
         private int _disposed;
@@ -180,7 +190,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
                 op.ExpectedRevision?.Token, access._storeInstance);
             var targets = await NativeCoreExecution.AdmitAsync(access._bindings.RegistryPath,
                 new(access._storeInstance, ((SqliteStore)access._store).DatabasePath, access._paths.RepoRoot, Connection),
-                plan, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+                plan, intent.Operation, intent.Attempt, ct, ownerClaims: access._executionOwner).ConfigureAwait(false);
             if (!targets.IsSuccess) return Result<AdoWriteAdmission>.Fail(targets.Error);
             try
             {
@@ -193,7 +203,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
 
         public override void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0) lease.Dispose();
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) lease?.Dispose();
         }
     }
 

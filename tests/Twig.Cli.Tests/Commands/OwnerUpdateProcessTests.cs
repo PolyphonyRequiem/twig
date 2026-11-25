@@ -28,7 +28,26 @@ public sealed class OwnerUpdateProcessTests
     }
 
     [QualificationFact, SupportedOSPlatform("windows")]
-    public async Task MatchedCliFreezesInputAndFindsOnlyTheOriginalSubmissionAfterRestart()
+    public Task MatchedCliFreezesInputAndFindsOnlyTheOriginalSubmissionAfterRestart() => RunOwnerScenario(false);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task DisjointProviderAndLocalEditsSettleWhileOriginalAuthorityTransactionIsParked() => RunOwnerScenario(true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task DisjointAdoPatchAndLocalEditSettleBeforeParkedResponse() => RunOwnerScenario(true, remote: "ado");
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task DisjointGitHubMutationAndLocalEditSettleBeforeParkedResponse() => RunOwnerScenario(true, remote: "github");
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task LaterLocalEditAfterDurableAcknowledgementSurvivesRestartAndConflictsWithOriginalDelivery()
+        => RunOwnerScenario(false, deliveryConflict: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task ThreeReceiptCasLossesYieldOriginalPendingThenRestartOnlyDelivers() => RunOwnerScenario(false, casLosses: true);
+
+    [SupportedOSPlatform("windows")]
+    private static async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -42,23 +61,36 @@ public sealed class OwnerUpdateProcessTests
             InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
         new DirectoryInfo(root).Create(security);
         Process? owner = null;
+        GitHubCoreSpineTests.Fixture? github = null;
         try
         {
             Directory.CreateDirectory(work);
-            InitCommandTestFixture.InitTempWorktree(work).ShouldBeTrue();
-            var setup = await new NativeConnectionSetup(home).InitializeFreshAsync(new(work, new NativeTwigSetupTarget("qualification")));
-            setup.IsSuccess.ShouldBeTrue(setup.IsSuccess ? "" : setup.Error.Message);
             using var bindings = new ConnectionBindingService(home);
-            var inventory = (await NativeCoreExecution.InventoryAsync(bindings.RegistryPath)).Value;
-            (await NativeCoreExecution.ActivateAsync(bindings.RegistryPath, inventory, inventory.Digest, true, true)).IsSuccess.ShouldBeTrue();
             var config = new TwigConfiguration { Provider = "twig", NativeDatabase = "qualification" };
             var factory = new CoreWorkspaceFactory(config, TwigPaths.BuildPaths(Path.Combine(work, ".twig"), config, work),
                 bindings, Substitute.For<IAuthenticationProvider>());
-            using var handle = (await factory.OpenAsync(default)).Value;
-            var seed = (await handle.Workspace.StageSeedAsync(NativeProvider.ItemType, FieldValues.Empty
-                .Set(NativeProvider.Title, FieldValue.String("original")).Set(NativeProvider.StateField, FieldValue.String("Open")), default)).Value;
-            var preview = (await handle.Workspace.PreviewDraftAsync(seed.Key, default)).Value;
-            (await handle.Workspace.SaveDraftAsync(preview, default)).Value.EffectsVerified.ShouldBeTrue();
+            if (remote == "ado") await new NativePublicationConsumerTests().InitializeOwnerWorkspace(home, work);
+            else if (remote == "github")
+            {
+                github = new GitHubCoreSpineTests.Fixture(home, root: work);
+                await github.Initialize(explicitStore: false);
+            }
+            else
+            {
+                InitCommandTestFixture.InitTempWorktree(work).ShouldBeTrue();
+                var setup = await new NativeConnectionSetup(home).InitializeFreshAsync(new(work, new NativeTwigSetupTarget("qualification")));
+                setup.IsSuccess.ShouldBeTrue(setup.IsSuccess ? "" : setup.Error.Message);
+                var inventory = (await NativeCoreExecution.InventoryAsync(bindings.RegistryPath)).Value;
+                (await NativeCoreExecution.ActivateAsync(bindings.RegistryPath, inventory, inventory.Digest, true, true)).IsSuccess.ShouldBeTrue();
+            }
+            using var handle = remote is null ? (await factory.OpenAsync(default)).Value : null;
+            for (int i = 0; remote is null && i < (concurrent ? 3 : 1); i++)
+            {
+                var seed = (await handle!.Workspace.StageSeedAsync(NativeProvider.ItemType, FieldValues.Empty
+                    .Set(NativeProvider.Title, FieldValue.String("original")).Set(NativeProvider.StateField, FieldValue.String("Open")), default)).Value;
+                var preview = (await handle.Workspace.PreviewDraftAsync(seed.Key, default)).Value;
+                (await handle.Workspace.SaveDraftAsync(preview, default)).Value.EffectsVerified.ShouldBeTrue();
+            }
             var cli = Path.Combine(AppContext.BaseDirectory, "twig.exe");
             var server = Path.Combine(AppContext.BaseDirectory, "Twig.Server.exe");
             var certificate = Environment.GetEnvironmentVariable("TWIG_TEST_OWNER_CERT")!;
@@ -69,12 +101,76 @@ public sealed class OwnerUpdateProcessTests
             await File.WriteAllLinesAsync(Path.Combine(root, "owner.fixture"), [port, certificate, server]);
             await File.WriteAllTextAsync(Path.Combine(root, "current.json"),
                 $$"""{"privateDataDir":{{JsonSerializer.Serialize(home)}}}""");
-            await StartOwner();
             var review = Guid.NewGuid().ToString("D");
+            await StartOwner();
+            if (concurrent)
+            {
+                var (aId, bId, cId) = remote is null ? ("1", "2", "3") : ("42", "43", "44");
+                var title = remote switch { "ado" => "System.Title", "github" => Twig.Providers.GitHub.GitHubProvider.Title, _ => NativeProvider.Title };
+                var a = Cli(null, "update", title, "A", "--id", aId, "--review", review);
+                var waiting = Stopwatch.StartNew();
+                while (true)
+                {
+                    if (remote is null ? (await Cli(null, "update", "--find", "--id", aId)).Output.Contains("\"Running\"", StringComparison.Ordinal)
+                        : File.Exists(Path.Combine(root, "provider-a"))) break;
+                    if (a.IsCompleted) throw new InvalidOperationException("Original never parked: " + (await a));
+                    if (waiting.Elapsed > TimeSpan.FromSeconds(12)) throw new TimeoutException("Original never entered dispatch.");
+                    await Task.Delay(50);
+                }
+                var b = await Cli(null, "update", title, "B", "--id", bId, "--review", Guid.NewGuid().ToString());
+                b.Code.ShouldBe(0, b.Error + b.Output);
+                if (remote is not null) File.Exists(Path.Combine(root, "provider-b")).ShouldBeTrue();
+                var c = await Cli(null, "update", title, "C", "--id", cId, "--local");
+                c.Code.ShouldBe(0, c.Error + c.Output);
+                if (remote is not null)
+                {
+                    var note = await Cli(null, "note", "--id", bId, "--text", "disjoint note", "--review", Guid.NewGuid().ToString());
+                    note.Code.ShouldBe(0, note.Output + note.Error);
+                    Match(note.Output).GetProperty("state").GetString().ShouldBe("Complete");
+                }
+                a.IsCompleted.ShouldBeFalse();
+                var aResult = await a;
+                aResult.Code.ShouldBe(0, aResult.Error + aResult.Output);
+                waiting.Elapsed.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromSeconds(30));
+                await Restart();
+                var document = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName)),
+                    CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+                var store = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(document.DatabasePath)).Value;
+                var stored = (await store.ReadAsync(document.Connection, default)).Value;
+                stored.Items.Single(item => item.Key.NativeId == (remote == "github" ? "I_opaque" : aId)).Fields[title].Text.ShouldBe("A");
+                stored.Items.Single(item => item.Key.NativeId == (remote == "github" ? "I_43" : bId)).Fields[title].Text.ShouldBe("B");
+                stored.RetainedItems.Single(item => item.Key.NativeId == (remote == "github" ? "I_44" : cId)).Fields[title].Text.ShouldBe("C");
+                return;
+            }
+            if (deliveryConflict)
+                (await Cli(null, "update", NativeProvider.Title, "later intent", "--id", "1", "--local")).Code.ShouldBe(0);
             var prepared = await Cli("frozen from stdin", "update", NativeProvider.Title, "--stdin", "--id", "1", "--review", review, "--prepare");
             prepared.Code.ShouldBe(1, prepared.Error);
             var saved = Match(prepared.Output);
             saved.GetProperty("state").GetString().ShouldBe("Queued");
+            if (casLosses)
+            {
+                var pending = await Cli(null, "update", "--submit", review, "--id", "1");
+                pending.Code.ShouldBe(1, pending.Output + pending.Error);
+                var row = Match(pending.Output);
+                row.GetProperty("state").GetString().ShouldBe("Pending");
+                row.GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                var before = (await handle!.Workspace.SnapshotAsync(default)).Value;
+                before.RetainedItems.Length.ShouldBe(3);
+                var original = before.Journal.Single(j => j.Status == OpStatus.Applying);
+                var remoteItem = (await handle.Workspace.ObserveItemsAsync([before.Items.Single().Key], default)).Value.Items.Single();
+                remoteItem.Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
+                casLosses = false;
+                await Restart();
+                var resumed = await Cli(null, "update", "--observe", review, "--id", "1");
+                resumed.Code.ShouldBe(0, resumed.Error + resumed.Output);
+                Match(resumed.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                var after = (await handle.Workspace.SnapshotAsync(default)).Value;
+                after.Journal.Single(j => j.Attempt == original.Attempt).Status.ShouldBe(OpStatus.Verified);
+                after.Items.Single().Revision.ShouldBe(remoteItem.Revision);
+                after.RetainedItems.Length.ShouldBe(3);
+                return;
+            }
             // Reject only the local transaction that would append a new authority acknowledgement.
             await MirrorSql("""
                 CREATE TRIGGER reject_update_receipt BEFORE UPDATE ON core_snapshots
@@ -83,6 +179,28 @@ public sealed class OwnerUpdateProcessTests
                     -length(CAST(OLD.document AS TEXT))
                 BEGIN SELECT RAISE(ABORT,'fixture acknowledgement conflict'); END;
                 """);
+            if (deliveryConflict)
+            {
+                var interrupted = await Cli(null, "update", "--submit", review, "--id", "1");
+                interrupted.Code.ShouldBe(1, interrupted.Error);
+                var originalRevision = (await handle!.Workspace.ObserveItemsAsync([ItemKey.Remote(handle.Workspace.Connection.Provider,
+                    handle.Workspace.Connection.ResourceScope, "1")], default)).Value.Items.Single();
+                originalRevision.Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
+                (await Cli(null, "update", NativeProvider.Title, "later intent", "--id", "1", "--local")).Code.ShouldBe(0);
+                await Restart();
+                await MirrorSql("DROP TRIGGER reject_update_receipt;");
+                var conflict = await Cli(null, "update", "--observe", review, "--id", "1");
+                Match(conflict.Output).GetProperty("state").GetString().ShouldBe("DeliveryConflict", conflict.Error);
+                await Restart();
+                var again = await Cli(null, "update", "--submit", review, "--id", "1");
+                Match(again.Output).GetProperty("state").GetString().ShouldBe("DeliveryConflict");
+                Match(again.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                var state = (await handle.Workspace.SnapshotAsync(default)).Value;
+                state.Items.Single().Revision.ShouldBe(originalRevision.Revision);
+                state.Journal.Count(row => row.Status == OpStatus.Verified).ShouldBe(2);
+                state.RetainedItems.Single().Fields[NativeProvider.Title].Text.ShouldBe("later intent");
+                return;
+            }
             // Lose the submitter's final reply immediately after the owner proves its binding.
             var run = await File.ReadAllLinesAsync(Path.Combine(home, "owner.run"));
             using (var pipe = new System.IO.Pipes.NamedPipeClientStream(".", CommandEndpoint.ExecutionPipe(Guid.Parse(id), Guid.Parse(run[0])),
@@ -116,7 +234,7 @@ public sealed class OwnerUpdateProcessTests
             var settled = await Cli(null, "update", "--observe", review, "--id", "1");
             settled.Code.ShouldBe(0, settled.Error);
             Match(settled.Output).GetProperty("state").GetString().ShouldBe("Complete");
-            var snapshot = (await handle.Workspace.SnapshotAsync(default)).Value;
+            var snapshot = (await handle!.Workspace.SnapshotAsync(default)).Value;
             snapshot.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
             snapshot.Journal.Count(j => j.Status == OpStatus.Verified).ShouldBe(2); // Seed plus the single update.
             var cancelled = Guid.NewGuid().ToString("D");
@@ -169,7 +287,7 @@ public sealed class OwnerUpdateProcessTests
                     var error = process.StandardError.ReadToEndAsync();
                     if (stdin is not null) await process.StandardInput.WriteAsync(stdin);
                     process.StandardInput.Close();
-                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(30));
+                    await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(50));
                     return (process.ExitCode, await output, await error);
                 }
                 finally { if (!process.HasExited) process.Kill(true); }
@@ -182,6 +300,13 @@ public sealed class OwnerUpdateProcessTests
                 start.Environment["TWIG_USER_HOME"] = home;
                 start.Environment["TWIG_SERVER_INSTALL_ROOT"] = root;
                 start.Environment["TWIG_OWNER_FIXTURE_ID"] = id;
+                if (concurrent && exe == server && remote is null) start.Environment["TWIG_TEST_PARK_ORIGINAL_REVIEW"] = review;
+                if ((remote is not null || casLosses) && exe == server)
+                {
+                    start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(OwnerUpdateProcessTests).Assembly.Location;
+                    start.Environment["DOTNET_ADDITIONAL_DEPS"] = Path.ChangeExtension(typeof(OwnerUpdateProcessTests).Assembly.Location, ".deps.json");
+                    start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? "cas";
+                }
                 return Process.Start(start)!;
             }
         }
@@ -194,6 +319,7 @@ public sealed class OwnerUpdateProcessTests
                 owner.Dispose();
             }
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+            github?.Dispose();
             Directory.Delete(root, true);
         }
     }

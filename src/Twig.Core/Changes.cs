@@ -50,17 +50,29 @@ public sealed record Op
     public FieldValues CreateEvidence { get; init; }
 }
 
+public sealed record GraphDependency(ItemKey Endpoint, string Fingerprint);
+public sealed record ReviewBinding(Guid Revision, Guid Store, string Actor, string Capture)
+{
+    public ImmutableArray<GraphDependency> Graph { get; init; } = [];
+}
+
 public sealed record Plan
 {
-    public const int FormatVersion = 3;
+    public const int FormatVersion = 4;
 
     public Plan(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations,
-        string? policyIdentity = null, string? policyRevision = null)
+        string? policyIdentity = null, string? policyRevision = null, ReviewBinding? review = null)
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         SchemaFingerprint = Contract.Text(schemaFingerprint, nameof(schemaFingerprint));
         if (expectedStoreVersion < 0) throw new ArgumentOutOfRangeException(nameof(expectedStoreVersion));
-        ExpectedStoreVersion = expectedStoreVersion;
+        if (review is not null && (review.Revision == Guid.Empty || review.Store == Guid.Empty
+            || string.IsNullOrWhiteSpace(review.Actor) || string.IsNullOrWhiteSpace(review.Capture)))
+            throw new ArgumentException("Incomplete original review binding.", nameof(review));
+        if (review is not null && (review.Graph.IsDefault || review.Graph.Any(d => d is null || d.Endpoint is null || string.IsNullOrWhiteSpace(d.Fingerprint))
+            || review.Graph.Select(d => d.Endpoint).Distinct().Count() != review.Graph.Length))
+            throw new ArgumentException("Invalid graph dependency set.", nameof(review));
+        Review = review;
         Operations = Contract.Unique(operations, o => o.Id);
         if (Operations.IsEmpty) throw new ArgumentException("A plan must declare an effect.", nameof(operations));
         if ((policyIdentity is null) != (policyRevision is null))
@@ -71,7 +83,7 @@ public sealed record Plan
 
     public Connection Connection { get; }
     public string SchemaFingerprint { get; }
-    public long ExpectedStoreVersion { get; }
+    public ReviewBinding? Review { get; }
     public ImmutableArray<Op> Operations { get; }
     public string? PolicyIdentity { get; }
     public string? PolicyRevision { get; }

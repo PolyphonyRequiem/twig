@@ -21,7 +21,8 @@ internal sealed record CoreGitHubNativeAcknowledgement(string RequestHash, int S
 /// <summary>Holds the selected native target generation and records attributed transport intent before dispatch.</summary>
 internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, TwigPaths paths,
     GitHubWorkspaceScope scope, GitHubBoundTargetResolver targets, GitHubBoundReadContext origin,
-    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath) : GitHubAccess, IOriginalResponseSource
+    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath,
+    bool executionOwner = false) : GitHubAccess, IOriginalResponseSource
 {
     private readonly TwigConfiguration _configuration = configuration;
     private readonly TwigPaths _paths = paths;
@@ -30,10 +31,11 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
     private readonly string _actor = actor;
     private readonly SqliteStore _store = store;
     private readonly string _registryPath = registryPath;
+    private readonly bool _executionOwner = executionOwner;
 
     public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
     {
-        if (plan.Connection != _connection || attempt == Guid.Empty || plan.Operations is not [{ Kind: OpKind.Batch }])
+        if (plan.Connection != _connection || attempt == Guid.Empty || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment }])
             return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original GitHub update binding differs.");
         var projection = GitHubWriteIntent.Project(plan, 0, attempt);
         if (!projection.IsSuccess) return Result<OriginalResponse>.Fail(projection.Error);
@@ -87,8 +89,9 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         FileStream? generation = null;
         try
         {
-            generation = new FileStream(Path.Combine(_paths.TwigDir, ProviderTargetAttachmentDocument.LockFileName),
-                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            if (!_executionOwner)
+                generation = new FileStream(Path.Combine(_paths.TwigDir, ProviderTargetAttachmentDocument.LockFileName),
+                    FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             await ValidateAsync(ct).ConfigureAwait(false);
             var token = await credentials.GetTokenAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(token))
@@ -121,7 +124,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         if (!pinned.IsSuccess) throw new InvalidOperationException(pinned.Error.Message);
     }
 
-    private sealed class Session(CleanCoreGitHubAccess access, FileStream generation, string token,
+    private sealed class Session(CleanCoreGitHubAccess access, FileStream? generation, string token,
         HashSet<Guid> previousAttempts) : GitHubSession
     {
         private int _disposed;
@@ -189,7 +192,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
             var directory = Path.Combine(access._paths.TwigDir, "core-github-intents");
             var targets = await NativeCoreExecution.AdmitAsync(access._registryPath,
                 new(access._store.InstanceId, access._store.DatabasePath, access._paths.RepoRoot, Connection),
-                intent.Plan, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+                intent.Plan, intent.Operation, intent.Attempt, ct, ownerClaims: access._executionOwner).ConfigureAwait(false);
             if (!targets.IsSuccess) return Result<GitHubWriteAdmission>.Fail(targets.Error);
             try
             {
@@ -208,7 +211,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         }
         public override void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0) generation.Dispose();
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) generation?.Dispose();
         }
     }
 

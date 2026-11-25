@@ -37,7 +37,19 @@ public static partial class Core
         w.WriteNumber("version", Plan.FormatVersion);
         WriteConnection(w, plan.Connection);
         w.WriteString("schema", plan.SchemaFingerprint);
-        w.WriteNumber("storeVersion", plan.ExpectedStoreVersion);
+        w.WritePropertyName("review");
+        if (plan.Review is not { } review) w.WriteNullValue();
+        else
+        {
+            w.WriteStartObject(); w.WriteString("revision", review.Revision); w.WriteString("store", review.Store);
+            w.WriteString("actor", review.Actor); w.WriteString("capture", review.Capture);
+            w.WriteStartArray("graph");
+            foreach (var dependency in review.Graph.OrderBy(d => KeyText(d.Endpoint), StringComparer.Ordinal))
+            {
+                w.WriteStartArray(); WriteKey(w, dependency.Endpoint); w.WriteStringValue(dependency.Fingerprint); w.WriteEndArray();
+            }
+            w.WriteEndArray(); w.WriteEndObject();
+        }
         w.WriteString("policyIdentity", plan.PolicyIdentity);
         w.WriteString("policyRevision", plan.PolicyRevision);
         w.WriteStartArray("operations");

@@ -6,9 +6,10 @@ using Twig.Rendering;
 
 namespace Twig.Server;
 
-internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStore benches)
+internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStore benches,
+    IServiceProvider? hostServices = null)
 {
-    private readonly OwnerUpdateCommand updates = new(boot, home, benches);
+    private readonly OwnerUpdateCommand updates = new(boot, home, benches, hostServices);
     internal static async Task RefuseLegacyAsync(Stream client, CancellationToken token)
     {
         // The pinned client finishes its invocation write before reading. Drain it in fixed
@@ -55,7 +56,7 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
         var command = new UserBenchCommand(benches, new RendererFactory());
         var result = request.Arguments switch
         {
-            ["update", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
+            ["update" or "note", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
             {
                 await CommandProtocol.WriteAsync(client, FrameKind.ReadBody, "", token);
                 var input = await CommandProtocol.ReadAsync(client, token);

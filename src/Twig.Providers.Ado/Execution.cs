@@ -26,7 +26,10 @@ public sealed partial class AdoProvider
             var next = Copy(acquired, stored.Version + 1,
                 plans: stored.Plans.Add(plan),
                 journal: stored.Journal.AddRange(plan.Operations.Select((_, ordinal) => JournalEntry.Planned(plan.Digest, ordinal))));
-            var result = await _store.CommitAsync(_connection, stored.Version, next, token);
+            var result = LocalCommit.ReviewedScalar(plan)
+                ? await LocalCommit.AdmitScalarAsync(_store, plan, stored, acquired, null,
+                    s => { RefuseChangedActor(s, bound); RefuseUnresolvedTargets(plan, s); }, token)
+                : await _store.CommitAsync(_connection, stored.Version, next, token);
             if (!result.IsSuccess) throw new AdoFailure(result.Error);
             return result.Value;
         }, ct));
@@ -57,7 +60,10 @@ public sealed partial class AdoProvider
             var began = row.Begin(attempt);
             if (!began.IsSuccess) throw new AdoFailure(began.Error);
             var begun = Copy(acquired, stored.Version + 1, journal: Replace(stored.Journal, began.Value));
-            var committed = await _store.CommitAsync(_connection, stored.Version, begun, token);
+            var committed = LocalCommit.ReviewedScalar(plan)
+                ? await LocalCommit.AdmitScalarAsync(_store, plan, stored, acquired, attempt,
+                    s => { RefuseChangedActor(s, bound); RefuseUnresolvedTargets(plan, s); }, token)
+                : await _store.CommitAsync(_connection, stored.Version, begun, token);
             if (!committed.IsSuccess) throw new AdoFailure(committed.Error);
 
             var evidence = new List<string>
@@ -233,7 +239,7 @@ public sealed partial class AdoProvider
     private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string project, int status, byte[] bytes)
     {
         var op = plan.Operations[ordinal];
-        if (op.Kind != OpKind.Batch || op.Item.IsLocal) throw Wire.Invalid("An original update is required.");
+        if (op.Kind is not (OpKind.Batch or OpKind.Comment) || op.Item.IsLocal) throw Wire.Invalid("An original update or comment is required.");
         string[] evidence = [$"actor:{actor}", $"attempt:{attempt:D}", $"http:{status}"];
         if (status is 400 or 401 or 403 or 404 or 405 or 409 or 412 or 415 or 422 or 429)
             return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence, error: HttpFailure((System.Net.HttpStatusCode)status).Error);
@@ -544,23 +550,14 @@ public sealed partial class AdoProvider
 
     private async Task<Receipt> PersistReceipt(Plan plan, Receipt receipt, QueryPage? observations)
     {
-        var current = await _store.ReadAsync(_connection, CancellationToken.None);
-        if (!current.IsSuccess) return Undurable(current.Error);
-        var stored = current.Value;
-        var row = stored.Journal.Single(j => j.Digest == receipt.Digest && j.Operation == receipt.Operation);
-        var recorded = row.Record(receipt);
-        if (!recorded.IsSuccess) return Undurable(recorded.Error);
-        var mappings = stored.Mappings;
-        if (plan.Operations[receipt.Operation].Kind == OpKind.Create && receipt.Status == OpStatus.Applied)
-            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, receipt.PublishedKey!, plan.Digest, receipt.Operation));
-        if (observations is not null) stored = Mirror(stored, observations);
-        var next = Copy(stored, stored.Version + 1, journal: Replace(stored.Journal, recorded.Value), mappings: mappings);
-        var result = await _store.CommitAsync(_connection, stored.Version, next, CancellationToken.None);
+        var result = await LocalCommit.ReceiptAsync(_store, plan, receipt,
+            stored => observations is null ? stored : Mirror(stored, observations));
         return result.IsSuccess ? receipt : Undurable(result.Error);
 
         Receipt Undurable(Error error) => new(receipt.Digest, receipt.Operation, receipt.Attempt, OpStatus.Indeterminate,
             receipt.Evidence.Add($"Receipt durability failed: {error.Code}: {error.Message}; original durable fence remains."),
-            receipt.Revision, receipt.PublishedKey, new(ErrorCode.StorageUnavailable, "Outcome could not be committed; no replay is authorized."));
+            receipt.Revision, receipt.PublishedKey, error.StoreVersionChanged ? error
+                : new(ErrorCode.StorageUnavailable, "Outcome could not be committed; no replay is authorized."));
     }
 
     private static ImmutableArray<JournalEntry> Replace(ImmutableArray<JournalEntry> journal, JournalEntry row)

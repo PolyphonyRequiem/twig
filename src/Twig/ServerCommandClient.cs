@@ -58,7 +58,7 @@ internal static class ServerCommandClient
                 string? answer;
                 switch (kind)
                 {
-                    case FrameKind.Bound when run.HasValue && recovery is null && args is ["update", ..]:
+                    case FrameKind.Bound when run.HasValue && recovery is null && args is ["update" or "note", ..]:
                         var binding = JsonSerializer.Deserialize(text, UpdateReplyJson.Default.UpdateReply);
                         if (binding?.Matches is not [{ } identity] || identity.Submission == Guid.Empty || identity.Action == Guid.Empty
                             || identity.Review == Guid.Empty) throw new InvalidDataException("Invalid original update binding.");

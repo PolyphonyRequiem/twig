@@ -188,6 +188,13 @@ public sealed partial class GitHubCoreSpineTests
         else fixture.Defect = damage == "denied" ? "schema-denied" : damage;
         var invalidated = await fixture.SnapshotAsync();
         var result = await editor.ApplyLocalRelationshipAsync(review.CaptureId, review.Plan.Digest);
+        if (damage == "store")
+        {
+            result.Value.Journal!.Status.ShouldBe(OpStatus.Verified);
+            result.Value.Journal.Digest.ShouldBe(review.Plan.Digest);
+            fixture.Writes.ShouldBe(0);
+            return;
+        }
         (result.IsSuccess && result.Value.Journal?.Status == OpStatus.Verified).ShouldBeFalse();
         AssertSameLocalState(invalidated, await fixture.SnapshotAsync());
         (await user.ReadEditorCapturesAsync(default)).Value.Single().SameAs(capture).ShouldBeTrue();

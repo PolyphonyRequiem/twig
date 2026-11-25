@@ -62,7 +62,7 @@ internal sealed class CoreNativeWorkspaceHost(TwigPaths paths, IConnectionBindin
     }
 
     internal async Task<Result<CoreWorkspaceHandle>> OpenAsync(CoreWorkspaceDocument document, SqliteStore store,
-        CancellationToken ct, bool scoped = false)
+        CancellationToken ct, bool scoped = false, Func<IStore,IStore>? mirror = null)
     {
         var location = ValidateLocation();
         if (!location.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(location.Error);
@@ -73,7 +73,7 @@ internal sealed class CoreNativeWorkspaceHost(TwigPaths paths, IConnectionBindin
         var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
             new(document.DatabaseInstance, document.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
         if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);
-        var provider = new NativeProvider(source.Value, store);
+        var provider = new NativeProvider(source.Value, mirror?.Invoke(store) ?? store);
         var workspace = new CoreWorkspace(document.Connection, provider, store,
             new ConfiguredPolicyProjectionSource(paths.RepoRoot), document.PrincipalId, paths.RepoRoot,
             document.DatabaseInstance, scoped ? null : UserBenchStore.ForRegistry(bindings.RegistryPath),

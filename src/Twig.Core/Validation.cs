@@ -10,8 +10,6 @@ public static partial class Core
         var errors = ImmutableArray.CreateBuilder<Error>();
         if (plan.Connection != schema.Connection || plan.SchemaFingerprint != schema.Fingerprint)
             errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new plan."));
-        if (plan.ExpectedStoreVersion != store.Version)
-            errors.Add(new(ErrorCode.Conflict, "Local state changed after this plan was constructed."));
         errors.AddRange(PlanSchemaErrors(plan, schema, store));
         foreach (var op in plan.Operations)
             ValidateOperation(op, plan, schema, store, capabilities, errors);
@@ -648,15 +646,12 @@ public static partial class Core
             .Where(x => x.Plan.Operations.ElementAtOrDefault(x.Row.Operation)?.Kind == OpKind.Create);
         foreach (var group in attemptedCreates.GroupBy(x => x.Plan.Operations[x.Row.Operation].Item))
         {
-            var ordered = group.OrderBy(x => x.Plan.ExpectedStoreVersion).ToArray();
-            for (var i = 1; i < ordered.Length; i++)
+            foreach (var later in group.Where(x => !before.Journal.Any(row => row.Digest == x.Row.Digest
+                && row.Operation == x.Row.Operation && row.Status != OpStatus.Planned)))
             {
-                var prior = ordered[i - 1];
-                var later = ordered[i];
-                if (prior.Plan.Connection != later.Plan.Connection
-                    || prior.Plan.ExpectedStoreVersion == later.Plan.ExpectedStoreVersion
+                if (group.Any(prior => prior.Row != later.Row && (prior.Plan.Connection != later.Plan.Connection
                     || !before.Journal.Any(row => row.Digest == prior.Row.Digest
-                        && row.Operation == prior.Row.Operation && row.DefinitivelyHadNoEffect))
+                        && row.Operation == prior.Row.Operation && row.DefinitivelyHadNoEffect))))
                     errors.Add(new(ErrorCode.Conflict, "A durable creation UUID cannot begin another attempt under a replacement digest without a prior definitive rejection."));
             }
         }

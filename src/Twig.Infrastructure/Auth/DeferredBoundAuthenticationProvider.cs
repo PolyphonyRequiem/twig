@@ -21,7 +21,7 @@ namespace Twig.Infrastructure.Auth;
 /// failure, never a silent swap).
 /// </para>
 /// </summary>
-internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IDisposable
+internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvider, IBoundAuthenticationMetadata, IConnectionOperationGuard, IConnectionRemoteWriteGuard, IFrozenCredentialSource, IDisposable
 {
     private readonly Func<CancellationToken, Task<IAuthenticationProvider>> _factory;
     private readonly bool _initializationMetadataOnly;
@@ -51,6 +51,13 @@ internal sealed class DeferredBoundAuthenticationProvider : IAuthenticationProvi
         if (provider is not IBoundAuthenticationMetadata metadata)
             throw new InvalidOperationException("Admitted authentication provider has no frozen principal evidence; repair the selected binding.");
         return await metadata.GetBoundIdentityAsync(ct).ConfigureAwait(false);
+    }
+
+    async Task<string> IFrozenCredentialSource.GetFrozenTokenAsync(CancellationToken ct)
+    {
+        if (_initializationMetadataOnly || await GetProviderAsync(ct).ConfigureAwait(false) is not IFrozenCredentialSource frozen)
+            throw new InvalidOperationException("The execution owner needs an immutable verified credential source.");
+        return await frozen.GetFrozenTokenAsync(ct).ConfigureAwait(false);
     }
 
     public Task<IDisposable> AcquireOperationAsync(CancellationToken ct = default)

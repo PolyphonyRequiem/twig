@@ -41,7 +41,7 @@ public sealed class CoreCreationLinkFileTests
         var original = Plan(true);
         Encoding.UTF8.GetString(Rules.PlanBytes(original)).ShouldNotContain("createEvidence");
         var evidence = FieldValues.Empty.Set("System.AreaId", FieldValue.Integer(17));
-        var reviewed = new Plan(original.Connection, original.SchemaFingerprint, original.ExpectedStoreVersion,
+        var reviewed = new Plan(original.Connection, original.SchemaFingerprint, 0,
             [original.Operations.Single() with { CreateEvidence = evidence }]);
         using var json = JsonDocument.Parse(Rules.PlanBytes(reviewed));
         var parsed = CorePlanFiles.Parse(json.RootElement);

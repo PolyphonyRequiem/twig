@@ -21,7 +21,7 @@ public sealed partial class AdoProvider : IProvider, IOriginalUpdateProvider, ID
         [OpKind.Create, OpKind.Batch, OpKind.Relate, OpKind.Unrelate, OpKind.Comment], [], [], true, true)
         { CreateFieldEvidence = true };
 
-    public AdoProvider(Connection connection, AdoAccess access, IStore store, HttpMessageHandler? transport = null)
+    public AdoProvider(Connection connection, AdoAccess access, IStore store, HttpMessageHandler? transport = null, TimeSpan? timeout = null)
     {
         if (connection.Provider.Value != "ado") throw new ArgumentException("ADO connection required.", nameof(connection));
         if (Wire.GuidText(connection.ResourceScope) != connection.ResourceScope
@@ -29,7 +29,7 @@ public sealed partial class AdoProvider : IProvider, IOriginalUpdateProvider, ID
             throw new ArgumentException("ADO scope and destination must be canonical collection/project GUIDs.", nameof(connection));
         (_connection, _access, _store) = (connection, access, store);
         _http = new HttpClient(transport ?? new SocketsHttpHandler { AllowAutoRedirect = false })
-        { Timeout = TimeSpan.FromSeconds(20) };
+        { Timeout = timeout ?? TimeSpan.FromSeconds(20) };
     }
 
     public ProviderCapabilities Capabilities => _capabilities;

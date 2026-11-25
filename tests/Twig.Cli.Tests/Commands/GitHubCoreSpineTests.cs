@@ -393,7 +393,7 @@ public sealed partial class GitHubCoreSpineTests
 
     internal sealed class Fixture : IDisposable
     {
-        internal string Root { get; } = CanonicalTempRoot.Create("twig-gh-spine-");
+        internal string Root { get; }
         internal NativeHttp Http { get; } = new();
         internal readonly ConnectionBindingService _bindings;
         private readonly SqliteSystemWorktreeRegistry _registry;
@@ -403,8 +403,9 @@ public sealed partial class GitHubCoreSpineTests
         internal int CredentialCalls;
         internal ITelemetryClient? Telemetry;
         internal string Database => _document?.DatabasePath ?? Path.Combine(Root, "core.db");
-        internal Fixture(string? userHome = null, string account = "fixture", string actor = "U_actor")
+        internal Fixture(string? userHome = null, string account = "fixture", string actor = "U_actor", string? root = null)
         {
+            Root = root ?? CanonicalTempRoot.Create("twig-gh-spine-");
             InitCommandTestFixture.InitTempWorktree(Root).ShouldBeTrue();
             Directory.Exists(Path.Combine(Root, ".twig")).ShouldBeFalse();
             _bindings = new(userHome ?? Path.Combine(Root, "home"));
@@ -570,6 +571,10 @@ public sealed partial class GitHubCoreSpineTests
             ["body"] = "", ["state"] = "OPEN", ["updatedAt"] = "2026-10-31T12:00:00Z",
         };
         internal JsonObject? OtherIssue { get; set; }
+        internal JsonObject? ThirdIssue { get; set; }
+        private string commentSubject = "I_opaque";
+        private JsonObject? ById(string id) => new[] { Issue, OtherIssue, ThirdIssue }
+            .SingleOrDefault(i => i?["id"]?.GetValue<string>() == id);
         private JsonObject _assignees = Page([]);
         internal HttpMessageHandler NewHandle()
         {
@@ -622,19 +627,21 @@ public sealed partial class GitHubCoreSpineTests
                 var mutation = query.Contains("createIssue(", StringComparison.Ordinal) ? "createIssue"
                     : query.Contains("addComment(", StringComparison.Ordinal) ? "addComment" : "updateIssue";
                 if (mutation == "createIssue") { Creates++; input["repositoryId"]!.GetValue<string>().ShouldBe("R_repo"); }
-                else (input[mutation == "addComment" ? "subjectId" : "id"]!.GetValue<string>()).ShouldBe("I_opaque");
+                var changed = mutation == "createIssue" ? Issue : ById(input[mutation == "addComment" ? "subjectId" : "id"]!.GetValue<string>())!;
+                changed.ShouldNotBeNull();
                 foreach (var field in new[] { "title", "body", "state" })
-                    if (mutation != "addComment" && input[field] is { } value) Issue[field] = value.DeepClone();
+                    if (mutation != "addComment" && input[field] is { } value) changed[field] = value.DeepClone();
                 if (input["assigneeIds"] is JsonArray assignees)
                     _assignees = Page(assignees.Select(id => (JsonNode)new JsonObject { ["id"] = id!.GetValue<string>() }));
-                Issue["updatedAt"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
+                changed["updatedAt"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
                 var payload = new JsonObject { ["clientMutationId"] = input["clientMutationId"]!.DeepClone() };
                 if (mutation == "addComment")
                 {
                     Comment = input["body"]!.GetValue<string>();
+                    commentSubject = input["subjectId"]!.GetValue<string>();
                     payload["commentEdge"] = new JsonObject { ["node"] = new JsonObject { ["id"] = "C_native" } };
                 }
-                else payload["issue"] = new JsonObject { ["id"] = "I_opaque", ["repository"] = Repository() };
+                else payload["issue"] = new JsonObject { ["id"] = changed["id"]!.DeepClone(), ["repository"] = Repository() };
                 if (LoseAcknowledgement) { LoseAcknowledgement = false; throw new IOException("lost native acknowledgement after creation"); }
                 data = new JsonObject { [mutation] = payload };
             }
@@ -672,7 +679,7 @@ public sealed partial class GitHubCoreSpineTests
             {
                 variables["id"]!.GetValue<string>().ShouldBe("R_repo");
                 var number = variables["number"]!.GetValue<int>();
-                var selected = number == 42 ? Issue : OtherIssue;
+                var selected = new[] { Issue, OtherIssue, ThirdIssue }.SingleOrDefault(i => i?["number"]?.GetValue<int>() == number);
                 selected.ShouldNotBeNull();
                 selected["number"]!.GetValue<int>().ShouldBe(number);
                 var repo = Repository(); var issue = (JsonObject)selected.DeepClone(); issue["repository"] = Repository();
@@ -692,12 +699,12 @@ public sealed partial class GitHubCoreSpineTests
                 data = new JsonObject { ["node"] = new JsonObject { ["id"] = variables["id"]!.DeepClone(), ["__typename"] = "Issue", ["assignees"] = _assignees.DeepClone() } };
             else if (query.Contains("... on IssueComment", StringComparison.Ordinal))
                 data = new JsonObject { ["node"] = new JsonObject { ["__typename"] = "IssueComment", ["id"] = "C_native", ["body"] = Comment,
-                    ["author"] = new JsonObject { ["id"] = "U_actor" }, ["issue"] = new JsonObject { ["id"] = "I_opaque", ["repository"] = Repository() } } };
+                    ["author"] = new JsonObject { ["id"] = "U_actor" }, ["issue"] = new JsonObject { ["id"] = commentSubject, ["repository"] = Repository() } } };
             else
             {
                 var id = variables["id"]!.GetValue<string>();
                 if (BeforeIssueRead is { } beforeIssueRead) await beforeIssueRead(id);
-                var selected = id == "I_opaque" ? Issue : OtherIssue;
+                var selected = ById(id);
                 selected.ShouldNotBeNull();
                 selected["id"]!.GetValue<string>().ShouldBe(id);
                 var issue = (JsonObject)selected.DeepClone(); issue["repository"] = Repository();

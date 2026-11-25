@@ -62,7 +62,7 @@ internal sealed partial class CoreWorkspace
             origin: RelationshipOrigin.Local, expectedLocalVersion: edge?.LocalVersion);
         var plan = await PrepareAsync([op], ct).ConfigureAwait(false);
         return !plan.IsSuccess ? plan
-            : plan.Value.ExpectedStoreVersion != state.Value.Version || plan.Value.SchemaFingerprint != schema.Value.Fingerprint
+            : plan.Value.SchemaFingerprint != schema.Value.Fingerprint
                 ? Result<Plan>.Fail(ErrorCode.Conflict, "Local identity/edge or discovered schema changed during capture; no stale selection was applied.")
                 : plan;
     }

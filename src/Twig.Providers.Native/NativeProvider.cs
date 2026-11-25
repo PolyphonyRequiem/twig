@@ -69,6 +69,11 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             var acquired = Mirror(before, await authority.Read(ct));
             Check(Model.Validate(plan, Schema(), acquired, Capabilities));
             foreach (var op in plan.Operations) Shape(op);
+            if (LocalCommit.ReviewedScalar(plan))
+            {
+                var admitted = await LocalCommit.AdmitScalarAsync(store, plan, before, acquired, null, s => Fence(plan, s), ct);
+                return admitted.IsSuccess ? admitted.Value : throw new NativeFailure(admitted.Error);
+            }
             Fence(plan, before);
             if (before.Plans.Any(value => value.Digest == plan.Digest))
                 throw new NativeFailure(ErrorCode.Conflict, "Retained intent cannot be reset.");
@@ -92,7 +97,12 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             Fence(plan, before);
             var began = before.Journal.Single(row => row.Digest == plan.Digest && row.Operation == operation).Begin(attempt);
             if (!began.IsSuccess) throw new NativeFailure(began.Error.Code, began.Error.Message);
-            await Commit(before, Copy(acquired, before.Version + 1, journal: Replace(before.Journal, began.Value)), ct);
+            if (LocalCommit.ReviewedScalar(plan))
+            {
+                var admitted = await LocalCommit.AdmitScalarAsync(store, plan, before, acquired, attempt, s => Fence(plan, s), ct);
+                if (!admitted.IsSuccess) throw new NativeFailure(admitted.Error);
+            }
+            else await Commit(before, Copy(acquired, before.Version + 1, journal: Replace(before.Journal, began.Value)), ct);
             if (barrier is not null)
                 await barrier.OpenAsync(plan, attempt, new("authority-update", Connection.Destination, plan.Digest, Connection.IdentityRef,
                     Connection.ResourceScope), ct);
@@ -179,15 +189,10 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
 
     private async Task<Receipt> Persist(Plan plan, Receipt receipt, ImmutableArray<WorkItem>? observations)
     {
-        var before = await Snapshot(CancellationToken.None);
-        var recorded = Row(before, plan, receipt.Operation).Record(receipt);
-        if (!recorded.IsSuccess) throw new NativeFailure(recorded.Error.Code, recorded.Error.Message);
-        var mappings = before.Mappings;
-        if (receipt.Status == OpStatus.Applied && receipt.PublishedKey is { } key)
-            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, key, plan.Digest, receipt.Operation));
-        var mirrored = observations is { } items ? Mirror(before, items) : before;
-        await Commit(before, Copy(mirrored, before.Version + 1, journal: Replace(before.Journal, recorded.Value), mappings: mappings),
-            CancellationToken.None);
+        var key = receipt.PublishedKey ?? plan.Operations[receipt.Operation].Item;
+        var result = await LocalCommit.ReceiptAsync(store, plan, receipt, before => observations is { } items
+            ? Copy(before, before.Version, items: before.Items.Where(i => i.Key != key).Concat(items.Where(i => i.Key == key))) : before);
+        if (!result.IsSuccess) throw new NativeFailure(result.Error);
         return receipt;
     }
 

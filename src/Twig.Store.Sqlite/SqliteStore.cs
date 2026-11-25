@@ -172,7 +172,8 @@ public sealed class SqliteStore : IStore
             await CheckFormat(db, transaction, ct);
             var before = await Read(db, transaction, connection, ct);
             if (before.Version != expectedVersion)
-                return Result<long>.Fail(ErrorCode.Conflict, "The connection's store version changed; no data was committed.");
+                return Result<long>.Fail(new Error(ErrorCode.Conflict, "The connection's store version changed; no data was committed.")
+                    { StoreVersionChanged = true });
             var errors = Core.Core.ValidateCommit(before, next);
             if (!errors.IsEmpty)
                 return Result<long>.Fail(new Error(errors[0].Code, "Snapshot violates the clean-core commit contract.")

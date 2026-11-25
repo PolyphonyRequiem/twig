@@ -5,6 +5,27 @@ namespace Twig.Infrastructure.Services;
 
 internal sealed partial class CoreWorkspace
 {
+    internal string OwnerCapture(RetainedItem? draft) => draft is LocalEdits { CaptureRevision: { } revision }
+        ? $"{revision:D}:{DraftFingerprint(draft)}" : DraftFingerprint(draft);
+
+    internal bool MatchesReviewCapture(Plan plan, StoreSnapshot state) => plan.Review is { } review
+        && review.Store == storeInstance && review.Actor == nativeActor
+        && review.Capture == OwnerCapture(state.RetainedItems.SingleOrDefault(draft => draft.Key == plan.Operations.Single().Item));
+
+    internal async Task<Result<bool>> DeliverOriginalUpdateAsync(UserBenchStore actions, OriginalUpdate original,
+        Guid owner, CancellationToken ct)
+    {
+        using var guard = Auth.ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
+        var read = await SnapshotAsync(ct);
+        if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
+        var verified = read.Value.Journal.SingleOrDefault(row => row.Attempt == original.Attempt
+            && row.Digest == original.Plan.Digest && row.Operation == 0);
+        if (verified?.Status != OpStatus.Verified)
+            return Result<bool>.Fail(ErrorCode.Indeterminate, "Delivery requires the verified original journal row.");
+        return await actions.MoveUpdateAsync(original, MatchesReviewCapture(original.Plan, read.Value)
+            ? "Complete" : "DeliveryConflict", owner, ct);
+    }
+
     // Called only with the original routine quiescent and the execution owner lease held.
     // This path cannot import, call Apply, or open a dispatch barrier.
     internal async Task<Result<string>> InspectUpdateAsync(OriginalUpdate original, CancellationToken ct)

@@ -76,7 +76,7 @@ public static class SourceProjection
             || store.Mappings.Any(m => !m.Remote.BelongsTo(selection.Binding.Connection))
             || store.Items.Any(i => !i.Key.IsLocal && !i.Key.BelongsTo(selection.Binding.Connection)))
             return Result<SourceView>.Fail(ErrorCode.Conflict, "Cached source identity or permanent mapping is ambiguous.");
-        ItemKey Resolve(ItemKey key) => store.Mappings.FirstOrDefault(m => m.Local == key)?.Remote ?? key;
+        ItemKey Resolve(ItemKey key) => store.ResolveVerified(key);
         var normalizedSelectors = selection.Selectors.Where(s => s.Item is null || !withheld.Contains(s.Item)).Select(s => s.Item is null ? s
             : new Selector(s.Kind, Resolve(s.Item), hierarchyRelation: s.HierarchyRelation));
         var normalizedEdges = store.Relationships.Select(e => e with { From = Resolve(e.From), To = Resolve(e.To) }).ToArray();

@@ -85,7 +85,7 @@ if (args is ["server", ..])
     return;
 }
 
-if (args is ["update", ..] && Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null)
+if (args is ["update" or "seed", ..] && Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null)
 {
     Environment.ExitCode = await Twig.ServerCommandClient.ExecuteAsync(args);
     return;

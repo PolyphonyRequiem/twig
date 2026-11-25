@@ -160,9 +160,10 @@ public sealed class NativeAuthority
         => NativeGuard.Run(async () =>
         {
             if (plan.Connection != Connection || attempt == Guid.Empty
-                || plan.Operations is not [{ Kind: OpKind.Batch, ExpectedRevision: not null } op])
+                || plan.Operations is not [var op] || !(op.Kind == OpKind.Batch && op.ExpectedRevision?.Item == op.Item
+                    || op.Kind == OpKind.Create && op.Item.IsLocal && op.ExpectedRevision is null))
                 throw new NativeFailure(ErrorCode.InvalidInput, "An exact original single-item update is required.");
-            _ = Id(op.Item);
+            if (op.Kind != OpKind.Create) _ = Id(op.Item);
             await using var db = await Open(ct);
             using var transaction = db.BeginTransaction(deferred: false);
             await CheckIdentity(db, transaction, ct);

@@ -118,9 +118,7 @@ internal sealed class WorkspaceCommand(
             if (!references.IsSuccess) return Error(references.Error.Message);
             var localReferences = references.Value.Where(reference => reference.Connection == handle.Source.Connection
                 && reference.StoreInstance == handle.Source.StoreInstance).Select(reference => reference.Item).ToHashSet();
-            ItemKey Resolve(ItemKey key) => localReferences.Contains(key)
-                ? snapshot.VerifiedSeedTarget(workspace.Connection, key) ?? key : key.IsLocal
-                ? snapshot.Mappings.SingleOrDefault(mapping => mapping.Local == key)?.Remote ?? key : key;
+            ItemKey Resolve(ItemKey key) => snapshot.VerifiedSeedTarget(workspace.Connection, key) ?? key;
             bool Qualified(ItemKey key) => CoreWorkspace.DisplayId(workspace.Connection, snapshot, key).IsSuccess;
             var selectors = selected.Selectors.Where(historicalProjection.AllowsSelector).Select(selector => selector.Item is null ? selector
                 : new Selector(selector.Kind, Resolve(selector.Item), hierarchyRelation: selector.HierarchyRelation, connection: selector.Connection)).ToArray();

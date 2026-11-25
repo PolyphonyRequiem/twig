@@ -561,6 +561,7 @@ public sealed partial class GitHubCoreSpineTests
         internal string Actor = "U_actor";
         internal int Requests, WorkRequests, Writes, Creates, SchemaRequests, OnlineAccessRequests, HandleCreations;
         internal bool LoseAcknowledgement, MoreCandidates;
+        internal string? ResponseNote;
         internal HttpStatusCode? RejectNextMutation;
         internal string? Defect, Comment;
         internal Func<Task>? BeforeSchema;
@@ -635,6 +636,7 @@ public sealed partial class GitHubCoreSpineTests
                     _assignees = Page(assignees.Select(id => (JsonNode)new JsonObject { ["id"] = id!.GetValue<string>() }));
                 changed["updatedAt"] = DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture);
                 var payload = new JsonObject { ["clientMutationId"] = input["clientMutationId"]!.DeepClone() };
+                if (ResponseNote is not null) payload["note"] = ResponseNote;
                 if (mutation == "addComment")
                 {
                     Comment = input["body"]!.GetValue<string>();

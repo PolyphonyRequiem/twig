@@ -25,7 +25,7 @@ internal static class StartupHook
     public static void Initialize()
     {
         var provider = Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_PROVIDER");
-        if (provider is not ("ado" or "github" or "cas")) throw new InvalidOperationException("Expected test provider.");
+        if (provider is not ("ado" or "github" or "cas" or "create")) throw new InvalidOperationException("Expected test provider.");
         DiagnosticListener.AllListeners.Subscribe(new Observer<DiagnosticListener>(listener =>
         {
             if (listener.Name != "Microsoft.Extensions.Hosting") return;
@@ -34,6 +34,11 @@ internal static class StartupHook
                 if (entry is { Key: "HostBuilding", Value: IHostBuilder builder })
                     builder.ConfigureServices((_, services) =>
                     {
+                        if (provider == "create")
+                        {
+                            services.AddSingleton<Func<IStore,IStore>>(_ => store => new ParkCreate(store));
+                            return;
+                        }
                         if (provider == "cas")
                         {
                             services.AddSingleton<Func<IStore,IStore>>(_ => store => new RaceReceipt(store));
@@ -46,6 +51,42 @@ internal static class StartupHook
                     });
             }));
         }));
+    }
+
+    private sealed class ParkCreate(IStore inner) : IStore
+    {
+        private readonly string root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+        private Plan? create;
+
+        public async Task<Result<StoreSnapshot>> ReadAsync(Connection c, CancellationToken ct)
+        {
+            if (create?.Review is { } review)
+            {
+                var actions = UserBenchStore.ForRegistry(Path.Combine(root, "home", "system.db"));
+                var action = await actions.OriginalUpdateAsync(new(review.Store, c, review.Actor,
+                    create.Operations[0].Item.LocalId.ToString("D"), IsSeed: true), review.Revision, ct);
+                if (action.IsSuccess && action.Value.Identity.State == "Settling") await Park("readback", ct);
+            }
+            return await inner.ReadAsync(c, ct);
+        }
+
+        public async Task<Result<long>> CommitAsync(Connection c, long version, StoreSnapshot next, CancellationToken ct)
+        {
+            if (create is null && next.Plans.FirstOrDefault(p => p.Review is not null && p.Operations is [{ Kind: OpKind.Create }]
+                && next.Journal.Any(j => j.Digest == p.Digest && j.Status == OpStatus.Applied)) is { } plan
+                && (await inner.ReadAsync(c, ct)).Value.Journal.Any(j => j.Digest == plan.Digest && j.Status == OpStatus.Applying))
+            {
+                create = plan;
+                await Park("receipt", ct);
+            }
+            return await inner.CommitAsync(c, version, next, ct);
+        }
+
+        private async Task Park(string phase, CancellationToken ct)
+        {
+            await File.WriteAllTextAsync(Path.Combine(root, "parked-" + phase), "", ct);
+            while (!File.Exists(Path.Combine(root, "release-" + phase))) await Task.Delay(25, ct);
+        }
     }
 
     private sealed class RaceReceipt(IStore inner) : IStore
@@ -81,6 +122,20 @@ internal static class StartupHook
     {
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_CREATE") == "1")
+            {
+                var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+                var path = request.RequestUri!.AbsolutePath;
+                if (provider == "ado" ? request.Method == HttpMethod.Post && path.Contains("/workitems/$", StringComparison.OrdinalIgnoreCase)
+                    : request.Content is not null && (await request.Content.ReadAsStringAsync(ct)).Contains("createIssue(", StringComparison.Ordinal))
+                    await File.AppendAllTextAsync(Path.Combine(root, "remote-creates"), "sent\n", ct);
+                if (provider == "ado" && path.Contains("/45/revisions/", StringComparison.Ordinal))
+                {
+                    await File.WriteAllTextAsync(Path.Combine(root, "parked-remote-readback"), "", ct);
+                    while (!File.Exists(Path.Combine(root, "release-remote-readback"))) await Task.Delay(25, ct);
+                }
+                return await base.SendAsync(request, ct);
+            }
             var mutation = provider == "ado" ? request.Method == HttpMethod.Patch :
                 request.Content is not null && (await request.Content.ReadAsStringAsync(ct)).Contains("\"query\":\"mutation", StringComparison.Ordinal);
             var response = await base.SendAsync(request, ct);

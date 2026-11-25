@@ -85,8 +85,10 @@ reports the old and new executable digests, captures and revision evidence, and
 does not submit. Submit the new UUID separately. A predecessor can have only one
 replacement; neither reconnect nor `DeliveryConflict` authorizes one.
 
-For a retained Plan in the isolated Twig qualification database, use
-`twig plan observe <digest> --bench <bench-uuid> -o json`. Each unit identifies
+For a retained Plan in the isolated qualification workspace, use
+`twig plan observe <digest> --bench <bench-uuid> -o json`. ADO and GitHub
+qualification require the host's synthetic transport; this path cannot fall
+back to live provider HTTP. Each unit identifies
 its scope, capture, Core operation and original attempt (if any). `continue`
 observes the original attempt and settles eligible admitted captures individually.
 A converged edit needs fresh exact item evidence. A verified operation also needs

@@ -31,6 +31,19 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task MatchedCliFreezesInputAndFindsOnlyTheOriginalSubmissionAfterRestart() => RunOwnerScenario(false);
 
+    private sealed class CanvasQualificationFact : FactAttribute
+    {
+        public CanvasQualificationFact()
+        {
+            if (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("TWIG_TEST_OWNER_CERT") is null
+                || Environment.GetEnvironmentVariable("TWIG_TEST_CANVAS_CHECKOUT") is null)
+                Skip = "Requires a trusted localhost certificate and a built, explicitly selected Canvas checkout.";
+        }
+    }
+
+    [CanvasQualificationFact, SupportedOSPlatform("windows")]
+    public Task RealCanvasProxyAndBrowserRecoverReleasedPrivateInput() => RunOwnerScenario(false, canvas: true);
+
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task DisjointProviderAndLocalEditsSettleWhileOriginalAuthorityTransactionIsParked() => RunOwnerScenario(true);
 
@@ -85,7 +98,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     [SupportedOSPlatform("windows")]
     private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
         bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false,
-        bool interruptedPlan = false, bool admittedPlan = false)
+        bool interruptedPlan = false, bool admittedPlan = false, bool canvas = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -177,16 +190,31 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             }
             var displayBench = Guid.NewGuid();
             CoreWorkspaceDocument? projection = null;
-            if (remote == "ado")
+            if (remote == "ado" || canvas)
             {
                 var marker = await File.ReadAllBytesAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName));
                 projection = JsonSerializer.Deserialize(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
-                var pin = ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, "44");
+                var pin = ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, canvas ? "1" : "44");
                 var pinned = await new UserBenchStore(Path.Combine(home, "benches.db")).SaveAsync(new(displayBench, "Unrelated pin",
                     [new(SelectorKind.Pin, pin, connection: projection.Connection)]), 0);
                 pinned.IsSuccess.ShouldBeTrue();
             }
             await StartOwner();
+            if (canvas)
+            {
+                var test = Path.Combine(Environment.GetEnvironmentVariable("TWIG_TEST_CANVAS_CHECKOUT")!, "tests", "released-owner-browser.mjs");
+                using var browser = Run("node", false, [test, cli]);
+                var errors = browser.StandardError.ReadToEndAsync();
+                var output = browser.StandardOutput.ReadToEndAsync();
+                try { await browser.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(90)); }
+                finally { if (!browser.HasExited) browser.Kill(true); }
+                browser.ExitCode.ShouldBe(0, await errors + await output);
+                var state = (await handle!.Workspace.SnapshotAsync(default)).Value;
+                var item = (await handle.Workspace.ObserveItemsAsync([state.Items.Single().Key], default)).Value.Items.Single();
+                item.Fields[NativeProvider.Title].Text.ShouldBe("private qualification words");
+                state.Journal.Count(entry => entry.Status == OpStatus.Verified).ShouldBe(2); // Seed and one publication.
+                return;
+            }
             if (create && remote is not null)
             {
                 var document = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName)),

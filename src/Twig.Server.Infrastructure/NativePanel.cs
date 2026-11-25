@@ -28,6 +28,7 @@ public sealed record NativePanelView(BenchView View, ImmutableDictionary<Guid, s
 /// <summary>Native definitions are authoritative. Projection descriptors below are request-local, never persisted owners.</summary>
 public sealed class NativePanel(UserBenchStore definitions, INativeSourceGateway gateway, NativeSourceAdapter sources)
 {
+    public UserBenchStore Definitions => definitions;
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> definitionGates = new();
     public Task<Result<NativeItemEditor>> OpenEditorAsync(NativePanelContext context, Guid benchId, CancellationToken ct)
         => sources.NativeAsync(context.Root, token => gateway.OpenEditorAsync(context.Root, benchId, context.Stamp, token), ct);

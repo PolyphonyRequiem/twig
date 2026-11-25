@@ -16,6 +16,7 @@ internal sealed record UpdateReply(string Status, UpdateIdentity[] Matches, bool
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public ReplacementReview? Replacement { get; init; }
 }
+internal sealed record CanvasUpdateGuard(NativeSourceStamp Source, string? Baseline, Func<bool> Authorized);
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(UpdateReply))]
@@ -41,12 +42,12 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
     internal Task DrainAsync() => Task.WhenAll(detached.Values);
 
     internal async Task<int> ExecuteAsync(string[] args, string directory, Func<Task<string>> readBody, Func<string,Task> acknowledgeBinding,
-        TextWriter output, TextWriter errors, CancellationToken ct)
+        TextWriter output, TextWriter errors, CancellationToken ct, CanvasUpdateGuard? guard = null)
     {
         var yielded = new TaskCompletionSource<UpdateReply>(TaskCreationOptions.RunContinuationsAsynchronously);
         var stdout = new StringWriter();
         var stderr = new StringWriter();
-        var run = RunAsync(args, directory, readBody, acknowledgeBinding, stdout, stderr, yielded, ct);
+        var run = RunAsync(args, directory, readBody, acknowledgeBinding, stdout, stderr, yielded, ct, guard);
         if (await Task.WhenAny(run, yielded.Task) == yielded.Task)
         {
             var reply = await yielded.Task;
@@ -69,7 +70,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
     }
 
     private async Task<int> RunAsync(string[] args, string directory, Func<Task<string>> readBody, Func<string,Task> acknowledgeBinding,
-        TextWriter output, TextWriter errors, TaskCompletionSource<UpdateReply> yielded, CancellationToken ct)
+        TextWriter output, TextWriter errors, TaskCompletionSource<UpdateReply> yielded, CancellationToken ct, CanvasUpdateGuard? guard)
     {
         UpdateIdentity? bound = null;
         var reading = false;
@@ -123,12 +124,9 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             var transport = hostServices?.GetService<CoreTransportOverride>();
             var credential = hostServices?.GetService<Twig.Infrastructure.GitHub.IGitHubTokenSource>();
             using var identityClient = transport is null ? null : new HttpClient(transport.CreateHandler());
-            if (transport is not null)
-            {
-                services.AddSingleton(transport);
-                services.AddSingleton<Twig.Infrastructure.Auth.IConnectionBindingService>(_ =>
-                    new Twig.Infrastructure.Auth.ConnectionBindingService(home, patHttpClient: identityClient));
-            }
+            if (transport is not null) services.AddSingleton(transport);
+            services.AddSingleton<Twig.Infrastructure.Auth.IConnectionBindingService>(_ =>
+                new Twig.Infrastructure.Auth.ConnectionBindingService(home, patHttpClient: identityClient));
             if (credential is not null) services.AddSingleton(credential);
             services.AddCoreWorkspaceServices(config, paths, executionOwner: true);
             using var runtime = services.BuildServiceProvider();
@@ -137,6 +135,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             pinned.Dispose();
             Require(await factory.AdmitSourceAsync(handle, ct));
             var workspace = handle.Workspace;
+            if (guard is not null && (handle.Source != guard.Source || !guard.Authorized()))
+                throw new InvalidDataException("The authorized Canvas origin changed.");
             if (!int.TryParse(item, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var locator)
                 || locator <= 0) throw new InvalidDataException("Use a positive provider item number.");
             var key = Require(await workspace.ResolveTargetAsync(locator, true, ct));
@@ -194,6 +194,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                 {
                     if (prior is not null && prior.Error.Code != ErrorCode.NotFound) throw new InvalidDataException(prior.Error.Message);
                     var observed = Require(await workspace.ReadAsync(key, ct, skipUnchanged: true));
+                    if (guard is not null && (guard.Baseline != observed.Revision?.Token || !guard.Authorized()))
+                        throw new InvalidDataException("The authorized Canvas observation changed.");
                     var snapshot = Require(await workspace.SnapshotAsync(ct));
                     var capture = workspace.OwnerCapture(snapshot.RetainedItems.SingleOrDefault(draft => draft.Key == key));
                     Op op;

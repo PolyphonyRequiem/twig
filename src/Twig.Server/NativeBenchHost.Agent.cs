@@ -304,8 +304,11 @@ public static partial class NativeBenchHost
                 var body = await Body<OwnerAgentBody>(http);
                 var store = Require(await panel.ListAsync(http.RequestAborted)).InstanceId;
                 var (session, restore) = sessions.AuthenticateAutomaticOwner(store, body.ViewId);
-                if (restore) _ = await RestoreViewReferences(panel, sessions, session, http.RequestAborted);
-                _ = await InitializeAccess(session, http.RequestAborted);
+                if (!options.ExecutionV2)
+                {
+                    if (restore) _ = await RestoreViewReferences(panel, sessions, session, http.RequestAborted);
+                    _ = await InitializeAccess(session, http.RequestAborted);
+                }
                 await Write(http, new Ack());
             }).RequireAuthorization("WindowsOwner");
 

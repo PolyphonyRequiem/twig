@@ -205,7 +205,7 @@ await using var app = NativeBenchHost.Build(new(port, data, Certificate: certifi
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
     null, Timeout.Infinite, executeOnlyOnce: true);
 var stopping = app.Lifetime.ApplicationStopping;
-var execution = fixture is null ? null : new OwnerCommandEndpoint(processInstance, data, definitions, app.Services, stopping);
+var execution = fixture is null ? null : app.Services.GetRequiredService<OwnerCommandEndpoint>();
 await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)
     : new CommandListener(Twig.CommandEndpoint.ExecutionPipe(serverId, processInstance),
         execution!.ServeAsync, stopping, workers: 12); // Four in-flight effects must not consume the eight acquisition slots.

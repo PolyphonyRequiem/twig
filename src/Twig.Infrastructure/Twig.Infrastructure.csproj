@@ -47,6 +47,7 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Twig.Server.Tests</_Parameter1>
     </AssemblyAttribute>
+    <InternalsVisibleTo Include="Twig.Server" />
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>Twig</_Parameter1>
     </AssemblyAttribute>

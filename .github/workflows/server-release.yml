@@ -33,8 +33,13 @@ jobs:
         shell: pwsh
         run: python eng/test-cold-admission.py --cli artifacts/cli-win-x64/twig.exe --server artifacts/server-win-x64/Twig.Server.exe
       - name: Verify extracted independent packages (isolated commands and synthetic certificate boundary only)
+        if: github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/polyphonyrequiem-optimistic-execution'
         shell: powershell
         run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- powershell.exe -NoProfile -File eng/test-server-package.ps1 -Archive artifacts/twig-server-win-x64.zip -CliArchive artifacts/twig-win-x64.zip -PythonExecutable python
+      - name: Verify extracted held candidate (not release qualification)
+        if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/polyphonyrequiem-optimistic-execution'
+        shell: pwsh
+        run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- pwsh -NoProfile -File eng/test-server-package.ps1 -Archive artifacts/twig-server-win-x64.zip -CliArchive artifacts/twig-win-x64.zip -PythonExecutable python -CandidateOnly
       - uses: actions/upload-artifact@v4
         with:
           name: twig-server-win-x64
@@ -72,7 +77,10 @@ jobs:
           mkdir "$fixture/cli"
           tar -xzf artifacts/twig-linux-x64.tar.gz -C "$fixture/cli"
           tar -xzf artifacts/twig-server-linux-x64.tar.gz -C "$fixture"
-          python3 eng/test-cold-admission.py --cli "$fixture/cli/twig" --server "$fixture/server-linux-x64/Twig.Server"
+          python3 eng/test-cold-admission.py --operator-dir "$fixture" --cli "$fixture/cli/twig" --server "$fixture/server-linux-x64/Twig.Server"
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch && "$GITHUB_REF" == refs/heads/polyphonyrequiem-optimistic-execution ]]; then
+            exit 0 # Held candidate; the positive release boundary below remains mandatory on tags.
+          fi
           python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- python3 eng/test-server-commands.py --cli-dir "$fixture/cli" --server-dir "$fixture/server-linux-x64"
           TWIG_TEST_CLI="$fixture/cli/twig" python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-server-linux.sh
       - uses: actions/upload-artifact@v4

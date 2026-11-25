@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 
-def verify(cli, server):
+def verify(cli, server, tools):
     with tempfile.TemporaryDirectory(prefix="twig-cold-admission-") as directory:
         root = Path(directory)
         env = dict(os.environ, TWIG_USER_HOME=str(root / "home"),
@@ -28,7 +28,6 @@ def verify(cli, server):
             assert proc.returncode == 2 and not proc.stdout and b"cold cutover" in proc.stderr, (
                 args, proc.returncode, proc.stdout, proc.stderr)
             assert not list(root.iterdir()), "Refusal must precede selection, store and lease creation"
-        tools = Path(__file__).resolve().parent
         if os.name == "nt":
             operators = [
                 ["pwsh", "-NoProfile", "-File", tools / "server-install.ps1", "-InstallRoot", root / "install",
@@ -47,6 +46,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cli", required=True, type=Path)
     parser.add_argument("--server", required=True, type=Path)
+    parser.add_argument("--operator-dir", type=Path, default=Path(__file__).resolve().parent)
     args = parser.parse_args()
-    verify(args.cli.resolve(strict=True), args.server.resolve(strict=True))
+    verify(args.cli.resolve(strict=True), args.server.resolve(strict=True), args.operator_dir.resolve(strict=True))
     print("PASS: unqualified CLI, lifecycle, direct server and worker entries refuse before effects.")

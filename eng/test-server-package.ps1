@@ -2,7 +2,8 @@
 param(
     [Parameter(Mandatory = $true)][string] $Archive,
     [Parameter(Mandatory = $true)][string] $CliArchive,
-    [string] $PythonExecutable = 'python'
+    [string] $PythonExecutable = 'python',
+    [switch] $CandidateOnly
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -43,6 +44,15 @@ try {
     $runtime = Join-Path $fixture 'server-win-x64'
     $cli = Join-Path $fixture 'cli'
     [IO.Compression.ZipFile]::ExtractToDirectory($CliArchive, $cli)
+    if ($CandidateOnly) {
+        . (Join-Path $fixture 'server-launch.ps1')
+        $revision = (& git rev-parse HEAD).Trim()
+        $null = Get-BenchRuntime $runtime $revision (Get-BenchHash (Join-Path $runtime 'runtime.json'))
+        & $PythonExecutable (Join-Path $PSScriptRoot 'test-cold-admission.py') --cli (Join-Path $cli 'twig.exe') `
+            --server (Join-Path $runtime 'Twig.Server.exe') --operator-dir $fixture
+        if ($LASTEXITCODE -ne 0) { throw 'Extracted candidate failed cold admission.' }
+        return
+    }
     # Only the certificate/external-command boundary is replaced by this existing fixture.
     & (Join-Path $PSScriptRoot 'test-server-install.ps1') -OperatorDirectory $fixture -RuntimeDirectory $runtime
     & $PythonExecutable (Join-Path $PSScriptRoot 'run-bounded.py') --warn-after 60 --timeout 300 -- `

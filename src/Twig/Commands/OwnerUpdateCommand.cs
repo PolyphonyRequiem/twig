@@ -163,6 +163,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                 {
                     if (existing.Error.Code != ErrorCode.NotFound) throw new InvalidDataException(existing.Error.Message);
                     var observed = Require(await workspace.ReadAsync(key, ct, skipUnchanged: true));
+                    if (guard is not null && (guard.Baseline != observed.Revision?.Token || !guard.Authorized()))
+                        throw new InvalidDataException("The authorized Canvas re-review observation changed.");
                     var state = Require(await workspace.SnapshotAsync(ct));
                     var capture = workspace.OwnerCapture(state.RetainedItems.SingleOrDefault(draft => draft.Key == key));
                     var old = prior.Plan.Operations.Single();

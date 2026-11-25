@@ -4,7 +4,7 @@ namespace Twig.Infrastructure.Services;
 
 internal sealed record PrivateInput(string Item, string Field, long Version, Guid? Write, string? Text, string? Baseline,
     long? Acknowledged);
-internal sealed record InputReview(Guid Write, Guid Review, UpdateIdentity? Original);
+internal sealed record InputReview(Guid Write, Guid Review, UpdateIdentity? Original, Guid? Predecessor = null);
 
 public sealed partial class UserBenchStore
 {
@@ -35,6 +35,7 @@ public sealed partial class UserBenchStore
         if (!expected.HasValue) return Result<PrivateInput>.Ok(current);
         if (current.Version != expected || expected >= 9007199254740991L)
             return Result<PrivateInput>.Fail(ErrorCode.Conflict, "Private input changed. Inspect before another write.");
+        string? predecessor = null;
         if (rereview)
         {
             if (origin is null || current.Text is null || current.Text != text)
@@ -42,12 +43,14 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$old", current.Write!.Value.ToString("D"));
             command.Parameters.AddWithValue("$origin", OriginKey(origin));
             command.CommandText = """
-                SELECT a.state, a.dispatch FROM private_input_receipts r JOIN update_actions a ON a.origin=$origin AND a.review=r.review
+                SELECT a.state, a.dispatch, a.review FROM private_input_receipts r JOIN update_actions a ON a.origin=$origin AND a.review=r.review
                 WHERE r.scope=$s AND r.item=$i AND r.field=$f AND r.write=$old;
                 """;
             await using var r = await command.ExecuteReaderAsync(token);
-            if (await r.ReadAsync(token) ? r.GetString(0) != "ReviewRequired" || !r.IsDBNull(1) : current.Baseline == baseline)
+            var bound = await r.ReadAsync(token);
+            if (bound ? r.GetString(0) != "ReviewRequired" || !r.IsDBNull(1) : current.Baseline == baseline)
                 return Result<PrivateInput>.Fail(ErrorCode.Conflict, "No changed unsubmitted capture or zero-send ReviewRequired action.");
+            if (bound) predecessor = r.GetString(2);
         }
         else if (current.Version > 0 && current.Text == text)
             return Result<PrivateInput>.Fail(ErrorCode.Conflict, "An unchanged flush does not establish a new review.");
@@ -57,8 +60,9 @@ public sealed partial class UserBenchStore
         command.Parameters.AddWithValue("$t", (object?)text ?? DBNull.Value);
         command.Parameters.AddWithValue("$b", baseline!);
         command.Parameters.AddWithValue("$r", Guid.NewGuid().ToString("D"));
+        command.Parameters.AddWithValue("$predecessor", (object?)predecessor ?? DBNull.Value);
         command.CommandText = """
-            INSERT INTO private_input_receipts VALUES($s,$i,$f,$w,$v,$h,$r);
+            INSERT INTO private_input_receipts VALUES($s,$i,$f,$w,$v,$h,$r,$predecessor);
             INSERT INTO private_inputs VALUES($s,$i,$f,$v,$w,$t,$b)
                 ON CONFLICT(scope,item,field) DO UPDATE SET version=$v,write=$w,text=$t,baseline=$b;
             """;
@@ -70,13 +74,14 @@ public sealed partial class UserBenchStore
         CREATE TABLE IF NOT EXISTS private_inputs(scope TEXT NOT NULL, item TEXT NOT NULL, field TEXT NOT NULL,
             version INTEGER NOT NULL, write TEXT NOT NULL, text TEXT, baseline TEXT NOT NULL, PRIMARY KEY(scope,item,field)) STRICT;
         CREATE TABLE IF NOT EXISTS private_input_receipts(scope TEXT NOT NULL,item TEXT NOT NULL,field TEXT NOT NULL,
-            write TEXT NOT NULL,version INTEGER NOT NULL,hash TEXT NOT NULL,review TEXT NOT NULL UNIQUE,PRIMARY KEY(scope,item,field,write)) STRICT;
+            write TEXT NOT NULL,version INTEGER NOT NULL,hash TEXT NOT NULL,review TEXT NOT NULL UNIQUE,predecessor TEXT,
+            PRIMARY KEY(scope,item,field,write)) STRICT;
         """;
     internal Task<Result<InputReview[]>> InputReviewsAsync(string scope, UpdateOrigin origin, string field, Guid? write, CancellationToken ct)
         => UpdateTransaction(async (cmd, token) =>
         {
             cmd.CommandText = InputSchema + """
-                SELECT r.write,r.review,a.action,a.submission,a.state FROM private_input_receipts r
+                SELECT r.write,r.review,a.action,a.submission,a.state,r.predecessor FROM private_input_receipts r
                 LEFT JOIN update_actions a ON a.review=r.review AND a.origin=$o
                 WHERE r.scope=$s AND r.item=$i AND r.field=$f AND (($w IS NULL AND a.action IS NOT NULL) OR r.write=$w)
                 ORDER BY r.version DESC LIMIT 32;
@@ -92,7 +97,8 @@ public sealed partial class UserBenchStore
             {
                 var review = Guid.Parse(r.GetString(1));
                 result.Add(new(Guid.Parse(r.GetString(0)), review, r.IsDBNull(2) ? null :
-                    new(Guid.Parse(r.GetString(2)), Guid.Parse(r.GetString(3)), review, r.GetString(4))));
+                    new(Guid.Parse(r.GetString(2)), Guid.Parse(r.GetString(3)), review, r.GetString(4)),
+                    r.IsDBNull(5) ? null : Guid.Parse(r.GetString(5))));
             }
             return Result<InputReview[]>.Ok(result.ToArray());
         }, ct);

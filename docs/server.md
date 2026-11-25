@@ -1,5 +1,11 @@
 # Twig server
 
+**Cold-cutover candidate:** the installation and start instructions below are
+for a qualified release, not this candidate. Keep using the existing matched
+installation. The candidate refuses installed data commands, promotion and
+start/stop; it does not upgrade or stop an existing owner. See the
+[qualification ledger](architecture/cold-cutover-qualification.md).
+
 Use [`twig server start`, `twig server status`, and `twig server stop`](commands/system/server.md)
 to control the local server, and `twig server endpoint -o json` for read-only
 Windows HTTPS endpoint discovery, including before startup.

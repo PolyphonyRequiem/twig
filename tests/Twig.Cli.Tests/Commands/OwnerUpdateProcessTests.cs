@@ -147,6 +147,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
         new DirectoryInfo(root).Create(security);
         Process? owner = null;
+        Task<string>? ownerErrors = null;
         GitHubCoreSpineTests.Fixture? github = null;
         try
         {
@@ -919,7 +920,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             async Task StartOwner()
             {
                 owner = Run(server, false, ["--data-dir", home, "--port", port, "--https-certificate", certificate]);
-                var errors = owner.StandardError.ReadToEndAsync();
+                var errors = ownerErrors = owner.StandardError.ReadToEndAsync();
                 _ = owner.StandardOutput.ReadToEndAsync();
                 var failure = "Missing owner run record.";
                 for (var i = 0; i < 60; i++)
@@ -979,6 +980,8 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
         {
             if (owner is not null)
             {
+                if (owner.HasExited && owner.ExitCode != 0 && ownerErrors is not null)
+                    log.WriteLine("Qualification owner exit {0}: {1}", owner.ExitCode, await ownerErrors);
                 if (!owner.HasExited) owner.Kill(true);
                 await owner.WaitForExitAsync();
                 owner.Dispose();

@@ -589,6 +589,7 @@ public sealed class UserBenchStoreTests : IDisposable
             ]), connection: ado);
         var bench = Required(await store.SaveAsync(new(Guid.NewGuid(), "Planning rules", [rule]), 0));
         var before = BenchCodec.Serialize(bench);
+        var generation = Required(await store.ReadAsync()).Revision;
         var now = DateTimeOffset.UtcNow;
         Required(await store.SavePlanningAsync(ado, "Team", new(now, ["Project\\Area"],
             [new("Project\\Absolute", now.AddDays(-1), now.AddDays(1))], [], "Team")));
@@ -596,7 +597,8 @@ public sealed class UserBenchStoreTests : IDisposable
         Required(await Store.ReadPlanningAsync(ado, "Different team")).Metadata.ShouldBeNull();
         Required(await Store.ReadPlanningAsync(github, "Team")).Metadata.ShouldBeNull();
         BenchCodec.Serialize(Required(await Store.ReadAsync()).Benches.Single()).ShouldBe(before);
-        Required(await Store.ReadAsync()).Revision.ShouldBe(1);
+        Required(await Store.ReadAsync()).Revision.ShouldBe(generation + 1,
+            "a calendar save invalidates acquired membership without editing the Bench definition");
         bench.Selectors.Single().Query!.Children[1].Value!.Values.ShouldContain("@Current+1");
     }
 

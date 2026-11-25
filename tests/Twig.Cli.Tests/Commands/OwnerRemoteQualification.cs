@@ -31,6 +31,7 @@ internal static class StartupHook
         if (Environment.GetEnvironmentVariable("TWIG_TEST_PACKAGE_ROOT") is not null)
             System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
                 name.Name is "xunit.core" or "xunit.abstractions" or "xunit.assert" or "NSubstitute" or "Shouldly" or "Castle.Core"
+                    or "DiffEngine" or "EmptyFiles"
                     ? context.LoadFromAssemblyPath(Path.Combine(Path.GetDirectoryName(typeof(StartupHook).Assembly.Location)!, name.Name + ".dll"))
                     : null;
         DiagnosticListener.AllListeners.Subscribe(new Observer<DiagnosticListener>(listener =>

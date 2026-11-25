@@ -10,7 +10,7 @@ using Step = Twig.Store.Sqlite.WorkspacePublication.Step;
 namespace Twig.Server;
 
 internal sealed record PlanPublication(string Digest, Guid User, Guid Bench, Guid Plan, Guid Scope, Guid Origin,
-    Guid Capture, string DefinitionsHash, Step Step);
+    Guid Capture, string DefinitionsHash, Step Step, string? Pin);
 [JsonSerializable(typeof(PlanPublication))]
 internal sealed partial class DisplayJson;
 
@@ -103,9 +103,10 @@ internal sealed partial class ReleasedBenchDisplay
         foreach (var p in planPending.Values.ToArray())
         {
             var retained = await definitions.ReadPlanReviewAsync(p.Digest, ct);
-            if (!retained.IsSuccess || retained.Value.Document is not { Scopes: [var entry] } doc
+            if (!retained.IsSuccess || retained.Value.Document is not { } doc
+                || doc.Scopes.SingleOrDefault(e => e.Scope.Id == p.Scope) is not { } entry
                 || doc.UserInstance != p.User || doc.BenchId != p.Bench || doc.PlanId != p.Plan
-                || entry.Captures is not [var capture] || capture.Id != p.Capture || !retained.Value.Units.Contains(capture.Id)
+                || !entry.Captures.Any(c => c.Id == p.Capture) || !retained.Value.Units.Contains(p.Capture)
                 || entry.Scope.Id != p.Scope || entry.Scope.StoreInstance != p.Step.Instance
                 || entry.Scope.Source.StoreInstance != p.Origin || !NativePathComparer.Instance.Equals(root, entry.Scope.OriginRoot))
                 throw new InvalidDataException("Cannot reconcile the original Plan stores.");
@@ -127,70 +128,132 @@ internal sealed partial class ReleasedBenchDisplay
     public async Task<Result<NativePlanOutcome>> ContinuePlanAsync(string root, NativeSourceStamp origin,
         UserBenchStore definitions, NativePlanReview review, CancellationToken ct)
     {
-        static Result<NativePlanOutcome> Refuse(string reason) => Result<NativePlanOutcome>.Fail(ErrorCode.Conflict, reason);
         var retained = await definitions.ReadPlanReviewAsync(review.Digest, ct);
         if (!retained.IsSuccess) return Result<NativePlanOutcome>.Fail(retained.Error);
         var original = retained.Value;
         PlanPublication? group;
         lock (release) planPending.TryGetValue(review.Digest, out group);
-        if (group is null && (original.Delivered == original.Document.Scopes.Length || original.Units.Count == 0))
-            return await review.ObserveAsync(ct);
         var doc = original.Document;
-        if (origin.Connection.Provider.Value != "twig" || original.Abandoned || original.Admitted != 1 || doc.Scopes is not
-            [{ Plan: null, Captures: [var capture], Previews: [""], CaptureVersions: [var version], Scope: var scope }]
-            || !original.Units.SetEquals([capture.Id]) || !capture.Ready || capture.Settled || capture.Cancelled
-            || scope.State != NativePlanScopeState.Ready || scope.Source != origin || capture.Origin != origin
+        var units = doc.Scopes.SelectMany((entry, index) => entry.Captures.Select((capture, ordinal) =>
+            (entry, index, capture, ordinal))).Where(unit => original.Units.Contains(unit.capture.Id)
+                && (group?.Capture == unit.capture.Id || unit.index >= original.Delivered && !original.DeliveredUnits.Contains(unit.capture.Id)))
+            .OrderByDescending(unit => unit.capture.Id == group?.Capture);
+        Error? protectedUnit = null;
+        foreach (var (entry, index, capture, ordinal) in units)
+        {
+            if (entry.Scope.Source != origin || !NativePathComparer.Instance.Equals(root, entry.Scope.OriginRoot))
+                return Result<NativePlanOutcome>.Fail(ErrorCode.Conflict, "The selected owner is not the reviewed Plan origin.");
+            var result = await DeliverUnit(root, origin, definitions, review, doc, entry, index, capture, ordinal, ct);
+            if (!result.IsSuccess)
+            {
+                lock (release) if (planPending.ContainsKey(review.Digest)) return Result<NativePlanOutcome>.Fail(result.Error);
+                protectedUnit ??= result.Error;
+            }
+        }
+        if (protectedUnit is null && original.Units.Count < doc.Scopes.Sum(s => s.Captures.Length))
+            protectedUnit = new(ErrorCode.Conflict, "Unadmitted captures are inspect-only; continuation does not admit or dispatch them.");
+        return await review.ObserveDeliveryAsync(protectedUnit, ct);
+    }
+
+    private async Task<Result<bool>> DeliverUnit(string root, NativeSourceStamp origin, UserBenchStore definitions,
+        NativePlanReview review, NativePlanReviewDocument doc, NativePlanReviewScope entry, int index,
+        NativeEditorCapture capture, int ordinal, CancellationToken ct)
+    {
+        static Result<bool> Refuse(string reason) => Result<bool>.Fail(ErrorCode.Conflict, reason);
+        PlanPublication? group;
+        lock (release) planPending.TryGetValue(review.Digest, out group);
+        var scope = entry.Scope;
+        if (group is not null && group.Capture != capture.Id || !capture.Ready || capture.Settled || capture.Cancelled
+            || scope.State != NativePlanScopeState.Ready || capture.Origin != origin
             || capture.StoreInstance != scope.StoreInstance || capture.ScopeId != scope.Id || capture.UserInstance != doc.UserInstance
             || capture.PlanId != doc.PlanId || capture.BenchId != doc.BenchId
-            || !NativePathComparer.Instance.Equals(root, scope.OriginRoot)
             || !NativePathComparer.Instance.Equals(scope.DatabasePath, definitions.PlanDatabase(doc.PlanId, scope.Id)))
-            return Refuse("Only the exact admitted single converged local edit supports isolated Plan settlement.");
-        if (UserBenchStore.ParseIntent(capture.IntentJson).Operations is not [{ Kind: OpKind.Batch, Item: var key }]
-            || !key.BelongsTo(origin.Connection)) return Refuse("No qualified converged edit.");
+            return Refuse("The original capture is not owned by this exact scope.");
+        if (UserBenchStore.ParseIntent(capture.IntentJson).Operations is not [{ Kind: OpKind.Batch or OpKind.Create, Item: var key }])
+            return Refuse("No eligible original scalar or seed capture.");
         CheckPlanPath(scope.DatabasePath);
         var opened = await SqliteStore.OpenAsync(scope.DatabasePath, ct, scope.StoreInstance);
-        if (!opened.IsSuccess) return Result<NativePlanOutcome>.Fail(opened.Error);
+        if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
         var snapshot = await opened.Value.ReadAsync(origin.Connection, ct);
-        if (!snapshot.IsSuccess) return Result<NativePlanOutcome>.Fail(snapshot.Error);
+        if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
         var state = snapshot.Value;
+        ItemKey? pin = null;
         if (group is null)
         {
-            if (state.RetainedItems.SingleOrDefault(d => d.Key == key) is not LocalEdits edit
-                || CoreWorkspace.Fingerprint(origin.Connection, edit) != capture.DraftFingerprint)
-                return Refuse("The reviewed scope draft is absent or replaced; no original ledger proves settlement.");
-            var observed = await review.ObserveConvergenceAsync(scope, edit, version, ct);
-            if (!observed.IsSuccess) return Result<NativePlanOutcome>.Fail(observed.Error);
+            var draft = state.RetainedItems.SingleOrDefault(d => d.Key == key);
+            var fingerprint = CoreWorkspace.Fingerprint(origin.Connection, draft);
+            var version = draft is LocalEdits { CaptureRevision: { } revision } ? $"{revision:D}:{fingerprint}" : fingerprint;
+            if (draft is not null && (fingerprint != capture.DraftFingerprint || version != entry.CaptureVersions[ordinal]))
+                return Refuse("The reviewed draft changed; newer intent is protected.");
+            if (entry.Previews[ordinal].Length == 0)
+            {
+                if (draft is not LocalEdits edit) return Refuse("No original converged draft is available.");
+                var observed = await review.ObserveConvergenceAsync(scope, edit, version, ct);
+                if (!observed.IsSuccess) return observed;
+            }
+            else
+            {
+                var plan = entry.Plan is null ? null : UserBenchStore.ParseIntent(entry.Plan);
+                var operation = entry.Previews.Take(ordinal).Count(p => p.Length != 0);
+                if (plan is null || plan.Connection != origin.Connection || plan.Review is not { } binding
+                    || binding.Revision != doc.Id || binding.Store != scope.StoreInstance || binding.Actor != origin.PrincipalId
+                    || binding.Capture != NativePlanReview.CaptureBinding(entry.Captures, entry.CaptureVersions)
+                    || operation >= plan.Operations.Length || plan.Operations[operation].Item != key
+                    || !state.Plans.Any(p => p.Digest == plan.Digest)
+                    || state.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == operation) is not { Status: OpStatus.Verified } row)
+                    return Refuse("No original Verified receipt for this admitted operation; uncertain or failed work is inspect-only.");
+                if (key.IsLocal)
+                {
+                    var mapped = state.Mappings.SingleOrDefault(m => m.Local == key && m.PlanDigest == plan.Digest && m.Operation == operation);
+                    if (mapped is null || !mapped.Remote.BelongsTo(origin.Connection) || row.Receipts[0].PublishedKey != mapped.Remote)
+                        return Refuse("The verified create lacks its exact original published mapping.");
+                    pin = mapped.Remote;
+                }
+                var readback = await review.ObserveVerifiedTargetAsync(scope, state, row, pin ?? key, ct);
+                if (!readback.IsSuccess) return readback;
+            }
         }
+        else if (group.Pin is not null) pin = ItemKey.Remote(origin.Connection.Provider, origin.Connection.ResourceScope, group.Pin);
         using var benchLease = definitions.AcquireAuthoringLease(doc.BenchId);
         using var local = ConnectionOperationGate.Acquire(root, exclusive: true);
         lock (release)
             if (group != planPending.GetValueOrDefault(review.Digest))
                 return Refuse("Original delivery advanced during observation. Inspect its existing result.");
         var current = await definitions.ReadPlanReviewAsync(review.Digest, ct);
-        if (!current.IsSuccess || current.Value.Abandoned || !current.Value.Units.SetEquals([capture.Id]))
+        if (!current.IsSuccess || !current.Value.Units.Contains(capture.Id))
             return Refuse("The original admission changed before settlement.");
-        if (group is null && current.Value.Delivered == 1) return await review.ObserveAsync(ct);
+        if (group is not null && group.User == doc.UserInstance && group.Scope == scope.Id && group.Origin == origin.StoreInstance
+            && ReleasedBenchStore.Proof(scope.DatabasePath, group.Step) == true
+            && await definitions.DeliveryApplied(doc.UserInstance, group.Step.Id, review.Digest, group.DefinitionsHash, ct))
+        {
+            EndPlan(group, true);
+            await ProjectWorkspace(root, origin, definitions, [doc.BenchId]);
+            return Result<bool>.Ok(true);
+        }
+        if (group is null && (current.Value.Delivered > index || current.Value.DeliveredUnits.Contains(capture.Id))) return Result<bool>.Ok(true);
+        if (current.Value.Delivered != index || current.Value.Admitted <= index) return Refuse("The original scope is not admitted for delivery.");
         var catalog = await definitions.ReadAsync(ct);
-        var plan = await definitions.ReadPlanAsync(doc.BenchId, ct);
-        if (!catalog.IsSuccess || catalog.Value.InstanceId != doc.UserInstance || !plan.IsSuccess || !plan.Value.PlanMode
-            || plan.Value.Id != doc.PlanId || plan.Value.Revision != doc.PlanRevision || !plan.Value.Scopes.Contains(scope)
-            || catalog.Value.Benches.SingleOrDefault(b => b.Id == doc.BenchId) is not { } bench || bench.Revision != doc.BenchRevision)
+        var benchPlan = await definitions.ReadPlanAsync(doc.BenchId, ct);
+        if (!catalog.IsSuccess || catalog.Value.InstanceId != doc.UserInstance || !benchPlan.IsSuccess || !benchPlan.Value.PlanMode
+            || benchPlan.Value.Id != doc.PlanId || benchPlan.Value.Revision != doc.PlanRevision || !benchPlan.Value.Scopes.Contains(scope)
+            || catalog.Value.Benches.SingleOrDefault(b => b.Id == doc.BenchId) is not { } bench)
             return Refuse("The admitted Plan no longer owns its original stores.");
-        var next = capture with { Revision = checked(capture.Revision + 1), Settled = true, BenchRevision = bench.Revision,
-            PlanRevision = plan.Value.Revision };
-        var hash = UserBenchStore.DeliveryHash(review.Digest, next, bench);
+        var after = UserBenchStore.WithDeliveryPin(bench, origin.Connection, pin);
+        var next = capture with { Revision = checked(capture.Revision + 1), Settled = true, BenchRevision = after.Revision,
+            PlanRevision = benchPlan.Value.Revision };
+        var hash = UserBenchStore.DeliveryHash(review.Digest, next, after);
         if (group is null)
         {
             var captures = await definitions.ReadEditorCapturesAsync(ct);
             if (!captures.IsSuccess || !captures.Value.Any(c => c.SameAs(capture)))
                 return Refuse("The original capture changed before delivery.");
             var writer = new PlanWriter(this, scope.DatabasePath, scope.StoreInstance, Persistence.ConnectionText(origin.Connection),
-                step => new(review.Digest, doc.UserInstance, doc.BenchId, doc.PlanId, scope.Id, origin.StoreInstance, capture.Id, hash, step));
+                step => new(review.Digest, doc.UserInstance, doc.BenchId, doc.PlanId, scope.Id, origin.StoreInstance, capture.Id, hash, step, pin?.NativeId));
             using var tracking = writer.Enter();
             var committed = await opened.Value.CommitAsync(origin.Connection, state.Version,
                 new(state.Version + 1, state.Items, state.Relationships, state.RetainedItems.Where(d => d.Key != key),
                     state.Plans, state.Journal, state.Mappings, state.Benches), ct);
-            if (!committed.IsSuccess) return Result<NativePlanOutcome>.Fail(committed.Error);
+            if (!committed.IsSuccess) return Result<bool>.Fail(committed.Error);
             group = writer.Group ?? throw new InvalidDataException("The scope CAS has no publication manifest.");
         }
         else if (group.User != doc.UserInstance || group.Scope != scope.Id || group.Origin != origin.StoreInstance
@@ -199,14 +262,15 @@ internal sealed partial class ReleasedBenchDisplay
         if (!await definitions.DeliveryApplied(doc.UserInstance, group.Step.Id, review.Digest, hash, ct))
         {
             var shared = await definitions.SaveEditorCaptureAsync(next, capture.Revision, ct,
-                new(review.Digest, group.Step.Id, capture, hash, point => StepBoundary?.Invoke(point, group.Step.After) ?? Task.CompletedTask));
-            if (!shared.IsSuccess) return Result<NativePlanOutcome>.Fail(shared.Error);
+                new(review.Digest, group.Step.Id, capture, hash, index, entry.Captures.Length, bench, pin,
+                    point => StepBoundary?.Invoke(point, group.Step.After) ?? Task.CompletedTask));
+            if (!shared.IsSuccess) return Result<bool>.Fail(shared.Error);
         }
         if (StepBoundary is { } stop) await stop("plan-definitions", group.Step.After);
         if (!await definitions.DeliveryApplied(doc.UserInstance, group.Step.Id, review.Digest, hash, ct))
             return Refuse("The exact shared definitions step was not confirmed.");
         EndPlan(group, true);
         await ProjectWorkspace(root, origin, definitions, [doc.BenchId]);
-        return await review.ObserveAsync(ct);
+        return Result<bool>.Ok(true);
     }
 }

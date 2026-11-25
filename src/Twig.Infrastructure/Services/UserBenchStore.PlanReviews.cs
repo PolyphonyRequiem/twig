@@ -17,6 +17,7 @@ internal sealed record NativePlanReviewReference(string Digest, NativePlanReview
     int Admitted, bool Abandoned = false)
 {
     internal ImmutableHashSet<Guid> Units { get; init; } = [];
+    internal ImmutableHashSet<Guid> DeliveredUnits { get; init; } = [];
 }
 internal sealed record NativePlanReviewLookup(string? Digest);
 
@@ -105,6 +106,9 @@ public sealed partial class UserBenchStore
                 CREATE TABLE IF NOT EXISTS plan_capture_units(
                     digest TEXT NOT NULL REFERENCES plan_review_references(digest), capture TEXT NOT NULL,
                     PRIMARY KEY(digest,capture)) STRICT;
+                CREATE TABLE IF NOT EXISTS plan_delivered_units(
+                    digest TEXT NOT NULL,capture TEXT NOT NULL,scope TEXT NOT NULL,step TEXT NOT NULL UNIQUE,
+                    PRIMARY KEY(digest,capture), FOREIGN KEY(digest,capture) REFERENCES plan_capture_units(digest,capture)) STRICT;
                 SELECT digest,document FROM plan_review_references WHERE plan_id=$plan AND started=1 ORDER BY rowid DESC;
                 """;
             command.Parameters.AddWithValue("$plan", document.PlanId.ToString("D"));
@@ -157,7 +161,8 @@ public sealed partial class UserBenchStore
                 return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "No whole-Plan attempt exists.");
             command.CommandText = """
                 SELECT document,started,delivered,admitted,abandoned,
-                    (SELECT group_concat(capture,',') FROM plan_capture_units WHERE digest=$digest)
+                    (SELECT group_concat(capture,',') FROM plan_capture_units WHERE digest=$digest),
+                    (SELECT group_concat(capture,',') FROM plan_delivered_units WHERE digest=$digest)
                 FROM plan_review_references WHERE digest=$digest AND started=1;
                 """;
             command.Parameters.AddWithValue("$digest", digest);
@@ -174,7 +179,8 @@ public sealed partial class UserBenchStore
                 reader.GetString(5).Split(',').Select(value => Guid.ParseExact(value, "D")).ToImmutableHashSet();
             if (!units.IsSubsetOf(document.Scopes.Take(reader.GetInt32(3)).SelectMany(s => s.Captures).Select(c => c.Id)))
                 throw new InvalidDataException("Original Plan admission disagrees with the captured units.");
-            return Result<NativePlanReviewReference>.Ok(new(digest, document, reader.GetBoolean(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetBoolean(4)) { Units = units });
+            return Result<NativePlanReviewReference>.Ok(new(digest, document, reader.GetBoolean(1),             reader.GetInt32(2), reader.GetInt32(3), reader.GetBoolean(4)) { Units = units,
+                DeliveredUnits = reader.IsDBNull(6) ? [] : reader.GetString(6).Split(',').Select(Guid.Parse).ToImmutableHashSet() });
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativePlanReviewReference>(ex); }
     }

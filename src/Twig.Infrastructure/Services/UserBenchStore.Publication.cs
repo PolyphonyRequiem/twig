@@ -6,7 +6,7 @@ using Twig.Store.Sqlite;
 namespace Twig.Infrastructure.Services;
 
 internal sealed record ConvergedDelivery(string Digest, Guid Step, NativeEditorCapture Original, string ResultHash,
-    Func<string, Task>? Boundary);
+    int ScopeIndex, int ScopeUnits, Bench BeforeBench, ItemKey? Pin, Func<string, Task>? Boundary);
 
 public sealed partial class UserBenchStore
 {
@@ -17,28 +17,55 @@ public sealed partial class UserBenchStore
         CaptureHash(digest + ":" + CaptureHash(BenchCodec.Serialize(bench)) + ":" +
             CaptureHash(JsonSerializer.Serialize(capture, NativeEditorJson.Default.NativeEditorCapture)));
 
+    internal static Bench WithDeliveryPin(Bench original, Connection connection, ItemKey? pin)
+    {
+        if (pin is null || original.Selectors.Any(s => s.Kind == SelectorKind.Pin && s.Connection == connection && s.Item == pin))
+            return original;
+        if (!pin.BelongsTo(connection)) throw new InvalidDataException("The verified seed mapping belongs to another origin.");
+        return new(original.Id, original.Name, original.Selectors.Add(new(SelectorKind.Pin, pin, connection: connection)),
+            checked(original.Revision + 1), original.Connections.Union([connection]));
+    }
+
     private static async Task RecordDelivery(SqliteConnection db, SqliteTransaction tx, ConvergedDelivery delivery,
         string previous, string next, Bench bench, CancellationToken ct)
     {
         var capture = JsonSerializer.Deserialize(next, NativeEditorJson.Default.NativeEditorCapture)!;
+        if (BenchCodec.Serialize(bench) != BenchCodec.Serialize(delivery.BeforeBench))
+            throw new InvalidDataException("The shared Bench changed after delivery was prepared.");
+        var after = WithDeliveryPin(bench, capture.Origin.Connection, delivery.Pin);
         if (previous != JsonSerializer.Serialize(delivery.Original, NativeEditorJson.Default.NativeEditorCapture)
-            || !capture.Settled || DeliveryHash(delivery.Digest, capture, bench) != delivery.ResultHash)
+            || !capture.Settled || DeliveryHash(delivery.Digest, capture, after) != delivery.ResultHash)
             throw new InvalidDataException("The original shared Bench or editor capture changed.");
+        if (after.Revision != bench.Revision)
+        {
+            await Put(db, tx, after, false, ct);
+            await Advance(db, tx, ct);
+        }
         using var cmd = db.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            UPDATE plan_review_references SET delivered=1 WHERE digest=$digest AND started=1 AND admitted=1 AND delivered=0 AND abandoned=0
-              AND EXISTS(SELECT 1 FROM plan_capture_units WHERE digest=$digest AND capture=$capture);
+            INSERT INTO plan_delivered_units(digest,capture,scope,step)
+            SELECT digest,$capture,$scope,$step FROM plan_review_references
+            WHERE digest=$digest AND started=1 AND admitted>$index AND delivered=$index
+            AND EXISTS(SELECT 1 FROM plan_capture_units WHERE digest=$digest AND capture=$capture);
             """;
         cmd.Parameters.AddWithValue("$digest", delivery.Digest);
         cmd.Parameters.AddWithValue("$capture", capture.Id.ToString("D"));
+        cmd.Parameters.AddWithValue("$scope", capture.ScopeId.ToString("D"));
+        cmd.Parameters.AddWithValue("$index", delivery.ScopeIndex);
+        cmd.Parameters.AddWithValue("$step", delivery.Step.ToString("D"));
         if (await cmd.ExecuteNonQueryAsync(ct) != 1) throw new InvalidDataException("The original capture admission changed.");
+        cmd.CommandText = """
+            UPDATE plan_review_references SET delivered=delivered+1 WHERE digest=$digest AND delivered=$index
+            AND (SELECT count(*) FROM plan_delivered_units WHERE digest=$digest AND scope=$scope)=$count;
+            """;
+        cmd.Parameters.AddWithValue("$count", delivery.ScopeUnits);
+        await cmd.ExecuteNonQueryAsync(ct);
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS plan_delivery_ledger(step TEXT PRIMARY KEY, user TEXT NOT NULL,
               digest TEXT NOT NULL, result TEXT NOT NULL, generation INTEGER,head TEXT) STRICT;
             INSERT INTO plan_delivery_ledger(step,user,digest,result) VALUES($step,$user,$digest,$result);
             """;
-        cmd.Parameters.AddWithValue("$step", delivery.Step.ToString("D"));
         cmd.Parameters.AddWithValue("$user", capture.UserInstance.ToString("D"));
         cmd.Parameters.AddWithValue("$result", delivery.ResultHash);
         await cmd.ExecuteNonQueryAsync(ct);

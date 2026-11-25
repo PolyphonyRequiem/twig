@@ -48,7 +48,7 @@ public sealed partial class UserBenchStore
             var bench = await Find(db, tx, capture.BenchId, ct).ConfigureAwait(false);
             var benchPlan = await ReadPlan(db, tx, capture.BenchId, ct).ConfigureAwait(false);
             if (library.InstanceId != capture.UserInstance || bench is null || bench.Value.Deleted
-                || bench.Value.Bench.Revision != capture.BenchRevision || benchPlan.Id != capture.PlanId
+                || (delivery is null ? bench.Value.Bench.Revision : WithDeliveryPin(bench.Value.Bench, capture.Origin.Connection, delivery.Pin).Revision) != capture.BenchRevision || benchPlan.Id != capture.PlanId
                 || benchPlan.Revision != capture.PlanRevision || benchPlan.PlanMode != capture.PlanMode
                 || capture.PlanMode && !benchPlan.Scopes.Any(scope => scope.Id == capture.ScopeId && scope.State == NativePlanScopeState.Ready
                     && scope.StoreInstance == capture.StoreInstance && scope.Source == capture.Origin && scope.OriginRoot == capture.Root)

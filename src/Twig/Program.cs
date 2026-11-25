@@ -196,6 +196,13 @@ if (args[0] is "skills" or "version")
     return;
 }
 
+if (Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is null)
+{
+    CommandError.Write(new RendererFactory(), Console.Error,
+        StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, Twig.OwnerFixtureSelection.CutoverHeld);
+    Environment.ExitCode = 2;
+    return;
+}
 Environment.ExitCode = await Twig.ServerCommandClient.ExecuteAsync(invocationArguments);
 
 

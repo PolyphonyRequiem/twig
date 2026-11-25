@@ -14,6 +14,7 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+throw 'Installation held pending signed matched cold cutover qualification. No selection, Startup entry or data was changed.'
 if ($env:OS -ne 'Windows_NT' -or -not [Environment]::Is64BitOperatingSystem) {
     throw 'This installer requires 64-bit Windows.'
 }

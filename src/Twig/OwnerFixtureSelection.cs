@@ -11,6 +11,7 @@ namespace Twig;
 internal sealed record OwnerFixtureSelection(string Root, string Home, int Port, string Certificate, string Runtime)
 {
     internal const string Protocol = "local-execution-v2";
+    internal const string CutoverHeld = "This candidate requires a qualified cold cutover. No command was dispatched. Keep using the original matched installation.";
     private static string Fixtures => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
         "Twig.OwnerFixtures");
     internal static bool IsReserved(string? path) => OperatingSystem.IsWindows() && Path.IsPathFullyQualified(path ?? "")

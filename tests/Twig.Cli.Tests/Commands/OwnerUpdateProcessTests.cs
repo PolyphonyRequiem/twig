@@ -177,8 +177,11 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 var preview = (await handle.Workspace.PreviewDraftAsync(seed.Key, default)).Value;
                 (await handle.Workspace.SaveDraftAsync(preview, default)).Value.EffectsVerified.ShouldBeTrue();
             }
-            var cli = Path.Combine(AppContext.BaseDirectory, "twig.exe");
-            var server = Path.Combine(AppContext.BaseDirectory, "Twig.Server.exe");
+            var packages = Environment.GetEnvironmentVariable("TWIG_TEST_PACKAGE_ROOT");
+            var cli = packages is null ? Path.Combine(AppContext.BaseDirectory, "twig.exe")
+                : Path.Combine(packages, "unpacked-cli", "twig.exe");
+            var server = packages is null ? Path.Combine(AppContext.BaseDirectory, "Twig.Server.exe")
+                : Path.Combine(packages, "unpacked-server", "server-win-x64", "Twig.Server.exe");
             var certificate = Environment.GetEnvironmentVariable("TWIG_TEST_OWNER_CERT")!;
             using var socket = new TcpListener(IPAddress.Loopback, 0);
             socket.Start();
@@ -916,13 +919,23 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             async Task StartOwner()
             {
                 owner = Run(server, false, ["--data-dir", home, "--port", port, "--https-certificate", certificate]);
+                var errors = owner.StandardError.ReadToEndAsync();
+                _ = owner.StandardOutput.ReadToEndAsync();
+                var failure = "Missing owner run record.";
                 for (var i = 0; i < 60; i++)
                 {
-                    if (owner.HasExited) throw new InvalidOperationException("Qualification owner exited: " + await owner.StandardError.ReadToEndAsync());
-                    if (File.Exists(Path.Combine(home, "owner.run")) && (await Cli(null, "bench", "list", "-o", "json")).Code == 0) return;
+                    if (owner.HasExited) throw new InvalidOperationException("Qualification owner exited: " + await errors);
+                    if (File.Exists(Path.Combine(home, "owner.run")))
+                    {
+                        var probe = await Cli(null, "bench", "list", "-o", "json");
+                        if (probe.Code == 0) return;
+                        failure = probe.Error;
+                    }
                     await Task.Delay(100);
                 }
-                throw new TimeoutException("Owner pipe did not become ready.");
+                owner.Kill(true);
+                await owner.WaitForExitAsync();
+                throw new TimeoutException("Owner pipe did not become ready: " + failure + " " + await errors);
             }
             async Task<(int Code, string Output, string Error)> Cli(string? stdin, params string[] arguments)
             {

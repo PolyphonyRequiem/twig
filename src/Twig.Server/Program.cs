@@ -8,34 +8,10 @@ using Twig.Server;
 using Twig.Infrastructure.Services;
 
 var fixtureRequested = Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null;
-var reservedHome = Twig.OwnerFixtureSelection.IsReserved(Environment.GetEnvironmentVariable("TWIG_USER_HOME"));
-if ((fixtureRequested || reservedHome || args is ["--commands-only", "--data-dir", var selectedData]
-        && Twig.OwnerFixtureSelection.IsReserved(selectedData))
-    && args.FirstOrDefault() is CommandWorkerSupervisor.WorkerMode or "--commands-only")
+if (args.FirstOrDefault() is CommandWorkerSupervisor.WorkerMode or "--commands-only")
 {
-    Console.Error.WriteLine("Only the fixture authority owner may compose command services.");
+    Console.Error.WriteLine("Only the isolated authority owner may compose command services. " + Twig.OwnerFixtureSelection.CutoverHeld);
     Environment.ExitCode = 2;
-    return;
-}
-if (args is [CommandWorkerSupervisor.WorkerMode])
-{
-    try
-    {
-        // Unix ConsolePal tracks the cursor under lock(Console.Out). A worker rendering through
-        // Console.Out already holds that lock when it writes a frame on another thread.
-        // Write the binary protocol directly to the inherited stdout pipe, not to the terminal.
-        using Stream wire = OperatingSystem.IsLinux()
-            ? new FileStream(new Microsoft.Win32.SafeHandles.SafeFileHandle((IntPtr)1, ownsHandle: false),
-                FileAccess.Write, bufferSize: 1)
-            : Console.OpenStandardOutput();
-        await Twig.ServerCommandWorker.RunAsync(Console.OpenStandardInput(), wire);
-    }
-    catch (Exception) { Environment.ExitCode = 1; } // Never log a request or replay a failed worker.
-    return;
-}
-if (args is ["--commands-only", "--data-dir", var privateData])
-{
-    await CommandQualificationHost.RunAsync(privateData);
     return;
 }
 
@@ -54,6 +30,12 @@ if (args is ["--check-certificate", var selectedCertificate])
     return;
 }
 
+if (!fixtureRequested)
+{
+    Console.Error.WriteLine(Twig.OwnerFixtureSelection.CutoverHeld);
+    Environment.ExitCode = 2;
+    return;
+}
 var data = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig", "ServerData");
 var port = 0;
 string? lifecycle = null;
@@ -77,9 +59,7 @@ for (var index = 0; index < args.Length; index++)
 Twig.OwnerFixtureSelection? fixture;
 try
 {
-    fixture = Twig.OwnerFixtureSelection.Read();
-    if (fixture is null && (reservedHome || Twig.OwnerFixtureSelection.IsReserved(data)))
-        throw new InvalidDataException("This private metadata home requires its owner fixture selection.");
+    fixture = Twig.OwnerFixtureSelection.Read() ?? throw new InvalidDataException(Twig.OwnerFixtureSelection.CutoverHeld);
     fixture?.VerifyLaunch(data, port, certificateThumbprint);
     if (fixture is not null)
     {

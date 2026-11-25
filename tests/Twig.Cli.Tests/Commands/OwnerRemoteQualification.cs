@@ -26,6 +26,13 @@ internal static class StartupHook
     {
         var provider = Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_PROVIDER");
         if (provider is not ("ado" or "github" or "cas" or "create")) throw new InvalidOperationException("Expected test provider.");
+        // Self-contained products do not probe the test runner's deps.json. Resolve only
+        // the test hook's libraries; product assemblies must still come from the archive.
+        if (Environment.GetEnvironmentVariable("TWIG_TEST_PACKAGE_ROOT") is not null)
+            System.Runtime.Loader.AssemblyLoadContext.Default.Resolving += (context, name) =>
+                name.Name is "xunit.core" or "xunit.abstractions" or "xunit.assert" or "NSubstitute" or "Shouldly" or "Castle.Core"
+                    ? context.LoadFromAssemblyPath(Path.Combine(Path.GetDirectoryName(typeof(StartupHook).Assembly.Location)!, name.Name + ".dll"))
+                    : null;
         DiagnosticListener.AllListeners.Subscribe(new Observer<DiagnosticListener>(listener =>
         {
             if (listener.Name != "Microsoft.Extensions.Hosting") return;

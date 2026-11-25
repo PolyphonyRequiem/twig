@@ -26,6 +26,11 @@ internal static class ServerLifecycle
         try
         {
             var fixture = OwnerFixtureSelection.Read();
+            if (fixture is null && args[1] is "start" or "stop")
+            {
+                Error(OwnerFixtureSelection.CutoverHeld, json);
+                return 2;
+            }
             if (args[1] == "endpoint")
             {
                 var endpoint = fixture is null ? await ReadInstalledEndpointAsync() : await fixture.OperateAsync("endpoint");

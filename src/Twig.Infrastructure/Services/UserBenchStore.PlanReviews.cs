@@ -243,7 +243,7 @@ public sealed partial class UserBenchStore
         var ordinals = plan.Operations.Select((op, index) => (op, index))
             .Where(value => keys.Contains(value.op.Item)).Select(value => value.index).ToHashSet();
         var rows = snapshot.Value.Journal.Where(row => row.Digest == plan.Digest && ordinals.Contains(row.Operation)).ToArray();
-        if (rows.Any(row => row.Status != OpStatus.Planned && (!namedPredecessor || !DefinitivePlanEditNoEffect(snapshot.Value, row))))
+        if (rows.Any(row => row.Status != OpStatus.Planned && (!namedPredecessor || !DefinitivePlanNoEffect(snapshot.Value, row))))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "Original Core journal evidence fences this remainder.");
         if (captureRegistry is null)
             return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original native registry is required to prove an untouched remainder.");
@@ -258,9 +258,9 @@ public sealed partial class UserBenchStore
         return Result<bool>.Ok(true);
     }
 
-    internal static bool DefinitivePlanEditNoEffect(StoreSnapshot snapshot, JournalEntry row)
+    internal static bool DefinitivePlanNoEffect(StoreSnapshot snapshot, JournalEntry row)
         => NativeCoreExecution.NoEffect(row) && snapshot.Plans.Single(value => value.Digest == row.Digest)
-            .Operations[row.Operation] is { Kind: OpKind.Batch, Item.IsLocal: false };
+            .Operations[row.Operation] is { Kind: OpKind.Batch, Item.IsLocal: false } or { Kind: OpKind.Create, Item.IsLocal: true };
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

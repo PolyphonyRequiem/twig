@@ -111,7 +111,7 @@ public sealed class NativePlanReview
                     var snapshot = await handle.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
                     if (!snapshot.IsSuccess) return Result<NativePlanReview>.Fail(snapshot.Error);
                     if (snapshot.Value.Journal.Any(row => row.Status != OpStatus.Planned && row.Status != OpStatus.Verified
-                        && !UserBenchStore.DefinitivePlanEditNoEffect(snapshot.Value, row)))
+                        && !UserBenchStore.DefinitivePlanNoEffect(snapshot.Value, row)))
                         return Result<NativePlanReview>.Fail(ErrorCode.Indeterminate, "An original Core attempt remains unresolved. Preserve its receipts; no replay is available.");
                     var owned = captures.Value.Where(capture => capture.PlanId == plan.Value.Id && capture.ScopeId == scope.Id
                         && capture.PlanMode && !capture.Cancelled && !capture.Settled).ToImmutableArray();
@@ -145,7 +145,7 @@ public sealed class NativePlanReview
                         var priorScope = predecessor?.Scopes.SingleOrDefault(value => value.Scope == scope && value.Captures.Any(c => c.Id == capture.Id));
                         var priorPlan = priorScope?.Plan is { } bytes ? Parse(bytes) : null;
                         var failed = priorPlan is null ? null : snapshot.Value.Journal.SingleOrDefault(row => row.Digest == priorPlan.Digest
-                            && priorPlan.Operations[row.Operation].Item == intent.Item && UserBenchStore.DefinitivePlanEditNoEffect(snapshot.Value, row));
+                            && priorPlan.Operations[row.Operation].Item == intent.Item && UserBenchStore.DefinitivePlanNoEffect(snapshot.Value, row));
                         if (failed is not null && predecessorDigest is null)
                             return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "Explicitly re-review the named no-effect predecessor; ordinary review does not replace an attempt.");
                         namedNoEffect |= failed is not null;

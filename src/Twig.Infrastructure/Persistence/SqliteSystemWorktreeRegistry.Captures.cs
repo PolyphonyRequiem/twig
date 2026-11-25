@@ -15,6 +15,8 @@ internal sealed record NativeCaptureReference(string Path, Guid User, long Gener
     Guid Capture, long Revision, string Document, string Previous, string ExecutionPath, string Root,
     NativeSourceStamp Source, Guid Store, long BeforeVersion, string Before, string Desired)
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Guid? DeliveryStep { get; init; }
     internal string Head => Convert.ToHexStringLower(SHA256.HashData(
         JsonSerializer.SerializeToUtf8Bytes(this, NativeCaptureReferenceJson.Default.NativeCaptureReference)));
 }

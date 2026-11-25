@@ -43,6 +43,7 @@ internal sealed partial class ReleasedBenchDisplay
         watermark = withdrawals.Values.DefaultIfEmpty().Max();
         this.sessions = sessions;
         pending = store.Pending();
+        planPending = store.PendingPlans();
         heads = store.AppliedHeads();
     }
 

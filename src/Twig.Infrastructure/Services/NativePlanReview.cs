@@ -212,6 +212,23 @@ public sealed class NativePlanReview
     public Task<Result<NativePlanOutcome>> ContinueDeliveryAsync(CancellationToken ct = default)
         => Execute(true, ct);
 
+    internal async Task<Result<bool>> ObserveConvergenceAsync(NativePlanScope scope, LocalEdits draft,
+        string reviewedVersion, CancellationToken ct)
+    {
+        using var runtime = await Runtime(scope.OriginRoot, configure, ct).ConfigureAwait(false);
+        var opened = await runtime.GetRequiredService<CoreWorkspaceFactory>().OpenScopedAsync(scope, scope.Source, ct).ConfigureAwait(false);
+        if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
+        using var handle = opened.Value;
+        if (handle.Workspace.OwnerCapture(draft) != reviewedVersion)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The reviewed local edit was replaced.");
+        var observed = await handle.Workspace.ObserveItemsAsync([draft.Key], ct).ConfigureAwait(false);
+        if (!observed.IsSuccess) return Result<bool>.Fail(observed.Error);
+        return observed.Value is { Complete: true, Continuation: null, Items: [var item] } && item.Key == draft.Key
+            && (draft.Type == draft.EditBaseline.Type || draft.Type == item.Type)
+            && draft.Changes.All(field => item.Fields.TryGetValue(field.Key, out var value) && value.Equals(field.Value))
+            ? Result<bool>.Ok(true) : Result<bool>.Fail(ErrorCode.Conflict, "The exact item no longer confirms the converged edit.");
+    }
+
     internal async Task<Result<NativePlanOutcome>> AbandonUnadmittedAsync(CancellationToken ct = default)
     {
         var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);

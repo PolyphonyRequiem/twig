@@ -32,6 +32,10 @@ internal sealed partial class ReleasedBenchStore
               transition_id TEXT NOT NULL REFERENCES local_transition(id), bench TEXT NOT NULL,
               PRIMARY KEY(transition_id,bench)) STRICT;
             CREATE UNIQUE INDEX IF NOT EXISTS settled_version ON local_transition(instance,successor) WHERE state='Applied';
+            CREATE TABLE IF NOT EXISTS plan_publication(
+              step TEXT PRIMARY KEY,digest TEXT NOT NULL,manifest TEXT NOT NULL,state TEXT NOT NULL
+              CHECK(state IN ('Pending','Applied','NoEffect'))) STRICT;
+            CREATE UNIQUE INDEX IF NOT EXISTS pending_plan_delivery ON plan_publication(digest) WHERE state='Pending';
             """;
         cmd.ExecuteNonQuery();
     }

@@ -41,6 +41,67 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
     private string Work => Path.Combine(root, "work");
 
     [Theory]
+    [InlineData("plan-manifest")]
+    [InlineData("plan-scope")]
+    [InlineData("plan-reserved")]
+    [InlineData("plan-receipt")]
+    [InlineData("plan-definitions")]
+    public async Task OriginalConvergedPlanCanSettleAcrossOwnerLossWithoutChangingPinsOrReplaying(string cut)
+    {
+        await Start(planMode: true, executionV2: true);
+        using var editor = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value;
+        var form = (await editor.SelectAsync(item)).Value;
+        Assert.True((await editor.StageAsync(form.Ticket, FieldValues.Empty.Set(NativeProvider.Title, form.Values[NativeProvider.Title]))).IsSuccess);
+        var status = (await definitions.ReadPlanStatusAsync(bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(Work, bench, status.Sources, gateway.Configure, default)).Value;
+        var retained = (await definitions.RetainPlanReviewAsync(review.Document, default)).Value;
+        var entry = Assert.Single(review.Document.Scopes);
+        var capture = Assert.Single(entry.Captures);
+        Assert.True((await definitions.AdvancePlanReviewAsync(retained, true, 0, 1, default)).IsSuccess);
+        Assert.True((await definitions.AdmitPlanCaptureAsync(retained, 0, capture.Id, default)).IsSuccess);
+        var scopeStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(entry.Scope.DatabasePath, default, entry.Scope.StoreInstance)).Value;
+        var initial = (await scopeStore.ReadAsync(handle.Source.Connection, default)).Value.Version;
+        var authority = (await NativeAuthority.OpenAsync(Path.Combine(root, "home", "native-databases", "database-input-fixture.db"))).Value;
+        using var provider = new NativeProvider(authority, scopeStore);
+        var partition = new DisplayPartition(profile, ownerSession.CatalogId, bench, Guid.NewGuid(), null, handle.Source.Connection);
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        Assert.True((await display.AcquireAsync(partition, item, provider, default, handle.Source)).IsSuccess);
+        var hit = false;
+        display.StepBoundary = (point, _) =>
+        {
+            if (point == cut) { hit = true; throw new IOException("Owner lost at " + point); }
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var interrupted = await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+            Assert.False(interrupted.IsSuccess, interrupted.IsSuccess ? interrupted.Value.Status : interrupted.Error.Message);
+        }
+        catch (IOException) when (hit) { }
+        Assert.True(hit, cut);
+        var url = $"/api/v2/views/{owner.ViewId:D}/benches/{bench:D}/partitions/{partition.Id:D}/page";
+        Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync(url)).StatusCode);
+        client.Dispose();
+        await app.StopAsync();
+        await app.DisposeAsync();
+        app = null;
+        var boot = new ReleasedBenchDisplay(Path.Combine(root, "home", "released-benches.db"));
+        await boot.RecoverPlans(Work, definitions, default);
+        var grant = await boot.AcquireAsync(partition, item, provider, default, handle.Source);
+        Assert.Equal(cut is not ("plan-scope" or "plan-reserved"), grant.IsSuccess);
+        var result = await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+        Assert.True(result.IsSuccess, result.IsSuccess ? "" : result.Error.Message);
+        Assert.Equal("Complete", result.Value.Status);
+        Assert.Equal("Complete", (await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value.Status);
+        var final = (await scopeStore.ReadAsync(handle.Source.Connection, default)).Value;
+        Assert.Equal(initial + 1, final.Version);
+        Assert.Empty(final.RetainedItems);
+        Assert.True(Assert.Single((await definitions.ReadEditorCapturesAsync(default)).Value).Settled);
+        Assert.Equal(item, Assert.Single(Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors).Item);
+        Assert.True((await boot.AcquireAsync(partition, item, provider, default, handle.Source)).IsSuccess);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task ReleasedInputPreparesOneOriginalAndKeepsTextThroughPublicationOrDeliberateRereview(bool changeBaseline)

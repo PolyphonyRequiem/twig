@@ -99,6 +99,14 @@ public sealed partial class GitHubProvider
                     await admission.ObserveAsync((int)response.StatusCode, text, CancellationToken.None);
                     var original = DecodeOriginalUpdate(plan, operation, attempt, bound.Actor, bound.Authority,
                         (int)response.StatusCode, bytes);
+                    if (op.Kind == OpKind.Create && original is not null)
+                    {
+                        var retained = admission.RetainedBody(text);
+                        if (retained != text && !(DecodeOriginalUpdate(plan, operation, attempt, bound.Actor,
+                            bound.Authority, (int)response.StatusCode, System.Text.Encoding.UTF8.GetBytes(retained)) is { } proof
+                            && SameReceipt(original, proof))) return Unknown("Redaction changed original create proof.");
+                        await barrier.WitnessCreateAsync(plan, attempt, new((int)response.StatusCode, retained), CancellationToken.None);
+                    }
                     return original is null ? Unknown("No attributable original update acknowledgement.") : await PersistReceipt(plan, original, null);
                 }
                 evidence.Add($"http:{(int)response.StatusCode}");
@@ -159,8 +167,9 @@ public sealed partial class GitHubProvider
             if (plan.Connection != _connection) throw Wire.Refuse(ErrorCode.Conflict, "Verification binding changed.");
             var stored = await Snapshot(ct);
             var row = stored.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == acknowledgement.Operation);
-            if (row is null || row.Status != OpStatus.Applied || row.Attempt != acknowledgement.Attempt
-                || row.Receipts.Length != 1 || !SameReceipt(row.Receipts[0], acknowledgement))
+            var rechecking = original && row?.CanRecheckAcknowledgedCreate == true && plan.Operations[acknowledgement.Operation].Kind == OpKind.Create;
+            if (row is null || !rechecking && (row.Status != OpStatus.Applied || row.Receipts.Length != 1)
+                || row.Attempt != acknowledgement.Attempt || !SameReceipt(row.Receipts[0], acknowledgement))
                 throw Wire.Refuse(ErrorCode.Conflict, "Verification requires the exact durable Applied receipt.");
             Receipt receipt;
             QueryPage? observations = null;
@@ -217,19 +226,21 @@ public sealed partial class GitHubProvider
                     [$"Readback unavailable ({ex.GetType().Name}); original Applied acknowledgement remains."],
                     publishedKey: acknowledgement.PublishedKey, error: new(ErrorCode.Indeterminate, "Readback failure is not non-dispatch evidence."));
             }
-            return original && receipt.Status == OpStatus.Indeterminate ? receipt : await PersistReceipt(plan, receipt, observations);
+            return rechecking && receipt.Status != OpStatus.Verified ? row.Receipts[^1]
+                : original && receipt.Status == OpStatus.Indeterminate ? receipt : await PersistReceipt(plan, receipt, observations);
         });
 
     private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string authority, int status, byte[] bytes)
     {
         var op = plan.Operations[ordinal];
-        if (op.Kind is not (OpKind.Batch or OpKind.Comment) || op.Item.IsLocal) throw Wire.Invalid("An original update or comment is required.");
+        if (op.Kind is not (OpKind.Batch or OpKind.Comment or OpKind.Create)) throw Wire.Invalid("Unsupported original effect.");
         string[] evidence = [$"actor:{actor}", $"authority:{authority}", $"attempt:{attempt:D}", $"http:{status}"];
         if (status is 400 or 401 or 403 or 404 or 405 or 415 or 422 or 429)
             return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence,
                 error: new(ErrorCode.Unavailable, $"Definitive HTTP {status} rejection."));
         if (status != 200) return null;
-        var payload = Wire.Member(Wire.Data(Wire.Parse(bytes)), op.Kind == OpKind.Comment ? "addComment" : "updateIssue");
+        var payload = Wire.Member(Wire.Data(Wire.Parse(bytes)), op.Kind switch
+        { OpKind.Comment => "addComment", OpKind.Create => "createIssue", _ => "updateIssue" });
         if (Wire.Text(payload, "clientMutationId") != attempt.ToString("D")) return null;
         if (op.Kind == OpKind.Comment)
         {
@@ -238,7 +249,9 @@ public sealed partial class GitHubProvider
         }
         var issue = Wire.Member(payload, "issue");
         Repository(Wire.Member(issue, "repository"));
-        return Key(Wire.Text(issue, "id")) == op.Item
+        var key = Key(Wire.Text(issue, "id"));
+        if (op.Kind == OpKind.Create) return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, publishedKey: key);
+        return key == op.Item
             ? new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence) : null;
     }
 
@@ -247,16 +260,20 @@ public sealed partial class GitHubProvider
         {
             var row = (await Snapshot(ct)).Journal.Single(j => j.Digest == plan.Digest && j.Operation == 0);
             if (plan.Connection != _connection || row.Attempt != attempt) throw Wire.Invalid("Original attempt changed.");
-            if (row.Status != OpStatus.Applying) return row.Receipts[^1];
+            var create = plan.Operations[0].Kind == OpKind.Create;
+            if (row.Status != OpStatus.Applying && !create) return row.Receipts[^1];
             if (_access is not IOriginalResponseSource source) throw Wire.Refuse(ErrorCode.Unavailable, "Original GitHub evidence reader unavailable.");
             var observed = await source.ObserveOriginalAsync(plan, attempt, request, ct);
             if (request is null && !observed.IsSuccess && observed.Error.Code == ErrorCode.NotFound)
                 return await PersistReceipt(plan, new(plan.Digest, 0, attempt, OpStatus.Failed, ["original:Closed"],
                     error: new(ErrorCode.Conflict, "Original barrier permanently closed before dispatch.")), null);
             if (request is null || !observed.IsSuccess) throw Wire.Refuse(ErrorCode.Indeterminate, "Original proof unavailable or contradictory; no resend.");
+            if (create && request.ResponseHash != observed.Value.Fingerprint()) throw Wire.Refuse(ErrorCode.Indeterminate, "No matching owner witness for the original GitHub response.");
             var acknowledgement = DecodeOriginalUpdate(plan, 0, attempt, request.Actor, request.Context, observed.Value.Status,
                 System.Text.Encoding.UTF8.GetBytes(observed.Value.Body)) ?? throw Wire.Refuse(ErrorCode.Indeterminate, "No attributable original GitHub response.");
-            return await PersistReceipt(plan, acknowledgement, null);
+            if (row.Status == OpStatus.Applying) return await PersistReceipt(plan, acknowledgement, null);
+            if (!SameReceipt(row.Receipts[0], acknowledgement)) throw Wire.Invalid("Contradictory original creation proof.");
+            return row.Receipts[^1];
         });
 
     async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)

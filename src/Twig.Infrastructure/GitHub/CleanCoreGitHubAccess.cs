@@ -35,7 +35,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
 
     public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
     {
-        if (plan.Connection != _connection || attempt == Guid.Empty || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment }])
+        if (plan.Connection != _connection || attempt == Guid.Empty || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment or OpKind.Create }])
             return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original GitHub update binding differs.");
         var projection = GitHubWriteIntent.Project(plan, 0, attempt);
         if (!projection.IsSuccess) return Result<OriginalResponse>.Fail(projection.Error);
@@ -217,9 +217,9 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
 
     private sealed class Admission(string path, string requestHash, string token, IDisposable targets) : GitHubWriteAdmission
     {
+        protected override string RetainedBody(string body) => body.Replace(token, "[redacted]", StringComparison.Ordinal);
         public override Task ObserveAsync(int statusCode, string body, CancellationToken ct)
-            => WriteNewAsync(path, new CoreGitHubNativeAcknowledgement(requestHash, statusCode,
-                body.Replace(token, "[redacted]", StringComparison.Ordinal)),
+            => WriteNewAsync(path, new CoreGitHubNativeAcknowledgement(requestHash, statusCode, RetainedBody(body)),
                 CoreGitHubNativeJsonContext.Default.CoreGitHubNativeAcknowledgement, ct);
         public override void Dispose() => targets.Dispose();
     }

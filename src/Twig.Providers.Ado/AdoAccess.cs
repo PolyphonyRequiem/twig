@@ -25,6 +25,7 @@ public sealed record AdoWriteIntent(Plan Plan, int Operation, Guid Attempt, Uri 
 
 public abstract class AdoWriteAdmission : IDisposable
 {
+    protected internal virtual string RetainedBody(string body) => body;
     // Must durably retain the native response under this exact request/binding, not settle an unknown by retrying.
     public abstract Task ObserveAsync(int statusCode, string body, CancellationToken ct);
     public abstract void Dispose();

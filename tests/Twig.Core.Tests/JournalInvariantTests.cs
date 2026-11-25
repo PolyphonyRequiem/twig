@@ -72,6 +72,9 @@ public sealed class JournalInvariantTests
         var mapping = new PublishMapping(Local, Remote, Creation.Digest, 0);
         var acknowledged = new StoreSnapshot(3, plans: [Creation], journal: [applied], mappings: [mapping]);
         Rules.ValidateCommit(dispatched, acknowledged).ShouldBeEmpty();
+        var different = ItemKey.Remote(Provider, "scope", "different");
+        applied.Record(new(Creation.Digest, 0, Attempt, OpStatus.Verified, ["readback"],
+            new(different, "opaque"), different)).IsSuccess.ShouldBeFalse();
         var uncertain = applied.Record(Receipt(applied, OpStatus.Indeterminate)).Value;
         var readbackUnavailable = new StoreSnapshot(4, plans: [Creation], journal: [uncertain], mappings: [mapping]);
         Rules.ValidateCommit(acknowledged, readbackUnavailable).ShouldBeEmpty();

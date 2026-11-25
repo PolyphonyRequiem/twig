@@ -5,7 +5,7 @@ using Twig.Core;
 
 namespace Twig.Infrastructure.Services;
 
-internal sealed record UpdateOrigin(Guid Store, Connection Connection, string Actor, string Item);
+internal sealed record UpdateOrigin(Guid Store, Connection Connection, string Actor, string Item, bool IsSeed = false);
 internal sealed record UpdateIdentity(Guid Action, Guid Submission, Guid Review, string State);
 internal sealed record OriginalUpdate(UpdateIdentity Identity, string InputHash, Plan Plan, Guid Attempt, Guid? Owner, OriginalDispatch? Dispatch);
 
@@ -25,20 +25,23 @@ public sealed partial class UserBenchStore
             submission TEXT NOT NULL REFERENCES update_admission(submission), resource TEXT NOT NULL, mutation INTEGER NOT NULL,
             PRIMARY KEY(submission,resource)) STRICT;
         CREATE INDEX IF NOT EXISTS update_claim_resource ON update_claims(resource,submission);
+        CREATE TABLE IF NOT EXISTS create_witnesses(
+            attempt TEXT PRIMARY KEY REFERENCES update_actions(attempt), response_hash TEXT NOT NULL) STRICT;
+        CREATE TABLE IF NOT EXISTS create_reservations(
+            attempt TEXT PRIMARY KEY REFERENCES update_actions(attempt), item TEXT NOT NULL) STRICT;
         """;
 
-    private static string OriginKey(UpdateOrigin origin) => JsonSerializer.Serialize(new[] {
+    private static string OriginKey(UpdateOrigin origin) => JsonSerializer.Serialize<string[]>([
         origin.Store.ToString("D"), origin.Connection.Provider.Value, origin.Connection.ResourceScope,
-        origin.Connection.Destination, origin.Connection.IdentityRef, origin.Actor, origin.Item
-    }, UpdateJson.Default.StringArray);
+        origin.Connection.Destination, origin.Connection.IdentityRef, origin.Actor, origin.Item, .. origin.IsSeed ? new[] { "seed" } : Array.Empty<string>()
+    ], UpdateJson.Default.StringArray);
 
     internal Task<Result<UpdateIdentity>> BindUpdateAsync(UpdateOrigin origin, Guid review, string hash, Plan plan, Guid boot, CancellationToken ct)
         => UpdateTransaction(async (command, token) =>
         {
             if (review == Guid.Empty || boot == Guid.Empty || origin.Store == Guid.Empty || string.IsNullOrWhiteSpace(origin.Actor)
                 || !BoundReview(plan, origin, review)
-                || plan.Connection != origin.Connection || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment, ExpectedRevision: not null } op]
-                || !op.Item.BelongsTo(origin.Connection) || op.Item.NativeId != origin.Item || op.ExpectedRevision.Item != op.Item)
+                || !MatchesOrigin(plan, origin))
                 return Result<UpdateIdentity>.Fail(ErrorCode.InvalidInput, "A reviewed update must bind one exact work item and revision.");
             command.Parameters.AddWithValue("$origin", OriginKey(origin));
             command.Parameters.AddWithValue("$review", review.ToString("D"));
@@ -78,7 +81,8 @@ public sealed partial class UserBenchStore
         => UpdateTransaction(async (command, token) =>
         {
             command.CommandText = """
-                SELECT action,submission,review,state,input_hash,digest,plan,attempt,owner,dispatch FROM update_actions
+                SELECT action,submission,review,state,input_hash,digest,plan,attempt,owner,dispatch,response_hash
+                FROM update_actions LEFT JOIN create_witnesses USING(attempt)
                 WHERE origin=$origin AND review=$review;
                 """;
             command.Parameters.AddWithValue("$origin", OriginKey(origin));
@@ -88,11 +92,12 @@ public sealed partial class UserBenchStore
             using var json = JsonDocument.Parse((byte[])row[6]);
             var plan = CorePlanFiles.Parse(json.RootElement);
             if (plan.Digest != row.GetString(5) || plan.Connection != origin.Connection || !BoundReview(plan, origin, review)
-                || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment } op] || op.Item.NativeId != origin.Item)
+                || !MatchesOrigin(plan, origin))
                 throw new InvalidDataException("Original action no longer binds this exact origin.");
             var identity = Identity(row);
             var open = identity.State is "Running" or "Settling" or "Complete" or "Partial" or "ObservationNeeded" or "RejectedNoEffect" or "DeliveryConflict";
             var dispatch = row.IsDBNull(9) ? null : JsonSerializer.Deserialize(row.GetString(9), UpdateJson.Default.OriginalDispatch);
+            if (dispatch is not null && !row.IsDBNull(10)) dispatch = dispatch with { ResponseHash = row.GetString(10) };
             if (identity.State != "Pending" && open != (dispatch is not null) || dispatch is not null
                 && (dispatch.Actor != origin.Actor || dispatch.PayloadHash is not { Length: 64 }
                     || string.IsNullOrWhiteSpace(dispatch.Target) || string.IsNullOrWhiteSpace(dispatch.Context)))
@@ -107,8 +112,34 @@ public sealed partial class UserBenchStore
     private static bool BoundReview(Plan plan, UpdateOrigin origin, Guid revision) => plan.Review is { } review
         && review.Revision == revision && review.Store == origin.Store && review.Actor == origin.Actor;
 
+    private static bool MatchesOrigin(Plan plan, UpdateOrigin origin) => plan.Connection == origin.Connection
+        && plan.Operations is [var op] && (op.Kind == OpKind.Create
+            ? origin.IsSeed && op.Item.IsLocal && op.ExpectedRevision is null && origin.Item == op.Item.LocalId.ToString("D")
+            : !origin.IsSeed && op.Kind is OpKind.Batch or OpKind.Comment && op.Item.BelongsTo(origin.Connection)
+                && op.Item.NativeId == origin.Item && op.ExpectedRevision?.Item == op.Item);
+
     private sealed class UpdateBarrier(UserBenchStore store, OriginalUpdate original, Guid boot) : IOriginalUpdateBarrier
     {
+        public async Task WitnessCreateAsync(Plan plan, Guid attempt, OriginalResponse response, CancellationToken ct)
+        {
+            if (attempt != original.Attempt || plan.Digest != original.Plan.Digest || plan.Operations is not [{ Kind: OpKind.Create }])
+                throw new InvalidDataException("Response does not belong to this create.");
+            var result = await store.UpdateTransaction(async (command, token) =>
+            {
+                command.CommandText = """
+                    INSERT INTO create_witnesses(attempt,response_hash)
+                    SELECT attempt,$hash FROM update_actions WHERE attempt=$attempt AND digest=$digest AND owner=$owner
+                    AND state='Running' AND dispatch IS NOT NULL;
+                    """;
+                command.Parameters.AddWithValue("$attempt", attempt.ToString("D"));
+                command.Parameters.AddWithValue("$digest", plan.Digest);
+                command.Parameters.AddWithValue("$owner", boot.ToString("D"));
+                command.Parameters.AddWithValue("$hash", response.Fingerprint());
+                return Result<bool>.Ok(await command.ExecuteNonQueryAsync(token) == 1);
+            }, ct);
+            if (!result.IsSuccess || !result.Value) throw new IOException("Original create response could not be witnessed.");
+        }
+
         public async Task OpenAsync(Plan plan, Guid attempt, OriginalDispatch request, CancellationToken ct)
         {
             if (plan.Digest != original.Plan.Digest || attempt != original.Attempt || request.PayloadHash.Length != 64)
@@ -130,13 +161,15 @@ public sealed partial class UserBenchStore
         }
     }
 
-    internal Task<Result<bool>> MoveUpdateAsync(OriginalUpdate original, string next, Guid owner, CancellationToken ct)
+    internal Task<Result<bool>> MoveUpdateAsync(OriginalUpdate original, string next, Guid owner, CancellationToken ct,
+        ItemKey? reservation = null, IEnumerable<ItemKey>? endpoints = null)
         => UpdateTransaction(async (command, token) =>
         {
             var state = original.Identity.State;
             if ((state, next) is not (("Queued", "Cancelled" or "Claimed" or "ReviewRequired") or ("Claimed", "NotStarted" or "ReviewRequired" or "Pending")
                 or ("Pending", "Claimed" or "NotStarted") or ("Running" or "Pending", "Settling" or "RejectedNoEffect" or "ObservationNeeded" or "Pending")
-                or ("ObservationNeeded", "Settling" or "RejectedNoEffect" or "Pending") or ("Settling", "Complete" or "Partial" or "DeliveryConflict" or "Pending")))
+                or ("ObservationNeeded", "Settling" or "RejectedNoEffect" or "Pending") or ("Partial", "Complete" or "DeliveryConflict")
+                or ("Settling", "Complete" or "Partial" or "DeliveryConflict" or "Pending")))
                 throw new InvalidOperationException("Illegal submission transition.");
             command.Parameters.AddWithValue("$submission", original.Identity.Submission.ToString("D"));
             command.Parameters.AddWithValue("$owner", owner.ToString("D"));
@@ -181,7 +214,38 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$state", state);
             command.Parameters.AddWithValue("$next", next);
             command.Parameters.AddWithValue("$previous", (object?)original.Owner?.ToString("D") ?? DBNull.Value);
-            return Result<bool>.Ok(await command.ExecuteNonQueryAsync(token) == 1);
+            if (await command.ExecuteNonQueryAsync(token) != 1) return Result<bool>.Ok(false);
+            if (next == "Settling" && original.Plan.Operations[0].Kind == OpKind.Create)
+            {
+                if (reservation?.BelongsTo(original.Plan.Connection) != true)
+                    return Result<bool>.Fail(ErrorCode.Indeterminate, "Create settlement requires the original acknowledged identity.");
+                command.Parameters.AddWithValue("$item", Core.Core.KeyText(reservation!));
+                command.CommandText = "SELECT item FROM create_reservations WHERE attempt=$attempt;";
+                var prior = await command.ExecuteScalarAsync(token);
+                if (prior is not null)
+                    return prior is string reserved && reserved == Core.Core.KeyText(reservation!)
+                        ? Result<bool>.Ok(true) : Result<bool>.Fail(ErrorCode.Conflict, "Original reserved identity changed.");
+                command.CommandText = "INSERT INTO create_reservations(attempt,item) VALUES($attempt,$item);";
+                await command.ExecuteNonQueryAsync(token);
+                command.CommandText = "DELETE FROM update_claims WHERE submission=$submission AND resource=$dest AND mutation=1;";
+                command.Parameters.AddWithValue("$dest", NativeCoreExecution.Destination(original.Plan.Connection));
+                if (await command.ExecuteNonQueryAsync(token) != 1)
+                    return Result<bool>.Fail(ErrorCode.Indeterminate, "Missing original destination protection.");
+                command.CommandText = """
+                    INSERT INTO update_claims(submission,resource,mutation) VALUES($submission,$held,1)
+                    ON CONFLICT(submission,resource) DO UPDATE SET mutation=1;
+                    """;
+                var held = command.Parameters.Add("$held", SqliteType.Text);
+                foreach (var key in (endpoints ?? []).Append(reservation!))
+                {
+                    foreach (var prefix in new[] { "item:", "graph:" })
+                    {
+                        held.Value = prefix + Core.Core.KeyText(key);
+                        await command.ExecuteNonQueryAsync(token);
+                    }
+                }
+            }
+            return Result<bool>.Ok(true);
         }, ct);
 
     private static UpdateIdentity Identity(SqliteDataReader row) => new(Guid.ParseExact(row.GetString(0), "D"),
@@ -191,10 +255,17 @@ public sealed partial class UserBenchStore
     {
         var op = plan.Operations.Single();
         var claims = new Dictionary<string,bool>(StringComparer.Ordinal) { ["item:" + Core.Core.KeyText(op.Item)] = true };
+        claims[NativeCoreExecution.Destination(plan.Connection)] = op.Kind == OpKind.Create;
         foreach (var dependency in plan.Review?.Graph ?? [])
             claims["graph:" + Core.Core.KeyText(dependency.Endpoint)] = false;
         if (op.Type is not null || !op.Links.IsEmpty) claims["graph:" + Core.Core.KeyText(op.Item)] = true;
         foreach (var link in op.Links) claims["graph:" + Core.Core.KeyText(link.Other)] = true;
+        if (op.Kind == OpKind.Create)
+            foreach (var endpoint in op.Links.Select(l => l.Other).Concat(op.Other is null ? [] : new[] { op.Other }))
+            {
+                claims["item:" + Core.Core.KeyText(endpoint)] = true;
+                claims["graph:" + Core.Core.KeyText(endpoint)] = true;
+            }
         return claims;
     }
 

@@ -79,7 +79,7 @@ public static partial class NativeBenchHost
                     state.Context = source; state.Bench = body.BenchId; state.Item = item.Key;
                     state.LocalOnly = true; state.Ticket = Guid.NewGuid();
                     var reviews = Required(await state.Native.ReadLocalRelationshipReviewsAsync(ct));
-                    ItemKey Display(ItemKey key) => capture.Observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+                    ItemKey Display(ItemKey key) => capture.Observation.Snapshot.ResolveVerified(key);
                     foreach (var review in reviews.Where(review => review.Plan.Operations.Any(op =>
                         Display(op.Item) == item.Key || op.Other is { } other && Display(other) == item.Key)))
                     {
@@ -190,7 +190,7 @@ public static partial class NativeBenchHost
         var source = state.Context!;
         RelationshipEndpointDto Endpoint(ItemKey key)
         {
-            var displayed = snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+            var displayed = snapshot.ResolveVerified(key);
             var item = snapshot.Items.SingleOrDefault(item => item.Key == displayed)
                 ?? throw new HttpFailure(409, "Conflict", "The original LOCAL endpoint observation is unavailable.");
             return RelationshipEndpoint(item, source);

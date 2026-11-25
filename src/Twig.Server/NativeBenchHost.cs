@@ -814,7 +814,7 @@ public static partial class NativeBenchHost
     {
         var source = capture.Context.Source;
         var observation = capture.Observation;
-        ItemKey Resolve(ItemKey key) => observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        ItemKey Resolve(ItemKey key) => observation.Snapshot.ResolveVerified(key);
         if (selected is { } acquired)
         {
             var page = observation.AcquiredPlanningPage;

@@ -108,6 +108,7 @@ public sealed record GitHubWriteIntent(Plan Plan, int Operation, Guid Attempt, U
 
 public abstract class GitHubWriteAdmission : IDisposable
 {
+    protected internal virtual string RetainedBody(string body) => body;
     public abstract Task ObserveAsync(int statusCode, string body, CancellationToken ct);
     public abstract void Dispose();
 }

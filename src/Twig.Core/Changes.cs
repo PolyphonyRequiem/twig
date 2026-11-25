@@ -139,8 +139,12 @@ public sealed record JournalEntry
         && receipt.Digest == Digest && receipt.Operation == Operation && receipt.Attempt == Attempt;
 
     public bool CanRecheckAcknowledgedCreate => Status == OpStatus.Partial && Receipts.Length == 2
-        && Receipts[0] is { Status: OpStatus.Applied, PublishedKey: not null, Revision: not null } ack
-        && Receipts[1].PublishedKey == ack.PublishedKey && Receipts[1].Revision == ack.Revision;
+        && Receipts[0] is { Status: OpStatus.Applied, PublishedKey: not null } ack
+        && Receipts[1].PublishedKey == ack.PublishedKey;
+
+    internal bool VerifiesAcknowledgedCreate(Receipt receipt) => CanRecheckAcknowledgedCreate
+        && receipt.Status == OpStatus.Verified && receipt.PublishedKey == Receipts[0].PublishedKey
+        && receipt.Revision is not null && (Receipts[0].Revision is null || receipt.Revision == Receipts[0].Revision);
 
     public static JournalEntry Planned(string digest, int operation)
         => operation < 0 ? throw new ArgumentOutOfRangeException(nameof(operation))
@@ -156,8 +160,11 @@ public sealed record JournalEntry
             return Result<JournalEntry>.Fail(ErrorCode.Conflict, "Receipt does not belong to this exact operation attempt.");
         var permitted = Status == OpStatus.Applying && receipt.Status is OpStatus.Applied or OpStatus.Failed or OpStatus.Partial or OpStatus.Indeterminate
             || Status == OpStatus.Applied && receipt.Status is OpStatus.Verified or OpStatus.Partial or OpStatus.Indeterminate
-            || CanRecheckAcknowledgedCreate && receipt.Status == OpStatus.Verified
-                && receipt.PublishedKey == Receipts[0].PublishedKey && receipt.Revision == Receipts[0].Revision;
+                && (receipt.PublishedKey is null || receipt.PublishedKey == Receipts[0].PublishedKey)
+                && (receipt.Status != OpStatus.Verified || Receipts[0].PublishedKey is null
+                    || receipt.PublishedKey == Receipts[0].PublishedKey
+                        && (Receipts[0].Revision is null || receipt.Revision == Receipts[0].Revision))
+            || VerifiesAcknowledgedCreate(receipt);
         return permitted
             ? Result<JournalEntry>.Ok(new(Digest, Operation, Attempt, receipt.Status, Receipts.Add(receipt)))
             : Result<JournalEntry>.Fail(ErrorCode.Conflict, "Illegal journal transition; applied is not verified, and unknown is not retryable.");

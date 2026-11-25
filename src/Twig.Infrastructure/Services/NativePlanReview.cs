@@ -10,8 +10,11 @@ using Model = Twig.Core.Core;
 
 namespace Twig.Infrastructure.Services;
 
+internal sealed record PlanCaptureUnit(Guid Scope, Guid Capture, string State, string? Digest, int? Operation, Guid? Attempt);
+
 public sealed class NativePlanOutcome
 {
+    internal PlanCaptureUnit[] Units { get; init; } = [];
     public string Status { get; }
     public int VerifiedScopes { get; }
     public int DeliveredScopes { get; }
@@ -54,7 +57,8 @@ public sealed class NativePlanReview
         => ReviewAsync(root, benchId, admittedSources, null, ct);
 
     internal static async Task<Result<NativePlanReview>> ReviewAsync(string root, Guid benchId,
-        ImmutableArray<NativePlanSource> admittedSources, Action<IServiceCollection>? configure, CancellationToken ct)
+        ImmutableArray<NativePlanSource> admittedSources, Action<IServiceCollection>? configure, CancellationToken ct,
+        string? predecessorDigest = null)
     {
         try
         {
@@ -71,6 +75,16 @@ public sealed class NativePlanReview
                 return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "Select the named Bench and enter Plan mode before review.");
             var stagedVersion = await user.ReadStagedPlanVersionAsync(benchId, ct).ConfigureAwait(false);
             if (!stagedVersion.IsSuccess) return Result<NativePlanReview>.Fail(stagedVersion.Error);
+            NativePlanReviewDocument? predecessor = null;
+            if (stagedVersion.Value.Status.LastReviewDigest is { } latest)
+            {
+                var prior = await user.ReadPlanReviewAsync(latest, ct).ConfigureAwait(false);
+                if (!prior.IsSuccess) return Result<NativePlanReview>.Fail(prior.Error);
+                predecessor = prior.Value.Document;
+            }
+            if (predecessorDigest is not null && predecessorDigest != stagedVersion.Value.Status.LastReviewDigest)
+                return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "Name the exact most recent Plan attempt for this Bench.");
+            var namedNoEffect = false;
             var scopes = plan.Value.Scopes.Where(scope => scope.State != NativePlanScopeState.Superseded).OrderBy(scope => scope.Id).ToArray();
             if (scopes.Any(scope => scope.State != NativePlanScopeState.Ready || !admittedSources.Any(source =>
                 source.Id == scope.Id && source.StoreInstance == scope.StoreInstance && source.OriginRoot == scope.OriginRoot
@@ -97,7 +111,7 @@ public sealed class NativePlanReview
                     var snapshot = await handle.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
                     if (!snapshot.IsSuccess) return Result<NativePlanReview>.Fail(snapshot.Error);
                     if (snapshot.Value.Journal.Any(row => row.Status != OpStatus.Planned && row.Status != OpStatus.Verified
-                        && !UserBenchStore.DefinitivePlanEditNoEffect(snapshot.Value, row)))
+                        && !UserBenchStore.DefinitivePlanNoEffect(snapshot.Value, row)))
                         return Result<NativePlanReview>.Fail(ErrorCode.Indeterminate, "An original Core attempt remains unresolved. Preserve its receipts; no replay is available.");
                     var owned = captures.Value.Where(capture => capture.PlanId == plan.Value.Id && capture.ScopeId == scope.Id
                         && capture.PlanMode && !capture.Cancelled && !capture.Settled).ToImmutableArray();
@@ -128,6 +142,13 @@ public sealed class NativePlanReview
                     foreach (var capture in ordered)
                     {
                         var intent = Parse(capture.IntentJson).Operations.Single();
+                        var priorScope = predecessor?.Scopes.SingleOrDefault(value => value.Scope == scope && value.Captures.Any(c => c.Id == capture.Id));
+                        var priorPlan = priorScope?.Plan is { } bytes ? Parse(bytes) : null;
+                        var failed = priorPlan is null ? null : snapshot.Value.Journal.SingleOrDefault(row => row.Digest == priorPlan.Digest
+                            && priorPlan.Operations[row.Operation].Item == intent.Item && UserBenchStore.DefinitivePlanNoEffect(snapshot.Value, row));
+                        if (failed is not null && predecessorDigest is null)
+                            return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "Explicitly re-review the named no-effect predecessor; ordinary review does not replace an attempt.");
+                        namedNoEffect |= failed is not null;
                         var preview = intent.Item.IsLocal
                             ? await handle.Workspace.PreviewDraftAsync(intent.Item, ct, operations.Where(op => op.Kind == OpKind.Create), metadata.Value).ConfigureAwait(false)
                             : await handle.Workspace.PreviewEditorDraftAsync(intent.Item, intent.Links, intent.ExpectedRevision, ct, capture.Endpoints, metadata.Value).ConfigureAwait(false);
@@ -136,7 +157,8 @@ public sealed class NativePlanReview
                         if (preview.Value.Plan is { } itemPlan)
                         {
                             var effect = itemPlan.Operations.Single(op => op.Item == intent.Item);
-                            operations.Add(effect.WithId("plan-" + operations.Count));
+                            operations.Add(effect.WithId(failed is null ? "plan-" + operations.Count
+                                : $"plan-{operations.Count}:{failed.Digest}:{failed.Operation}:{failed.Attempt:D}"));
                         }
                     }
                     Plan? combined = null;
@@ -159,8 +181,10 @@ public sealed class NativePlanReview
                 }
                 if (results.Count == 0)
                     return Result<NativePlanReview>.Fail(ErrorCode.NotFound, "This Plan has no staged intent to review.");
+                if (predecessorDigest is not null && !namedNoEffect)
+                    return Result<NativePlanReview>.Fail(ErrorCode.Conflict, "The named predecessor has no attributable no-effect attempt for these captures.");
                 var document = new NativePlanReviewDocument(2, reviewRevision, library.Value.InstanceId, library.Value.Revision,
-                    benchId, bench.Revision, plan.Value.Id, plan.Value.Revision, results.ToImmutable());
+                    benchId, bench.Revision, plan.Value.Id, plan.Value.Revision, results.ToImmutable(), predecessorDigest);
                 return Result<NativePlanReview>.Ok(new(root, user,
                     new(UserBenchStore.PlanReviewDigest(document), document, false, 0, 0), configure)
                     { StagedVersion = stagedVersion.Value.Version });
@@ -187,6 +211,19 @@ public sealed class NativePlanReview
         => Execute(false, ct);
     public Task<Result<NativePlanOutcome>> ContinueDeliveryAsync(CancellationToken ct = default)
         => Execute(true, ct);
+
+    internal async Task<Result<NativePlanOutcome>> AbandonUnadmittedAsync(CancellationToken ct = default)
+    {
+        var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);
+        if (!retained.IsSuccess) return Result<NativePlanOutcome>.Fail(retained.Error);
+        var current = retained.Value;
+        if (!current.Abandoned && current.Units.Count < current.Document.Scopes.Sum(s => s.Captures.Length))
+        {
+            var changed = await user.AdvancePlanReviewAsync(current, true, current.Delivered, current.Admitted, ct, abandon: true).ConfigureAwait(false);
+            if (!changed.IsSuccess) return Result<NativePlanOutcome>.Fail(changed.Error);
+        }
+        return await ObserveAsync(ct).ConfigureAwait(false);
+    }
 
     public async Task<Result<NativePlanOutcome>> ObserveAsync(CancellationToken ct = default)
     {
@@ -242,6 +279,9 @@ public sealed class NativePlanReview
                 }
                 for (var index = reference.Delivered; index < reference.Document.Scopes.Length; index++)
                 {
+                    if (deliveryOnly && index >= reference.Admitted)
+                        return Result<NativePlanOutcome>.Ok(await Outcome(new(ErrorCode.Conflict,
+                            "This scope was never admitted; its captures remain staged."), ct).ConfigureAwait(false));
                     var scope = reference.Document.Scopes[index];
                     using var runtime = await Runtime(scope.Scope.OriginRoot, configure, ct).ConfigureAwait(false);
                     var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
@@ -266,7 +306,14 @@ public sealed class NativePlanReview
                         var admitted = await user.AdvancePlanReviewAsync(reference, true, reference.Delivered, index + 1, ct).ConfigureAwait(false);
                         if (!admitted.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(admitted.Error, ct).ConfigureAwait(false));
                         reference = reference with { Admitted = index + 1 };
-                        var saved = await handle.Workspace.SaveDraftSetAsync(previews, plan, ct).ConfigureAwait(false);
+                        async Task<Result<bool>> Admit(ItemKey key)
+                        {
+                            var capture = scope.Captures.Single(c => Parse(c.IntentJson).Operations.Single().Item == key);
+                            var result = await user.AdmitPlanCaptureAsync(reference, index, capture.Id, ct).ConfigureAwait(false);
+                            if (result.IsSuccess) reference = reference with { Units = reference.Units.Add(capture.Id) };
+                            return result;
+                        }
+                        var saved = await handle.Workspace.SaveDraftSetAsync(previews, plan, ct, admitCapture: Admit).ConfigureAwait(false);
                         if (!saved.IsSuccess || !saved.Value.EffectsVerified || saved.Value.DraftRetained || saved.Value.Error is not null)
                             return Result<NativePlanOutcome>.Ok(await Outcome(saved.IsSuccess ? saved.Value.Error
                                 ?? new(ErrorCode.Indeterminate, "Core effects or draft settlement remain unconfirmed.") : saved.Error, ct).ConfigureAwait(false));
@@ -337,11 +384,11 @@ public sealed class NativePlanReview
     private async Task<Result<bool>> Deliver(NativePlanReviewScope scope, CoreWorkspace workspace, CoreWorkspaceFactory factory, CancellationToken ct)
     {
         var plan = scope.Plan is null ? null : Parse(scope.Plan);
-        var captures = scope.Captures.Select(capture => (Capture: capture,
-            Key: Parse(capture.IntentJson).Operations.Single().Item)).ToImmutableArray();
-        var recovered = await workspace.RecoverPlanDraftsAsync(plan, captures.Select((value, ordinal) =>
+        var captures = scope.Captures.Select((capture, ordinal) => (Capture: capture, Ordinal: ordinal,
+            Key: Parse(capture.IntentJson).Operations.Single().Item)).Where(value => reference.Units.Contains(value.Capture.Id)).ToImmutableArray();
+        var recovered = await workspace.RecoverPlanDraftsAsync(plan, captures.Select(value =>
             new CorePlanDeliveryCapture(new(value.Key, value.Capture.DraftFingerprint),
-                scope.Previews[ordinal].Length == 0)).ToImmutableArray(), ct).ConfigureAwait(false);
+                scope.Previews[value.Ordinal].Length == 0)).ToImmutableArray(), ct).ConfigureAwait(false);
         if (!recovered.IsSuccess) return Result<bool>.Fail(recovered.Error);
         var evidence = recovered.Value;
         var deliveredCaptures = captures.Where(value => evidence.DeliveredKeys.Contains(value.Key))
@@ -358,7 +405,7 @@ public sealed class NativePlanReview
         var settledCaptures = await NativeVerifiedDelivery.SettleCapturesAsync(user, BenchId, bench.Value.Revision,
             deliveredCaptures, ct).ConfigureAwait(false);
         if (!settledCaptures.IsSuccess) return Result<bool>.Fail(settledCaptures.Error);
-        return Result<bool>.Ok(evidence.AllEffectsVerified);
+        return Result<bool>.Ok(evidence.AllEffectsVerified && captures.Length == scope.Captures.Length);
     }
 
     private async Task<NativePlanOutcome> Outcome(Error? error, CancellationToken ct)
@@ -366,9 +413,23 @@ public sealed class NativePlanReview
         var verified = 0;
         var verifiedOperations = 0;
         var deliveryPending = false;
+        var units = new List<PlanCaptureUnit>();
         foreach (var scope in reference.Document.Scopes)
         {
+            var index = reference.Document.Scopes.IndexOf(scope);
             var snapshot = await Snapshot(scope.Scope, ct).ConfigureAwait(false);
+            var reviewed = scope.Plan is null ? null : Parse(scope.Plan);
+            var ordinal = 0;
+            for (var c = 0; c < scope.Captures.Length; c++)
+            {
+                int? operation = scope.Previews[c].Length == 0 ? null : ordinal++;
+                var row = snapshot.IsSuccess && operation.HasValue ? snapshot.Value.Journal.SingleOrDefault(
+                    j => j.Digest == reviewed?.Digest && j.Operation == operation) : null;
+                var state = index < reference.Delivered ? "Delivered" : !reference.Units.Contains(scope.Captures[c].Id)
+                    ? reference.Abandoned ? "Abandoned" : "Unadmitted" : !snapshot.IsSuccess ? "Unavailable" : row?.Status.ToString() ?? "Admitted";
+                units.Add(new(scope.Scope.Id, scope.Captures[c].Id, state, reviewed?.Digest, operation,
+                    row is null || row.Attempt == Guid.Empty ? null : row.Attempt));
+            }
             if (!snapshot.IsSuccess) { error ??= snapshot.Error; continue; }
             if (scope.Plan is null) continue;
             var plan = Parse(scope.Plan);
@@ -382,9 +443,9 @@ public sealed class NativePlanReview
         }
         var complete = reference.Delivered == reference.Document.Scopes.Length
             && verified == reference.Document.Scopes.Count(scope => scope.Plan is not null) && error is null;
-        return new(complete ? "Complete" : deliveryPending ? "VerifiedDeliveryPending"
+        return new(complete ? "Complete" : reference.Abandoned && reference.Delivered == reference.Admitted ? "AbandonedUnadmitted" : deliveryPending ? "VerifiedDeliveryPending"
             : verifiedOperations > 0 ? "PartialProtected" : "Protected", verified, reference.Delivered,
-            reference.Document.Scopes.Length - reference.Delivered, verifiedOperations, Operations.Length - verifiedOperations, error);
+            reference.Document.Scopes.Length - reference.Delivered, verifiedOperations, Operations.Length - verifiedOperations, error) { Units = [.. units] };
     }
 
     private static async Task<Result<StoreSnapshot>> Snapshot(NativePlanScope scope, CancellationToken ct)

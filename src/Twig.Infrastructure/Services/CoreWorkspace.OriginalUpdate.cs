@@ -64,7 +64,7 @@ internal sealed partial class CoreWorkspace
         if (references.Any(r => r.Attempt != original.Attempt || r.Digest != plan.Digest || r.Operation != 0))
             return Result<string>.Fail(ErrorCode.Indeterminate, "Contradictory original attempt references.");
         var row = read.Value.Journal.SingleOrDefault(r => r.Digest == plan.Digest && r.Operation == 0);
-        if (original.Identity.State == "Claimed" || original.Identity.State == "Pending" && original.Dispatch is null)
+        if (original.Identity.State is "Claimed" or "Pending" or "ReviewRequired" or "NotStarted" && original.Dispatch is null)
         {
             var absent = await qualified.CheckClosedAsync(plan, original.Attempt, ct);
             if (!absent.IsSuccess || !absent.Value)

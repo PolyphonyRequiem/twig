@@ -63,19 +63,20 @@ public sealed partial class GitHubProvider
                 : await _store.CommitAsync(_connection, stored.Version,
                 Copy(acquired, stored.Version + 1, journal: Replace(stored.Journal, began.Value)), token);
             if (!fenced.IsSuccess) throw new GitHubFailure(fenced.Error);
+            if (op.Origin == RelationshipOrigin.Local)
+            {
+                await bound.Session.ValidateAsync(token);
+                var receipt = new Receipt(plan.Digest, operation, attempt, OpStatus.Applied,
+                    [$"actor:{bound.Actor}", $"authority:{bound.Authority}", "local:edge-transaction"]);
+                var edge = Edge(op, schema) with { LocalVersion = (op.ExpectedLocalVersion ?? 0) + 1, Deleted = op.Kind == OpKind.Unrelate };
+                return await PersistReceipt(plan, receipt, null, edge);
+            }
             var evidence = new List<string>
             {
                 $"actor:{bound.Actor}", $"authority:{bound.Authority}",
                 $"attempt:{attempt:D}", $"request-sha256:{Wire.Hash(shape.Payload)}",
-                op.Origin == RelationshipOrigin.Local ? "transport:local-store-cas" : "concurrency:observed-non-atomic; no remote CAS or atomic batch guarantee",
+                "concurrency:observed-non-atomic; no remote CAS or atomic batch guarantee",
             };
-            if (op.Origin == RelationshipOrigin.Local)
-            {
-                await bound.Session.ValidateAsync(token);
-                var receipt = new Receipt(plan.Digest, operation, attempt, OpStatus.Applied, evidence);
-                var edge = Edge(op, schema) with { LocalVersion = (op.ExpectedLocalVersion ?? 0) + 1, Deleted = op.Kind == OpKind.Unrelate };
-                return await PersistReceipt(plan, receipt, null, edge);
-            }
             Receipt outcome;
             var dispatched = false;
             try

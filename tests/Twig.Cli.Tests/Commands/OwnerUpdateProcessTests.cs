@@ -5,6 +5,7 @@ using System.Runtime.Versioning;
 using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 using NSubstitute;
 using Shouldly;
 using Twig.Core;
@@ -97,10 +98,17 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task ChangedCaptureDuringRescheduledBeginRequiresReviewAndSendsNothing() => RunOwnerScenario(false, casLosses: true, begin: true, editPending: true);
 
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task PlanCliAfterOwnerLossNeverConsumesAnUnadmittedCapture() => RunOwnerScenario(false, interruptedPlan: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task PlanCliWithholdsScopedSettlementWithoutARecoverableBenchPublication()
+        => RunOwnerScenario(false, interruptedPlan: true, admittedPlan: true);
+
     [SupportedOSPlatform("windows")]
     private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
-        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false, bool canvas = false,
-        bool membership = false, string? late = null)
+        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false,
+        bool interruptedPlan = false, bool admittedPlan = false, bool canvas = false, bool membership = false, string? late = null)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -155,6 +163,41 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             await File.WriteAllTextAsync(Path.Combine(root, "current.json"),
                 $$"""{"privateDataDir":{{JsonSerializer.Serialize(home)}}}""");
             var review = Guid.NewGuid().ToString("D");
+            if (interruptedPlan)
+            {
+                var user = UserBenchStore.ForRegistry(bindings.RegistryPath);
+                var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Plan fixture", []), 0)).Value;
+                var status = (await user.ReadPlanStatusAsync(bench.Id)).Value;
+                (await user.ChangePlanModeAsync(status.UserInstance, bench.Id, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+                void Configure(IServiceCollection services) => services.AddSingleton<IConnectionBindingService>(bindings);
+                using var editor = (await NativeItemEditor.OpenAsync(work, bench.Id, handle!.Source, Configure, default)).Value;
+                var form = (await editor.SelectAsync((await handle.Workspace.SnapshotAsync(default)).Value.Items.Single().Key)).Value;
+                (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set(NativeProvider.Title, admittedPlan
+                    ? form.Values[NativeProvider.Title] : FieldValue.String("never published")))).IsSuccess.ShouldBeTrue();
+                var staged = (await user.ReadPlanStatusAsync(bench.Id)).Value;
+                var plan = (await NativePlanReview.ReviewAsync(work, bench.Id, staged.Sources, Configure, default)).Value;
+                var retained = (await user.RetainPlanReviewAsync(plan.Document, default)).Value;
+                if (admittedPlan)
+                {
+                    plan.Operations.ShouldBeEmpty();
+                    (await user.AdvancePlanReviewAsync(retained, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
+                    (await user.AdmitPlanCaptureAsync(retained, 0, plan.Document.Scopes.Single().Captures.Single().Id, default)).IsSuccess.ShouldBeTrue();
+                }
+                await StartOwner();
+                foreach (var (verb, state) in new[] { ("observe", "Unadmitted"), ("continue", "Unadmitted"),
+                    ("abandon-unadmitted", "Abandoned"), ("observe", "Abandoned") })
+                {
+                    var reply = await Cli(null, "plan", verb, plan.Digest, "--bench", bench.Id.ToString("D"), "-o", "json");
+                    reply.Code.ShouldBe(0, reply.Error);
+                    using var json = JsonDocument.Parse(reply.Output);
+                    json.RootElement.GetProperty("units")[0].GetProperty("state").GetString().ShouldBe(admittedPlan ? "Admitted" : state);
+                    if (admittedPlan && verb == "continue") json.RootElement.GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain("withheld");
+                }
+                (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBeFalse();
+                (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBeEmpty();
+                (await handle.Workspace.ObserveItemsAsync([form.Item], default)).Value.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("original");
+                return;
+            }
             var displayBench = Guid.NewGuid();
             CoreWorkspaceDocument? projection = null;
             if (remote == "ado" || canvas)
@@ -518,6 +561,34 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                         authority.Fields[NativeProvider.Title].Text.ShouldBe("original");
                         completed.Journal.Count(j => j.Status == OpStatus.Verified).ShouldBe(1);
                         if (editPending) completed.RetainedItems.OfType<LocalEdits>().Single().Changes[NativeProvider.Title].Text.ShouldBe("later edit");
+                        if (editPending)
+                        {
+                            var replacement = Guid.NewGuid().ToString("D");
+                            var refreshed = await Cli(null, "update", "--re-review", review, "--review", replacement, "--id", "1");
+                            refreshed.Code.ShouldBe(1, refreshed.Output + refreshed.Error);
+                            Match(refreshed.Output).GetProperty("state").GetString().ShouldBe("Queued", refreshed.Error);
+                            using var details = JsonDocument.Parse(refreshed.Output);
+                            var comparison = details.RootElement.GetProperty("replacement");
+                            comparison.GetProperty("previousDigest").GetString().ShouldNotBe(comparison.GetProperty("digest").GetString());
+                            comparison.GetProperty("previousCapture").GetString().ShouldNotBe(comparison.GetProperty("capture").GetString());
+                            comparison.GetProperty("previousReview").GetGuid().ShouldBe(Guid.Parse(review));
+                            var published = await Cli(null, "update", "--submit", replacement, "--id", "1");
+                            var deadline = Stopwatch.StartNew();
+                            while (Match(published.Output).GetProperty("state").GetString() is "Pending" or "Claimed" or "Running" or "Settling")
+                            {
+                                deadline.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(8));
+                                await Task.Delay(50);
+                                published = await Cli(null, "update", "--observe", replacement, "--id", "1");
+                            }
+                            published.Code.ShouldBe(0, published.Output + published.Error);
+                            var duplicate = await Cli(null, "update", "--submit", replacement, "--id", "1");
+                            Match(duplicate.Output).GetProperty("submission").GetGuid().ShouldBe(Match(published.Output).GetProperty("submission").GetGuid());
+                            (await Cli(null, "update", "--re-review", review, "--review", Guid.NewGuid().ToString("D"), "--id", "1")).Code.ShouldBe(2);
+                            Match((await Cli(null, "update", "--observe", review, "--id", "1")).Output).GetProperty("state").GetString().ShouldBe("ReviewRequired");
+                            var afterReplacement = (await handle.Workspace.SnapshotAsync(default)).Value;
+                            afterReplacement.Journal.Count(j => j.Status == OpStatus.Verified).ShouldBe(2);
+                            afterReplacement.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
+                        }
                         return;
                     }
                     completed.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
@@ -576,6 +647,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 var again = await Cli(null, "update", "--submit", review, "--id", "1");
                 Match(again.Output).GetProperty("state").GetString().ShouldBe("DeliveryConflict");
                 Match(again.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                (await Cli(null, "update", "--re-review", review, "--review", Guid.NewGuid().ToString("D"), "--id", "1")).Code.ShouldBe(2);
                 var state = (await handle.Workspace.SnapshotAsync(default)).Value;
                 state.Items.Single().Revision.ShouldBe(originalRevision.Revision);
                 state.Journal.Count(row => row.Status == OpStatus.Verified).ShouldBe(2);

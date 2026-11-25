@@ -91,18 +91,26 @@ internal sealed partial class ReleasedBenchStore
         cmd.CommandText = "SELECT workspace_connection FROM core_identity WHERE id=$instance";
         cmd.Parameters.AddWithValue("$instance", s.Instance.ToString("D"));
         if (cmd.ExecuteScalar() as string != s.Connection) return null;
+        cmd.Parameters.AddWithValue("$connection", s.Connection);
         cmd.CommandText = "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='core_publication_steps'";
         if ((long)cmd.ExecuteScalar()! == 1)
         {
-            cmd.CommandText = "SELECT instance,connection,version,hash FROM core_publication_steps WHERE id=$id";
+            cmd.CommandText = "SELECT instance,connection,version,hash,predecessor_hash FROM core_publication_steps WHERE id=$id";
             cmd.Parameters.AddWithValue("$id", s.Id.ToString("D"));
-            using var row = cmd.ExecuteReader();
-            if (row.Read())
-                return row.GetGuid(0) == s.Instance && row.GetString(1) == s.Connection
-                    && row.GetInt64(2) == s.After && row.GetString(3) == s.Hash ? true : null;
+            using (var row = cmd.ExecuteReader())
+                if (row.Read())
+                    return row.GetGuid(0) == s.Instance && row.GetString(1) == s.Connection
+                        && row.GetInt64(2) == s.After && row.GetString(3) == s.Hash && row.GetString(4) == s.BeforeHash ? true : null;
+            // A different atomic commit won the same predecessor's single successor slot.
+            cmd.CommandText = """
+                SELECT count(*) FROM core_publication_steps WHERE id<>$id AND instance=$instance
+                  AND connection=$connection AND version=$after AND predecessor_hash=$prior;
+                """;
+            cmd.Parameters.AddWithValue("$after", s.After);
+            cmd.Parameters.AddWithValue("$prior", s.BeforeHash);
+            if ((long)cmd.ExecuteScalar()! == 1) return false;
         }
         cmd.CommandText = "SELECT document FROM core_snapshots WHERE connection=$connection";
-        cmd.Parameters.AddWithValue("$connection", s.Connection);
         var before = cmd.ExecuteScalar() as string ?? Persistence.Serialize(new(0));
         return WorkspacePublication.Hash(before) == s.BeforeHash ? false : null;
     }

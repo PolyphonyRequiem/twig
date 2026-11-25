@@ -16,7 +16,8 @@ public sealed partial class NativePublicationConsumerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task NativeWholePlanConvergedNoEffectSettlesAfterRestartWithoutInventingRemoteReceipt(bool coreSettledBeforeLoss)
+    [InlineData(false, false)]
+    public async Task NativeWholePlanConvergedNoEffectSettlesAfterRestartWithoutInventingRemoteReceipt(bool coreSettledBeforeLoss, bool admitted = true)
     {
         var host = await CreateHumanHostAsync();
         var user = UserBenchStore.ForRegistry(host.Registry);
@@ -32,7 +33,11 @@ public sealed partial class NativePublicationConsumerTests
         review.Operations.ShouldBeEmpty();
         review.CoreDigests.ShouldBeEmpty();
         var reference = (await user.RetainPlanReviewAsync(review.Document, default)).Value;
-        (await user.AdvancePlanReviewAsync(reference, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
+        if (admitted)
+        {
+            (await user.AdvancePlanReviewAsync(reference, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
+            (await user.AdmitPlanCaptureAsync(reference, 0, review.Document.Scopes[0].Captures.Single().Id, default)).IsSuccess.ShouldBeTrue();
+        }
         if (coreSettledBeforeLoss)
         {
             using var services = EditorServices(host.Root);
@@ -43,6 +48,15 @@ public sealed partial class NativePublicationConsumerTests
         var restarted = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
         var delivered = await restarted.ContinueDeliveryAsync();
         delivered.IsSuccess.ShouldBeTrue(delivered.IsSuccess ? "" : delivered.Error.Message);
+        if (!admitted)
+        {
+            delivered.Value.Status.ShouldBe("Protected");
+            (await restarted.AbandonUnadmittedAsync()).Value.Status.ShouldBe("AbandonedUnadmitted");
+            (await restarted.ObserveAsync()).Value.Status.ShouldBe("AbandonedUnadmitted");
+            (await restarted.ContinueDeliveryAsync()).Value.Status.ShouldBe("AbandonedUnadmitted");
+            (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBeFalse();
+            return;
+        }
         delivered.Value.Status.ShouldBe("Complete", delivered.Value.Error?.Message);
         delivered.Value.VerifiedScopes.ShouldBe(0);
         delivered.Value.VerifiedOperations.ShouldBe(0);
@@ -77,6 +91,34 @@ public sealed partial class NativePublicationConsumerTests
         fresh.IsSuccess.ShouldBeTrue(fresh.IsSuccess ? "" : fresh.Error.Message);
         (await fresh.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         HumanPatchAttempts.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task RejectedFirstOperationCannotAdmitOrConsumeItsSiblingInTheSameScope()
+    {
+        var host = await CreateHumanHostAsync();
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+            foreach (var id in new[] { "42", "43" })
+            {
+                var form = (await editor.SelectAsync(ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, id))).Value;
+                (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Unit " + id)))).IsSuccess.ShouldBeTrue();
+            }
+        status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
+        _transport.RejectNextPatchStatus = System.Net.HttpStatusCode.Forbidden;
+        var original = (await review.ApplyAsync()).Value;
+        original.Units[0].State.ShouldBe("Failed");
+        original.Units[1].State.ShouldBe("Unadmitted");
+        var reopened = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
+        var abandoned = (await reopened.AbandonUnadmittedAsync()).Value;
+        abandoned.Units[0].ShouldBe(original.Units[0]);
+        abandoned.Units[1].State.ShouldBe("Abandoned");
+        (await reopened.ContinueDeliveryAsync()).Value.Units.ShouldBe(abandoned.Units);
+        HumanPatchAttempts.ShouldBe(1);
+        (await user.ReadEditorCapturesAsync(default)).Value.ShouldAllBe(c => !c.Settled);
     }
 
     [Fact]

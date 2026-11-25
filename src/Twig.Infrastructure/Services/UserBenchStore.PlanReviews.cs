@@ -12,12 +12,17 @@ namespace Twig.Infrastructure.Services;
 internal sealed record NativePlanReviewScope(NativePlanScope Scope, ImmutableArray<string> CaptureVersions,
     ImmutableArray<NativeEditorCapture> Captures, ImmutableArray<string> Previews, string? Plan);
 internal sealed record NativePlanReviewDocument(int Version, Guid Id, Guid UserInstance, long UserRevision,
-    Guid BenchId, long BenchRevision, Guid PlanId, long PlanRevision, ImmutableArray<NativePlanReviewScope> Scopes);
-internal sealed record NativePlanReviewReference(string Digest, NativePlanReviewDocument Document, bool Started, int Delivered, int Admitted);
+    Guid BenchId, long BenchRevision, Guid PlanId, long PlanRevision, ImmutableArray<NativePlanReviewScope> Scopes, string? Predecessor = null);
+internal sealed record NativePlanReviewReference(string Digest, NativePlanReviewDocument Document, bool Started, int Delivered,
+    int Admitted, bool Abandoned = false)
+{
+    internal ImmutableHashSet<Guid> Units { get; init; } = [];
+}
 internal sealed record NativePlanReviewLookup(string? Digest);
 
 public sealed partial class UserBenchStore
 {
+    private static readonly Guid PlanProcess = Guid.NewGuid();
     private async Task<Result<NativePlanReviewLookup>> LatestPlanReviewDigestAsync(Guid planId, CancellationToken ct)
     {
         try
@@ -95,10 +100,15 @@ public sealed partial class UserBenchStore
                 CREATE TABLE IF NOT EXISTS plan_review_references(
                     digest TEXT PRIMARY KEY,plan_id TEXT NOT NULL,document TEXT NOT NULL,
                     started INTEGER NOT NULL CHECK(started IN(0,1)),delivered INTEGER NOT NULL CHECK(delivered>=0),
-                    admitted INTEGER NOT NULL CHECK(admitted>=delivered)) STRICT;
-                SELECT digest,document FROM plan_review_references WHERE plan_id=$plan AND started=1;
+                    admitted INTEGER NOT NULL CHECK(admitted>=delivered), owner TEXT NOT NULL,
+                    abandoned INTEGER NOT NULL CHECK(abandoned IN(0,1))) STRICT;
+                CREATE TABLE IF NOT EXISTS plan_capture_units(
+                    digest TEXT NOT NULL REFERENCES plan_review_references(digest), capture TEXT NOT NULL,
+                    PRIMARY KEY(digest,capture)) STRICT;
+                SELECT digest,document FROM plan_review_references WHERE plan_id=$plan AND started=1 ORDER BY rowid DESC;
                 """;
             command.Parameters.AddWithValue("$plan", document.PlanId.ToString("D"));
+            var examined = new HashSet<Guid>();
             using (var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false))
                 while (await reader.ReadAsync(ct).ConfigureAwait(false))
                 {
@@ -109,19 +119,22 @@ public sealed partial class UserBenchStore
                     for (var index = 0; index < previous.Scopes.Length; index++)
                     {
                         var scope = previous.Scopes[index];
-                        var overlap = scope.Captures.Where(capture =>
-                            document.Scopes.SelectMany(value => value.Captures).Any(current => current.Id == capture.Id)).ToImmutableArray();
+                        var overlap = scope.Captures.Where(capture => document.Scopes.SelectMany(value => value.Captures)
+                            .Any(current => current.Id == capture.Id) && examined.Add(capture.Id)).ToImmutableArray();
                         if (overlap.IsEmpty)
                             continue;
-                        var untouched = await ProveUnattempted(scope, overlap, ct).ConfigureAwait(false);
+                        if (!document.Scopes.Any(current => current.Scope == scope.Scope && overlap.All(c => current.Captures.Any(v => v.Id == c.Id))))
+                            return Result<NativePlanReviewReference>.Fail(ErrorCode.Conflict, "The original capture belongs to another exact scope.");
+                        var untouched = await ProveUnattempted(scope, overlap, document.Predecessor == reader.GetString(0), ct).ConfigureAwait(false);
                         if (!untouched.IsSuccess) return Result<NativePlanReviewReference>.Fail(untouched.Error);
                     }
                 }
             command.CommandText = """
-                INSERT INTO plan_review_references VALUES($digest,$plan,$document,1,0,0);
+                INSERT INTO plan_review_references VALUES($digest,$plan,$document,1,0,0,$owner,0);
                 """;
             command.Parameters.AddWithValue("$digest", digest);
             command.Parameters.AddWithValue("$document", json);
+            command.Parameters.AddWithValue("$owner", PlanProcess.ToString("D"));
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             tx.Commit();
             return Result<NativePlanReviewReference>.Ok(new(digest, document, true, 0, 0));
@@ -142,7 +155,11 @@ public sealed partial class UserBenchStore
             command.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='plan_review_references';";
             if (Convert.ToInt32(await command.ExecuteScalarAsync(ct).ConfigureAwait(false)) == 0)
                 return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "No whole-Plan attempt exists.");
-            command.CommandText = "SELECT document,started,delivered,admitted FROM plan_review_references WHERE digest=$digest AND started=1;";
+            command.CommandText = """
+                SELECT document,started,delivered,admitted,abandoned,
+                    (SELECT group_concat(capture,',') FROM plan_capture_units WHERE digest=$digest)
+                FROM plan_review_references WHERE digest=$digest AND started=1;
+                """;
             command.Parameters.AddWithValue("$digest", digest);
             using var reader = await command.ExecuteReaderAsync(ct).ConfigureAwait(false);
             if (!await reader.ReadAsync(ct).ConfigureAwait(false))
@@ -153,20 +170,50 @@ public sealed partial class UserBenchStore
                 || reader.GetInt32(2) > document.Scopes.Length || reader.GetInt32(3) > document.Scopes.Length
                 || reader.GetInt32(3) < reader.GetInt32(2))
                 throw new InvalidDataException("The original review reference is incompatible.");
-            return Result<NativePlanReviewReference>.Ok(new(digest, document, reader.GetBoolean(1), reader.GetInt32(2), reader.GetInt32(3)));
+            var units = reader.IsDBNull(5) ? ImmutableHashSet<Guid>.Empty :
+                reader.GetString(5).Split(',').Select(value => Guid.ParseExact(value, "D")).ToImmutableHashSet();
+            if (!units.IsSubsetOf(document.Scopes.Take(reader.GetInt32(3)).SelectMany(s => s.Captures).Select(c => c.Id)))
+                throw new InvalidDataException("Original Plan admission disagrees with the captured units.");
+            return Result<NativePlanReviewReference>.Ok(new(digest, document, reader.GetBoolean(1), reader.GetInt32(2), reader.GetInt32(3), reader.GetBoolean(4)) { Units = units });
         }
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<NativePlanReviewReference>(ex); }
     }
 
-    internal async Task<Result<bool>> AdvancePlanReviewAsync(NativePlanReviewReference expected, bool started, int delivered, int admitted, CancellationToken ct)
+    internal async Task<Result<bool>> AdmitPlanCaptureAsync(NativePlanReviewReference expected, int scope, Guid capture, CancellationToken ct)
+    {
+        if (!expected.Document.Scopes[scope].Captures.Any(c => c.Id == capture))
+            return Result<bool>.Fail(ErrorCode.Conflict, "This capture is not part of the original reviewed scope.");
+        try
+        {
+            await using var db = await Open(ct).ConfigureAwait(false);
+            await using var command = db.CreateCommand();
+            command.CommandText = """
+                INSERT INTO plan_capture_units(digest,capture)
+                SELECT digest,$capture FROM plan_review_references WHERE digest=$digest AND owner=$owner
+                    AND started=1 AND abandoned=0 AND delivered=$scope AND admitted=$scope+1
+                ON CONFLICT DO NOTHING;
+                """;
+            command.Parameters.AddWithValue("$digest", expected.Digest);
+            command.Parameters.AddWithValue("$owner", PlanProcess.ToString("D"));
+            command.Parameters.AddWithValue("$scope", scope);
+            command.Parameters.AddWithValue("$capture", capture.ToString("D"));
+            return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1 ? Result<bool>.Ok(true)
+                : Result<bool>.Fail(ErrorCode.Conflict, "The original process cannot start this capture. Observe its original outcome.");
+        }
+        catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
+    }
+
+    internal async Task<Result<bool>> AdvancePlanReviewAsync(NativePlanReviewReference expected, bool started, int delivered, int admitted,
+        CancellationToken ct, bool abandon = false)
     {
         try
         {
             await using var db = await Open(ct).ConfigureAwait(false);
             await using var command = db.CreateCommand();
             command.CommandText = """
-                UPDATE plan_review_references SET started=$started,delivered=$delivered,admitted=$admitted
-                WHERE digest=$digest AND started=$beforeStarted AND delivered=$beforeDelivered AND admitted=$beforeAdmitted;
+                UPDATE plan_review_references SET started=$started,delivered=$delivered,admitted=$admitted,abandoned=max(abandoned,$abandon)
+                WHERE digest=$digest AND started=$beforeStarted AND delivered=$beforeDelivered AND admitted=$beforeAdmitted
+                    AND ($admitted=admitted OR ($admitted=admitted+1 AND owner=$owner AND abandoned=0));
                 """;
             command.Parameters.AddWithValue("$digest", expected.Digest);
             command.Parameters.AddWithValue("$started", started ? 1 : 0);
@@ -175,6 +222,8 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$beforeStarted", expected.Started ? 1 : 0);
             command.Parameters.AddWithValue("$beforeDelivered", expected.Delivered);
             command.Parameters.AddWithValue("$beforeAdmitted", expected.Admitted);
+            command.Parameters.AddWithValue("$owner", PlanProcess.ToString("D"));
+            command.Parameters.AddWithValue("$abandon", abandon ? 1 : 0);
             return await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false) == 1 ? Result<bool>.Ok(true)
                 : Result<bool>.Fail(ErrorCode.Conflict, "The original Apply reference changed. No operation was replayed.");
         }
@@ -182,7 +231,7 @@ public sealed partial class UserBenchStore
     }
 
     private async Task<Result<bool>> ProveUnattempted(NativePlanReviewScope scope,
-        ImmutableArray<NativeEditorCapture> overlap, CancellationToken ct)
+        ImmutableArray<NativeEditorCapture> overlap, bool namedPredecessor, CancellationToken ct)
     {
         var source = scope.Scope;
         var snapshot = await NativeCoreExecution.InspectAsync(new(source.StoreInstance, source.DatabasePath,
@@ -194,7 +243,7 @@ public sealed partial class UserBenchStore
         var ordinals = plan.Operations.Select((op, index) => (op, index))
             .Where(value => keys.Contains(value.op.Item)).Select(value => value.index).ToHashSet();
         var rows = snapshot.Value.Journal.Where(row => row.Digest == plan.Digest && ordinals.Contains(row.Operation)).ToArray();
-        if (rows.Any(row => row.Status != OpStatus.Planned && !DefinitivePlanEditNoEffect(snapshot.Value, row)))
+        if (rows.Any(row => row.Status != OpStatus.Planned && (!namedPredecessor || !DefinitivePlanNoEffect(snapshot.Value, row))))
             return Result<bool>.Fail(ErrorCode.Indeterminate, "Original Core journal evidence fences this remainder.");
         if (captureRegistry is null)
             return Result<bool>.Fail(ErrorCode.StorageUnavailable, "The original native registry is required to prove an untouched remainder.");
@@ -209,9 +258,9 @@ public sealed partial class UserBenchStore
         return Result<bool>.Ok(true);
     }
 
-    internal static bool DefinitivePlanEditNoEffect(StoreSnapshot snapshot, JournalEntry row)
+    internal static bool DefinitivePlanNoEffect(StoreSnapshot snapshot, JournalEntry row)
         => NativeCoreExecution.NoEffect(row) && snapshot.Plans.Single(value => value.Digest == row.Digest)
-            .Operations[row.Operation] is { Kind: OpKind.Batch, Item.IsLocal: false };
+            .Operations[row.Operation] is { Kind: OpKind.Batch, Item.IsLocal: false } or { Kind: OpKind.Create, Item.IsLocal: true };
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

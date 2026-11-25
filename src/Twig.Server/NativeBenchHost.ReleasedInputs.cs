@@ -129,7 +129,9 @@ public static partial class NativeBenchHost
                     if (saved.Acknowledged != saved.Version || saved.Write != b.Write || saved.Text is null
                         || saved.Baseline != ReleasedBenchDisplay.RevisionTag(witness.ItemRevision!))
                         throw new HttpFailure(409, "ReviewRequired", "The acknowledged input changed; private text was retained.");
-                    executed = await owner.CanvasUpdate(["update", b.Field, "--stdin", "--id", b.Item, "--review", review, "--prepare"],
+                    executed = await owner.CanvasUpdate(receipt.Predecessor is { } predecessor
+                        ? ["update", "--re-review", predecessor.ToString("D"), "--review", review, "--id", b.Item]
+                        : ["update", b.Field, "--stdin", "--id", b.Item, "--review", review, "--prepare"],
                         witness.InputSource, witness.ItemRevision, () => Recheck() is not null, saved.Text, http.RequestAborted);
                 }
                 else executed = await owner.CanvasUpdate(["update", "--" + b.Mode, review, "--id", b.Item], witness.InputSource,

@@ -31,6 +31,8 @@ public static class CommandEndpoint
         return PipeName(data!, id);
     }
 
+    internal static string ExecutionPipe(Guid authority, Guid boot) => $"twig-command-v2-{authority:N}-{boot:N}";
+
     public static void RequireLocalPath(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path)
@@ -38,7 +40,7 @@ public static class CommandEndpoint
             throw new InvalidDataException("A local absolute path is required.");
     }
 
-    private static string ReadSmall(string file, int maximum)
+    internal static string ReadSmall(string file, int maximum)
     {
         for (FileSystemInfo? entry = new FileInfo(Path.GetFullPath(file)); entry != null;
             entry = entry is FileInfo f ? f.Directory : ((DirectoryInfo)entry).Parent)

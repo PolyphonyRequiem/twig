@@ -18,6 +18,25 @@ workflows, and human-only Canvas Save/Apply on Windows x64. Linux x64 supports t
 headless command host only; there is no HTTP listener or Canvas fallback.
 Install the server separately from the CLI before running work-item commands.
 
+### Isolated execution-owner qualification (Windows)
+
+`eng\Test-ExecutionOwner.ps1` runs against build outputs, not an installed server.
+Pass the matched `-Server`, `-Cli`, `-CanvasHost` and CanvasHost.Tests `-ProxyHarness`,
+the pinned `-OldCli`, `-OldServer`, `-OldCanvasHostDll`, and the thumbprint of an
+already trusted localhost `-Certificate`. The script creates a private GUID-named
+fixture beneath LocalApplicationData, selects a free port, and removes its own
+processes and data. It does not install packages, trust a certificate, or select
+a production workspace.
+
+Only this fixture negotiates `local-execution-v2`. Its port, certificate, executable
+and canonical metadata home must agree before probing or starting a server.
+The OS-held home lease outlives any request timeout. The v1 discovery mirror
+and refusal listener exist for old clients, not for executing commands or Stop.
+The fixture admits `bench create <name> -o json` and `bench list -o json` in
+the owner to demonstrate a shared store; unqualified CLI routes never fall back
+to an executable worker. This does **not** activate a release, fence a live old
+installation, or qualify an installer for cold cutover.
+
 ## Install the release package
 
 From [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases),

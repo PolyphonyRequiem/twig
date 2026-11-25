@@ -14,7 +14,9 @@ public sealed record CanvasRegistration(Guid ViewId, string PresentationCapabili
 public sealed record Ack(bool Acknowledged = true);
 public sealed record Failure(string Code, string Message);
 public sealed record ServiceStatus(string Protocol, string DataMode, bool CanvasDefaultDeny,
-    Guid ServerId = default, string? ServerVersion = null, string[]? Capabilities = null);
+    Guid ServerId = default, string? ServerVersion = null, string[]? Capabilities = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? ExecutionSession = null);
 public sealed record LayoutBody(string Layout);
 public sealed record ViewBody(long ExpectedRevision, Guid? BenchId, string Layout, Guid? GroupSource, string? GroupField);
 public sealed record ViewPreferences(long Revision, Guid? BenchId, string Layout, Guid? GroupSource, string? GroupField);

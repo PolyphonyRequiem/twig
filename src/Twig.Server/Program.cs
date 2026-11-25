@@ -7,6 +7,16 @@ using Bench.Infrastructure;
 using Twig.Server;
 using Twig.Infrastructure.Services;
 
+var fixtureRequested = Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null;
+var reservedHome = Twig.OwnerFixtureSelection.IsReserved(Environment.GetEnvironmentVariable("TWIG_USER_HOME"));
+if ((fixtureRequested || reservedHome || args is ["--commands-only", "--data-dir", var selectedData]
+        && Twig.OwnerFixtureSelection.IsReserved(selectedData))
+    && args.FirstOrDefault() is CommandWorkerSupervisor.WorkerMode or "--commands-only")
+{
+    Console.Error.WriteLine("Only the fixture authority owner may compose command services.");
+    Environment.ExitCode = 2;
+    return;
+}
 if (args is [CommandWorkerSupervisor.WorkerMode])
 {
     try
@@ -59,9 +69,30 @@ for (var index = 0; index < args.Length; index++)
         case "--https-certificate" when ++index < args.Length: certificateThumbprint = args[index]; break;
         case "--canvas-root" when ++index < args.Length: canvasRoot = args[index]; break;
         case "--ensure-running" or "--status" or "--stop" when lifecycle is null: lifecycle = args[index]; break;
+        case "--owner-stop-v2" when fixtureRequested && lifecycle is null: lifecycle = args[index]; break;
         case "--mcp": mcp = true; break;
         default: throw new ArgumentException("Options: --data-dir <private absolute directory> --port <stable localhost port> --https-certificate <existing trusted localhost certificate thumbprint> [--canvas-root <verified canvas installation root>] [--mcp]. --mcp is a read-only stdio bridge to the already-running selected server. Benches use the native per-user store.");
     }
+}
+Twig.OwnerFixtureSelection? fixture;
+try
+{
+    fixture = Twig.OwnerFixtureSelection.Read();
+    if (fixture is null && (reservedHome || Twig.OwnerFixtureSelection.IsReserved(data)))
+        throw new InvalidDataException("This private metadata home requires its owner fixture selection.");
+    fixture?.VerifyLaunch(data, port, certificateThumbprint);
+    if (fixture is not null)
+    {
+        data = PrivateCommandDirectory.Open(fixture.Home, executionOwner: true);
+        if (mcp) throw new InvalidDataException("The isolated owner selection excludes the MCP bridge.");
+        if (lifecycle == "--stop") throw new InvalidDataException("Legacy Stop is not available for this execution owner.");
+    }
+}
+catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or KeyNotFoundException)
+{
+    Console.Error.WriteLine(error.Message);
+    Environment.ExitCode = 2;
+    return;
 }
 if (certificateThumbprint is null || port is 0 or 443 || !OperatingSystem.IsWindows())
 {
@@ -81,6 +112,8 @@ catch (Exception error) when (error is ArgumentException or InvalidOperationExce
     return;
 }
 using var certificateLease = certificate;
+var buildId = typeof(ServerInstance).Module.ModuleVersionId;
+Func<Guid>? executionOwner = fixture is null ? null : () => fixture.VerifyRun(buildId).Boot;
 if (mcp)
 {
     if (lifecycle != null) throw new ArgumentException("Run server lifecycle operations separately from the stdio MCP transport.");
@@ -116,50 +149,67 @@ if (lifecycle != null)
         {
             await ServerLauncher.EnsureRunningAsync(data, port, certificate, () =>
                 ServerLauncher.StartInstalled(Environment.ProcessPath ?? throw new InvalidOperationException("Missing installed executable."),
-                    args.Where(argument => argument != "--ensure-running")), default);
+                    args.Where(argument => argument != "--ensure-running")), default, executionOwner);
             running = true;
         }
         else if (lifecycle == "--status")
-            running = await ServerLauncher.IsRunningAsync(data, port, certificate, default);
+            running = await ServerLauncher.IsRunningAsync(data, port, certificate, default, executionOwner);
         else
         {
-            await ServerLauncher.StopAsync(data, port, certificate, default);
+            await ServerLauncher.StopAsync(data, port, certificate, default, executionOwner);
             running = false;
         }
         Console.WriteLine(running ? "{\"running\":true}" : "{\"running\":false}");
     }
     catch (Exception error) when (error is IOException or InvalidOperationException or HttpRequestException
         or OperationCanceledException or JsonException or KeyNotFoundException or WaitHandleCannotBeOpenedException
-        or UnauthorizedAccessException or FormatException or System.Net.Sockets.SocketException or System.ComponentModel.Win32Exception)
+        or UnauthorizedAccessException or FormatException or ArgumentException or InvalidDataException
+        or System.Net.Sockets.SocketException or System.ComponentModel.Win32Exception)
     {
         Console.Error.WriteLine("The requested server state could not be confirmed. " + error.Message);
         Environment.ExitCode = 1;
     }
     return;
 }
-NativeConnectionSetupGateway setup;
-try { setup = new(new NativeConnectionSetup(NativeConnectionSetup.ResolveUserHome())); }
+Directory.CreateDirectory(data);
+ServerInstance lease;
+try { lease = ServerInstance.Acquire(data, fixture is null ? null : Guid.Parse(Path.GetFileName(fixture.Root))); }
+catch (IOException error) when (fixture is not null)
+{
+    Console.Error.WriteLine("The selected authority lease was not acquired. " + error.Message);
+    Environment.ExitCode = 2;
+    return;
+}
+using var instance = lease;
+using var pinnedSelection = fixture?.HoldSelection();
+NativeConnectionSetupGateway? setup;
+try { setup = fixture is null ? new(new NativeConnectionSetup(NativeConnectionSetup.ResolveUserHome())) : null; }
 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
 {
     Console.Error.WriteLine("Native connection setup configuration is invalid. No metadata-home fallback was used. " + error.Message);
     Environment.ExitCode = 1;
     return;
 }
-Directory.CreateDirectory(data);
-using var instance = ServerInstance.Acquire(data);
 var serverId = instance.Id;
 var definitions = UserBenchStore.ForCurrentUser();
 var changes = new CatalogChanges();
-var native = NativeSourceAdapter.ForLocalUser(new NativeSourceGateway(), changes);
+var native = fixture is null ? NativeSourceAdapter.ForLocalUser(new NativeSourceGateway(), changes)
+    : new NativeSourceAdapter(Path.Combine(data, "native-evidence"), new NativeSourceGateway(), changes);
 var panel = new NativePanel(definitions, new NativeSourceGateway(), native);
-var sessions = new ViewSessions(Path.Combine(data, "presentation"));
 var processInstance = Guid.NewGuid();
-using var stopSignal = ServerLauncher.CreateStopSignal(processInstance);
+var sessions = new ViewSessions(Path.Combine(data, fixture is null ? "presentation" : "presentation-v2"));
+using var stopSignal = ServerLauncher.CreateStopSignal(processInstance, fixture is not null);
+fixture?.RecordRun(processInstance, buildId);
 await using var app = NativeBenchHost.Build(new(port, data, Certificate: certificate, WindowsSignIn: true,
-    CanvasInstallRoot: canvasRoot, ServerId: serverId, ProcessInstance: processInstance), panel, sessions, changes, setup);
+    CanvasInstallRoot: canvasRoot, ServerId: serverId, ProcessInstance: processInstance, ExecutionV2: fixture is not null), panel, sessions, changes, setup);
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
     null, Timeout.Infinite, executeOnlyOnce: true);
-await using var commands = new CommandListener(data, serverId, app.Lifetime.ApplicationStopping);
+var stopping = app.Lifetime.ApplicationStopping;
+await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)
+    : new CommandListener(Twig.CommandEndpoint.ExecutionPipe(serverId, processInstance),
+        new OwnerCommandEndpoint(processInstance, data, definitions).ServeAsync, stopping);
+await using var legacy = fixture is null ? null : new CommandListener(Twig.CommandEndpoint.PipeName(data, serverId),
+    OwnerCommandEndpoint.RefuseLegacyAsync, stopping);
 await app.StartAsync();
 var endpoint = $"https://localhost:{port}";
 await File.WriteAllTextAsync(Path.Combine(data, "endpoint.json"),
@@ -171,6 +221,7 @@ Console.WriteLine("Save/Apply are human-only. Agent reads and drafts require exa
 Console.WriteLine("The panel uses same-owner Windows sign-in; SDK controls remain acknowledgement-only. Command: stop.");
 _ = Task.Run(() =>
 {
+    if (fixture is not null) return;
     while (!app.Lifetime.ApplicationStopping.IsCancellationRequested)
     {
         var command = Console.ReadLine();
@@ -180,7 +231,7 @@ _ = Task.Run(() =>
     }
 });
 var shutdown = app.WaitForShutdownAsync();
-if (await Task.WhenAny(shutdown, commands.Completion) == commands.Completion)
+if (await Task.WhenAny(shutdown, commands.Completion, legacy?.Completion ?? shutdown) != shutdown)
     app.Lifetime.StopApplication();
 await shutdown;
 stopWait.Unregister(null);

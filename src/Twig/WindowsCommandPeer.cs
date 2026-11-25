@@ -36,6 +36,12 @@ internal static partial class WindowsCommandPeer
         }
     }
 
+        internal static void VerifyProcess(SafePipeHandle pipe, int expected)
+        {
+            if (!GetNamedPipeServerProcessId(pipe, out var pid) || pid != expected)
+                throw new UnauthorizedAccessException("The connected pipe is not the selected owner process.");
+    }
+
     [LibraryImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static partial bool GetNamedPipeServerProcessId(SafePipeHandle pipe, out uint serverProcessId);

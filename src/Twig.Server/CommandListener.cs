@@ -13,15 +13,17 @@ internal sealed class CommandListener : IAsyncDisposable
     public Task Completion { get; }
 
     public CommandListener(string data, Guid serverId, CancellationToken token = default)
+        : this(Twig.CommandEndpoint.PipeName(data, serverId), CommandWorkerSupervisor.RelayAsync, token) { }
+
+    internal CommandListener(string name, Func<Stream, CancellationToken, Task> serve, CancellationToken token)
     {
-        var name = Twig.CommandEndpoint.PipeName(data, serverId);
         // Bind before reporting readiness (or starting Kestrel). Do not join an existing server.
         var first = Open(name, first: true);
         stopping = CancellationTokenSource.CreateLinkedTokenSource(token);
-        Completion = ListenAsync(name, first);
+        Completion = ListenAsync(name, first, serve);
     }
 
-    private async Task ListenAsync(string name, NamedPipeServerStream next)
+    private async Task ListenAsync(string name, NamedPipeServerStream next, Func<Stream, CancellationToken, Task> serve)
     {
         var active = new List<Task>(Workers);
         var token = stopping.Token;
@@ -40,7 +42,7 @@ internal sealed class CommandListener : IAsyncDisposable
                 var connected = next;
                 // Keep the endpoint bound even when the previous client disconnects immediately.
                 next = Open(name, first: false);
-                active.Add(Task.Run(() => ServeAsync(connected, token)));
+                active.Add(Task.Run(() => ServeAsync(connected, serve, token)));
             }
         }
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
@@ -52,16 +54,17 @@ internal sealed class CommandListener : IAsyncDisposable
         }
     }
 
-    private static async Task ServeAsync(NamedPipeServerStream client, CancellationToken token)
+    private static async Task ServeAsync(NamedPipeServerStream client, Func<Stream, CancellationToken, Task> serve, CancellationToken token)
     {
         using (client)
         using (var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token))
         {
             // Includes an interactive editor session (the native client allows five minutes).
             lifetime.CancelAfter(TimeSpan.FromMinutes(10));
-            try { await CommandWorkerSupervisor.RelayAsync(client, lifetime.Token); }
+            try { await serve(client, lifetime.Token); }
             // A disconnected or failed request has an unknown outcome. Close it without replay.
-            catch (Exception e) when (e is IOException or OperationCanceledException or Win32Exception) { }
+            catch (Exception e) when (e is IOException or InvalidDataException or System.Text.Json.JsonException or System.Text.DecoderFallbackException
+                or OperationCanceledException or Win32Exception) { }
         }
     }
 

@@ -9,7 +9,7 @@ internal static class PrivateCommandDirectory
 {
     private const UnixFileMode Private = UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute;
 
-    internal static string Open(string path)
+    internal static string Open(string path, bool executionOwner = false)
     {
         Twig.CommandEndpoint.RequireLocalPath(path);
         var full = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
@@ -35,7 +35,7 @@ internal static class PrivateCommandDirectory
                 dir.Create(acl);
             }
             CheckWindows(dir.GetAccessControl(), user);
-            foreach (var file in Metadata(dir))
+            foreach (var file in Metadata(dir, executionOwner))
                 CheckWindows(file.GetAccessControl(), user);
         }
         else if (OperatingSystem.IsLinux())
@@ -54,15 +54,17 @@ internal static class PrivateCommandDirectory
             if (File.GetUnixFileMode(full) != Private)
                 throw new InvalidDataException("The private server directory must have mode 0700.");
             CheckLinux(full, directory: true);
-            foreach (var file in Metadata(dir)) CheckLinux(file.FullName, directory: false);
+            foreach (var file in Metadata(dir, executionOwner)) CheckLinux(file.FullName, directory: false);
         }
         else throw new PlatformNotSupportedException("The command host requires Windows or Linux.");
         return full;
     }
 
-    private static IEnumerable<FileInfo> Metadata(DirectoryInfo dir)
+    private static IEnumerable<FileInfo> Metadata(DirectoryInfo dir, bool executionOwner)
     {
-        foreach (var name in new[] { "server.lock", "server.id" })
+        string[] names = executionOwner ? ["server.lock", "server.id", "owner.fixture", "owner.run", "current.json", "launch.lock"]
+            : ["server.lock", "server.id"];
+        foreach (var name in names)
         {
             var file = new FileInfo(Path.Combine(dir.FullName, name));
             RejectLink(file);

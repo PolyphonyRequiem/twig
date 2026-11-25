@@ -62,6 +62,23 @@ with the original inputs, in batches of up to three CAS attempts. Restart does
 not resume its provider call stack. A closed barrier needs original no-send
 proof; a post-dispatch observation inspects the original attempt, never resending it.
 
+`twig update --re-review <previous-review-uuid> --review <new-uuid> --id <item>`
+prepares a replacement only after inspecting the exact original attempt on the
+same connection and proving no effect. It keeps the frozen field value or note,
+reports the old and new executable digests, captures and revision evidence, and
+does not submit. Submit the new UUID separately. A predecessor can have only one
+replacement; neither reconnect nor `DeliveryConflict` authorizes one.
+
+For a retained Plan in the isolated Twig qualification database, use
+`twig plan observe <digest> --bench <bench-uuid> -o json`. Each unit identifies
+its scope, capture, Core operation and original attempt (if any). `continue`
+only settles already-admitted, eligible local work; `abandon-unadmitted`
+permanently stops admissions on that digest, without consuming any drafts or
+releasing attempted-unit claims. Neither verb publishes provider work. An
+interrupted local relationship's edge and Applied outcome are one SQLite commit:
+recovery verifies the committed edge or records that the original transaction
+did not commit. No remote acknowledgement is inferred.
+
 The qualified pipe admits exactly two provider writers: reviewed scalar `update`
 (all three providers) and reviewed `note` (ADO and GitHub). `--prepare`, `--submit`,
 `--observe` and `--cancel` change original action state or settle its receipt;

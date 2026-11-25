@@ -8,7 +8,14 @@ using Twig.Infrastructure.Services;
 
 namespace Twig.Commands;
 
-internal sealed record UpdateReply(string Status, UpdateIdentity[] Matches, bool Ambiguous = false);
+internal sealed record ReplacementReview(Guid PreviousReview, Guid PreviousAttempt, string PreviousDigest, string Digest,
+    string PreviousCapture, string Capture, string PreviousRevision, string Revision,
+    string PreviousSchema, string Schema, string? PreviousPolicyRevision, string? PolicyRevision);
+internal sealed record UpdateReply(string Status, UpdateIdentity[] Matches, bool Ambiguous = false)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public ReplacementReview? Replacement { get; init; }
+}
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 [JsonSerializable(typeof(UpdateReply))]
@@ -75,10 +82,14 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             if (args is [.., "-o", "json"]) args = args[..^2];
             string item, mode;
             Guid review = default;
+            Guid? predecessorReview = null;
             string? field = null, value = null;
             var comment = false;
             switch (args)
             {
+                case ["update", "--re-review", var predecessor, "--review", var successor, "--id", var id]:
+                    item = id; predecessorReview = Guid.ParseExact(predecessor, "D"); review = Guid.ParseExact(successor, "D");
+                    mode = "prepare"; break;
                 case ["update", "--find", "--id", var id]: item = id; mode = "find"; break;
                 case ["note", "--id", var id, "--text", var text, "--review", var rev, .. var tail] when tail is [] or ["--prepare"]:
                     item = id; value = text; comment = true; review = Guid.ParseExact(rev, "D"); mode = tail.Length == 0 ? "submit" : "prepare"; break;
@@ -133,6 +144,34 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             if (authorized.Items is not [var permitted] || permitted.Key != key)
                 throw new InvalidDataException("The selected actor could not observe the exact item.");
             var origin = new UpdateOrigin(handle.Source.StoreInstance, workspace.Connection, handle.Source.PrincipalId, key.NativeId!);
+            OriginalUpdate? replaced = null;
+            if (predecessorReview is { } previous)
+            {
+                var prior = Require(await actions.OriginalUpdateAsync(origin, previous, ct));
+                replaced = prior;
+                if (previous == review || prior.Identity.State is not ("NotStarted" or "ReviewRequired" or "RejectedNoEffect"))
+                    throw new InvalidDataException("Only an exact predecessor with attributable no-effect proof may be re-reviewed.");
+                var proof = Require(await workspace.InspectUpdateAsync(prior, ct));
+                if (proof is not ("NotStarted" or "RejectedNoEffect")) throw new InvalidDataException("No attributable no-effect proof.");
+                var opId = UserBenchStore.ReplacementOperationId(review, prior);
+                var existing = await actions.OriginalUpdateAsync(origin, review, ct);
+                if (existing.IsSuccess)
+                {
+                    if (existing.Value.Plan.Operations.Single().Id != opId) throw new InvalidDataException("Replacement identity already bound.");
+                }
+                else
+                {
+                    if (existing.Error.Code != ErrorCode.NotFound) throw new InvalidDataException(existing.Error.Message);
+                    var observed = Require(await workspace.ReadAsync(key, ct, skipUnchanged: true));
+                    var state = Require(await workspace.SnapshotAsync(ct));
+                    var capture = workspace.OwnerCapture(state.RetainedItems.SingleOrDefault(draft => draft.Key == key));
+                    var old = prior.Plan.Operations.Single();
+                    var op = new Op(opId, old.Kind, key, observed.Revision, old.Fields, body: old.Body, concurrency: old.Concurrency);
+                    var plan = Require(await workspace.PrepareAsync([op], ct, retainPolicyEvidence: true,
+                        binding: new(review, origin.Store, origin.Actor, capture)));
+                    Require(await actions.BindUpdateAsync(origin, review, prior.InputHash, plan, boot, ct, prior));
+                }
+            }
             if (mode == "find")
             {
                 var found = Require(await actions.FindUpdatesAsync(origin, ct));
@@ -190,7 +229,12 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             acquisitions.Release();
             reading = false;
             await acknowledgeBinding(JsonSerializer.Serialize(new UpdateReply(bound.State, [bound]), UpdateReplyJson.Default.UpdateReply));
-            if (mode == "prepare") return Reply(new(bound.State, [bound]));
+            if (mode == "prepare") return Reply(new(bound.State, [bound]) {
+                Replacement = replaced is null ? null : new(replaced.Identity.Review, replaced.Attempt, replaced.Plan.Digest, original.Plan.Digest,
+                    replaced.Plan.Review!.Capture, original.Plan.Review!.Capture, replaced.Plan.Operations.Single().ExpectedRevision!.Token,
+                    original.Plan.Operations.Single().ExpectedRevision!.Token, replaced.Plan.SchemaFingerprint, original.Plan.SchemaFingerprint,
+                    replaced.Plan.PolicyRevision, original.Plan.PolicyRevision)
+            });
             if (mode == "cancel" && bound.State == "Queued")
             {
                 Require(await actions.MoveUpdateAsync(original, "Cancelled", boot, ct));

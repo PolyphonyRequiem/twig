@@ -287,6 +287,8 @@ public sealed partial class GitHubCoreSpineTests
         var original = await fixture.SnapshotAsync();
         original.Journal.Single().Status.ShouldBe(OpStatus.Applied);
         var receipt = original.Journal.Single().Receipts.Single();
+        receipt.Evidence.ShouldContain("local:edge-transaction");
+        receipt.Evidence.ShouldNotContain(value => value.StartsWith("request-sha256:", StringComparison.Ordinal));
         var edge = original.Relationships.Single();
         var appliedReview = (await editor.ReadLocalRelationshipReviewsAsync()).Value.ShouldHaveSingleItem();
         appliedReview.Outcome!.Journal!.Status.ShouldBe(OpStatus.Applied);
@@ -341,13 +343,14 @@ public sealed partial class GitHubCoreSpineTests
         original.Plans.Single().Digest.ShouldBe(review.Plan.Digest);
         (await user.ReadEditorCapturesAsync(default)).Value.Single().SameAs(captured).ShouldBeTrue();
         (await editor.ApplyLocalRelationshipAsync(review.CaptureId, review.Plan.Digest)).IsSuccess.ShouldBeFalse();
-        (await editor.ContinueLocalRelationshipAsync(review.CaptureId, review.Plan.Digest)).Value.Journal!.Status.ShouldBe(OpStatus.Applying);
+        var resolved = (await editor.ContinueLocalRelationshipAsync(review.CaptureId, review.Plan.Digest)).Value;
+        resolved.Journal!.Status.ShouldBe(OpStatus.Failed, resolved.Error?.Message);
         using var reopened = (await fixture.OpenAsync()).Value;
         var observed = await reopened.ObserveLocalRelationshipAsync(review.CaptureId, review.Plan.Digest);
         observed.IsSuccess.ShouldBeTrue();
-        observed.Value.Journal!.Status.ShouldBe(OpStatus.Applying);
+        observed.Value.Journal!.DefinitivelyHadNoEffect.ShouldBeTrue();
         observed.Value.Error.ShouldNotBeNull();
-        AssertSameLocalState(original, await fixture.SnapshotAsync());
+        (await fixture.SnapshotAsync()).Relationships.ShouldBeEmpty();
         fixture.Writes.ShouldBe(0);
     }
 

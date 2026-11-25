@@ -25,6 +25,8 @@ public sealed partial class UserBenchStore
             submission TEXT NOT NULL REFERENCES update_admission(submission), resource TEXT NOT NULL, mutation INTEGER NOT NULL,
             PRIMARY KEY(submission,resource)) STRICT;
         CREATE INDEX IF NOT EXISTS update_claim_resource ON update_claims(resource,submission);
+        CREATE TABLE IF NOT EXISTS update_replacements(
+            predecessor TEXT PRIMARY KEY REFERENCES update_actions(attempt), successor TEXT NOT NULL UNIQUE) STRICT;
         """;
 
     private static string OriginKey(UpdateOrigin origin) => JsonSerializer.Serialize(new[] {
@@ -32,7 +34,8 @@ public sealed partial class UserBenchStore
         origin.Connection.Destination, origin.Connection.IdentityRef, origin.Actor, origin.Item
     }, UpdateJson.Default.StringArray);
 
-    internal Task<Result<UpdateIdentity>> BindUpdateAsync(UpdateOrigin origin, Guid review, string hash, Plan plan, Guid boot, CancellationToken ct)
+    internal Task<Result<UpdateIdentity>> BindUpdateAsync(UpdateOrigin origin, Guid review, string hash, Plan plan, Guid boot,
+        CancellationToken ct, OriginalUpdate? predecessor = null)
         => UpdateTransaction(async (command, token) =>
         {
             if (review == Guid.Empty || boot == Guid.Empty || origin.Store == Guid.Empty || string.IsNullOrWhiteSpace(origin.Actor)
@@ -42,6 +45,32 @@ public sealed partial class UserBenchStore
                 return Result<UpdateIdentity>.Fail(ErrorCode.InvalidInput, "A reviewed update must bind one exact work item and revision.");
             command.Parameters.AddWithValue("$origin", OriginKey(origin));
             command.Parameters.AddWithValue("$review", review.ToString("D"));
+            command.Parameters.AddWithValue("$hash", hash);
+            if (predecessor is not null)
+            {
+                command.Parameters.AddWithValue("$predecessor", predecessor.Attempt.ToString("D"));
+                command.Parameters.AddWithValue("$priorDigest", predecessor.Plan.Digest);
+                command.CommandText = """
+                    INSERT INTO update_replacements(predecessor,successor)
+                    SELECT attempt,$review FROM update_actions
+                    WHERE origin=$origin AND attempt=$predecessor AND digest=$priorDigest AND input_hash=$hash
+                      AND state IN ('NotStarted','ReviewRequired','RejectedNoEffect')
+                    ON CONFLICT DO NOTHING;
+                    """;
+                if (plan.Operations[0].Id != ReplacementOperationId(review, predecessor)
+                    || await command.ExecuteNonQueryAsync(token) != 1)
+                    return Result<UpdateIdentity>.Fail(ErrorCode.Conflict, "The named predecessor is unavailable or already replaced.");
+            }
+            else
+            {
+                command.CommandText = """
+                    SELECT count(*) FROM update_actions a WHERE origin=$origin AND input_hash=$hash AND review<>$review
+                      AND state IN ('NotStarted','ReviewRequired','RejectedNoEffect','DeliveryConflict','ObservationNeeded','Partial')
+                      AND NOT EXISTS(SELECT 1 FROM update_replacements r WHERE r.predecessor=a.attempt);
+                    """;
+                if (Convert.ToInt64(await command.ExecuteScalarAsync(token)) != 0)
+                    return Result<UpdateIdentity>.Fail(ErrorCode.Conflict, "Inspect the original attempt. Replacement requires explicit no-effect re-review.");
+            }
             command.CommandText = """
                 INSERT INTO update_actions(origin,review,action,submission,input_hash,digest,plan,attempt,state,owner)
                 VALUES($origin,$review,$action,$submission,$hash,$digest,$plan,$attempt,'Queued',$boot)
@@ -51,7 +80,6 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$boot", boot.ToString("D"));
             command.Parameters.AddWithValue("$submission", Guid.NewGuid().ToString("D"));
             command.Parameters.AddWithValue("$attempt", Guid.NewGuid().ToString("D"));
-            command.Parameters.AddWithValue("$hash", hash);
             command.Parameters.AddWithValue("$digest", plan.Digest);
             command.Parameters.AddWithValue("$plan", Core.Core.PlanBytes(plan));
             await command.ExecuteNonQueryAsync(token);
@@ -62,6 +90,9 @@ public sealed partial class UserBenchStore
                 ? Result<UpdateIdentity>.Ok(Identity(reader))
                 : Result<UpdateIdentity>.Fail(ErrorCode.Conflict, "This review already binds different immutable intent.");
         }, ct);
+
+    internal static string ReplacementOperationId(Guid review, OriginalUpdate prior)
+        => $"{review:D}:{prior.Plan.Digest}:{prior.Attempt:D}";
 
     internal Task<Result<ImmutableArray<UpdateIdentity>>> FindUpdatesAsync(UpdateOrigin origin, CancellationToken ct)
         => UpdateTransaction(async (command, token) =>

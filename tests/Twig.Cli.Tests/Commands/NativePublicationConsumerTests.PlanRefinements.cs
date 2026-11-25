@@ -44,7 +44,7 @@ public sealed partial class NativePublicationConsumerTests
         var snapshot = (await store.ReadAsync(host.Stamp.Connection, default)).Value;
         snapshot.RetainedItems.Single().Key.ShouldBe(original.Operations[1].Item);
         (await user.ReadEditorCapturesAsync(default)).Value.Count(capture => capture.Settled).ShouldBe(1);
-        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
+        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default, original.Digest);
         if (uncertain) fresh.IsSuccess.ShouldBeFalse();
         else
         {
@@ -188,9 +188,11 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(1);
         _transport.FailSchema = false;
         _transport.SchemaFailureStatus = null;
-        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
+        (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).IsSuccess.ShouldBeFalse();
+        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default, original.Digest);
         fresh.IsSuccess.ShouldBeTrue(fresh.IsSuccess ? "" : fresh.Error.Message);
         fresh.Value.Digest.ShouldNotBe(original.Digest);
+        fresh.Value.CoreDigests.Single().ShouldNotBe(original.CoreDigests.Single());
         (await fresh.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         HumanPatchAttempts.ShouldBe(2);
         _transport.CommittedWrites.ShouldBe(1);

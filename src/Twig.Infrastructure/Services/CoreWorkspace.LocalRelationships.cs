@@ -80,19 +80,39 @@ internal sealed partial class CoreWorkspace
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Result<Receipt>.Fail(current.Error);
         var row = current.Value.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == 0);
-        if (row?.Status != OpStatus.Applied)
-            return Result<Receipt>.Fail(ErrorCode.Indeterminate, "Only the original durable Applied receipt can continue separate verification; no replay.");
+        if (row?.Status is not (OpStatus.Applied or OpStatus.Applying))
+            return Result<Receipt>.Fail(ErrorCode.Indeterminate, "Only the admitted local transaction can be observed; no replay.");
         if (executionRegistryPath is not null)
         {
             if (store is not Twig.Store.Sqlite.SqliteStore native || native.InstanceId != storeInstance)
                 return Result<Receipt>.Fail(ErrorCode.StorageUnavailable, "The original authoritative Core store is unavailable.");
-            var gate = await NativeCoreExecution.PublishingAsync(executionRegistryPath, ct).ConfigureAwait(false);
-            if (!gate.IsSuccess) return Result<Receipt>.Fail(gate.Error);
+            if (row.Status == OpStatus.Applied)
+            {
+                var gate = await NativeCoreExecution.PublishingAsync(executionRegistryPath, ct).ConfigureAwait(false);
+                if (!gate.IsSuccess) return Result<Receipt>.Fail(gate.Error);
+            }
+            using var registry = new Persistence.SqliteSystemWorktreeRegistry(executionRegistryPath, TimeProvider.System);
+            var inventory = await registry.ReadCoreGateAsync(ct).ConfigureAwait(false);
+            if (!inventory.IsSuccess || !inventory.Value.Sources.Contains(new(storeInstance, native.DatabasePath, worktreeRoot, connection)))
+                return Result<Receipt>.Fail(ErrorCode.Indeterminate, "Original local store authority is unavailable.");
+            var references = await registry.CoreAttemptReferencesAsync(storeInstance, ct).ConfigureAwait(false);
+            if (!references.IsSuccess || !references.Value.Any(r => r.Digest == plan.Digest && r.Operation == 0 && r.Attempt == row.Attempt)
+                || !NativeCoreExecution.ReferencesMatch(current.Value, references.Value))
+                return Result<Receipt>.Fail(ErrorCode.Indeterminate, "The original local attempt reference could not be verified.");
         }
         var policy = await CheckCurrentPolicyAsync(plan, ct).ConfigureAwait(false);
         if (!policy.IsSuccess) return Result<Receipt>.Fail(policy.Error);
         using var targets = executionRegistryPath is null ? null : ConnectionOperationGate.AcquireCoreTargets(
             executionRegistryPath, NativeCoreExecution.OperationKeys(plan.Operations[0], current.Value, connection));
+        if (row.Status == OpStatus.Applying)
+        {
+            // A local edge and its Applied row commit together. Under the original writer
+            // lease, Applying therefore proves that the edge transaction never committed.
+            var receipt = new Receipt(plan.Digest, 0, row.Attempt, OpStatus.Failed, ["local:transaction-not-committed"],
+                error: new(ErrorCode.Conflict, "The original local relationship transaction had no effect."));
+            var recorded = await LocalCommit.ReceiptAsync(store, plan, receipt, state => state).ConfigureAwait(false);
+            return recorded.IsSuccess ? Result<Receipt>.Ok(receipt) : Result<Receipt>.Fail(recorded.Error);
+        }
         return await provider.RecoverAsync(plan, 0, ct).ConfigureAwait(false);
     }
 }

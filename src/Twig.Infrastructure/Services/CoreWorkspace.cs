@@ -925,7 +925,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     internal async Task<Result<CoreExecution>> SaveDraftSetAsync(IEnumerable<CoreDraftPreview> previews,
-        Plan? plan, CancellationToken ct, long? expectedStoreVersion = null)
+        Plan? plan, CancellationToken ct, long? expectedStoreVersion = null, Func<ItemKey, Task<Result<bool>>>? admitCapture = null)
     {
         using var operation = ConnectionOperationGate.Acquire(worktreeRoot, exclusive: true);
         var captures = previews.ToImmutableArray();
@@ -953,10 +953,12 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             if (!fresh.IsSuccess) return Result<CoreExecution>.Fail(fresh.Error);
             if (fresh.Value.Plan is not null || !SameDraft(fresh.Value.Draft, capture.Draft))
                 return Result<CoreExecution>.Fail(ErrorCode.Conflict, "A converged draft changed before settlement.");
+            if (admitCapture is not null && await admitCapture(capture.Draft.Key).ConfigureAwait(false) is { IsSuccess: false } refused)
+                return Result<CoreExecution>.Fail(refused.Error);
         }
         var applied = plan is null
             ? Result<CoreExecution>.Ok(new([], AlreadyVerified: true))
-            : await ApplyAsync(plan, ct).ConfigureAwait(false);
+            : await ApplyAsync(plan, ct, admitCapture: admitCapture).ConfigureAwait(false);
         if (!applied.IsSuccess || applied.Value.Error is not null || !applied.Value.EffectsVerified) return applied;
         var current = await SnapshotAsync(ct).ConfigureAwait(false);
         if (!current.IsSuccess) return Retained(current.Error);
@@ -1014,7 +1016,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
     internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct, bool deferSeedDelivery = false,
-        OriginalUpdate? original = null, IOriginalUpdateBarrier? barrier = null)
+        OriginalUpdate? original = null, IOriginalUpdateBarrier? barrier = null, Func<ItemKey, Task<Result<bool>>>? admitCapture = null)
     {
         if (original is not null && (barrier is null || original.Plan.Digest != plan.Digest || plan.Review is not { } review
             || review.Revision != original.Identity.Review || review.Store != storeInstance || review.Actor != nativeActor
@@ -1066,6 +1068,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             Result<Receipt> result;
             if (row.Status == OpStatus.Planned)
             {
+                if (admitCapture is not null && await admitCapture(plan.Operations[ordinal].Item).ConfigureAwait(false) is { IsSuccess: false } refused)
+                    return Finish(refused.Error);
                 var attempt = original?.Attempt ?? Guid.NewGuid();
                 using var targets = original is not null || executionRegistryPath is null ? null : ConnectionOperationGate.AcquireCoreTargets(
                     executionRegistryPath, NativeCoreExecution.OperationKeys(plan.Operations[ordinal], current.Value, connection));

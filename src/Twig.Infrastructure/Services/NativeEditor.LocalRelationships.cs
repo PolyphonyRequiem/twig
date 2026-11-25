@@ -325,9 +325,10 @@ internal sealed partial class NativeEditor
         }
         var outcome = await LocalOutcomeAsync(capture, null, ct).ConfigureAwait(false);
         if (!outcome.IsSuccess || capture.Settled) return outcome;
-        if (outcome.Value.Journal?.Status == OpStatus.Applied)
+        if (outcome.Value.Journal?.Status is OpStatus.Applied or OpStatus.Applying)
         {
-            var valid = await ValidateLocalApplyAsync(capture, ct).ConfigureAwait(false);
+            var valid = outcome.Value.Journal.Status == OpStatus.Applied
+                ? await ValidateLocalApplyAsync(capture, ct).ConfigureAwait(false) : await ValidateAsync(ct).ConfigureAwait(false);
             if (!valid.IsSuccess) return Result<NativeLocalRelationshipOutcome>.Fail(valid.Error);
             var recovered = await Workspace.RecoverLocalRelationshipAsync(UserBenchStore.ParseIntent(capture.IntentJson), ct).ConfigureAwait(false);
             if (!recovered.IsSuccess) return await LocalOutcomeAsync(capture, recovered.Error, ct).ConfigureAwait(false);

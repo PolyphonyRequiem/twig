@@ -13,6 +13,9 @@ public sealed partial class AdoProvider
         => Guard(() => WithSession(connection, async (bound, token) =>
             await Read(bound, await Discover(bound, token), keys, token), ct));
 
+    public Task<Result<QueryPage>> ObserveQueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => QueryAsync(connection, query, continuation, ct);
+
     public Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
         => Guard(() => WithSession(connection, async (bound, token) =>
         {

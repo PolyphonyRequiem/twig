@@ -153,6 +153,23 @@ internal static class StartupHook
             var mutation = provider == "ado" ? request.Method == HttpMethod.Patch :
                 request.Content is not null && (await request.Content.ReadAsStringAsync(ct)).Contains("\"query\":\"mutation", StringComparison.Ordinal);
             var response = await base.SendAsync(request, ct);
+            if (provider == "ado" && Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_SELECTORS") == "1"
+                && request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/workitems/43", StringComparison.OrdinalIgnoreCase))
+            {
+                var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+                if (File.Exists(Path.Combine(root, "child-access-denied")))
+                {
+                    response.Dispose();
+                    return new(System.Net.HttpStatusCode.Forbidden);
+                }
+                if (File.Exists(Path.Combine(root, "inconsistent-child-edge")))
+                {
+                    var item = JsonNode.Parse(await response.Content.ReadAsStringAsync(ct))!.AsObject();
+                    item["relations"] = new JsonArray();
+                    response.Content.Dispose();
+                    response.Content = new StringContent(item.ToJsonString(), System.Text.Encoding.UTF8, "application/json");
+                }
+            }
             if (provider == "ado" && Environment.GetEnvironmentVariable("TWIG_TEST_LATE_ACQUISITION") == "1"
                 && request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/workitems/44", StringComparison.OrdinalIgnoreCase))
             {
@@ -192,7 +209,11 @@ namespace Twig.Cli.Tests.Commands
         internal static Func<HttpMessageHandler> OwnerFakeHttp(out Func<string> export)
         {
             var http = new NativeHttp();
-            http.OtherIssue = Other(43); http.ThirdIssue = Other(44);
+            if (Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_SELECTORS") != "1")
+            {
+                http.OtherIssue = Other(43);
+                http.ThirdIssue = Other(44);
+            }
             if (Environment.GetEnvironmentVariable("TWIG_TEST_VERIFIED_PLAN") == "1")
             {
                 var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
@@ -200,7 +221,13 @@ namespace Twig.Cli.Tests.Commands
                 foreach (var field in saved) http.Issue[field.Key] = field.Value?.DeepClone();
             }
             export = () => http.Issue.ToJsonString();
-            return http.NewHandle;
+            return () =>
+            {
+                if (Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_SELECTORS") == "1")
+                    http.MoreCandidates = File.Exists(Path.Combine(Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!,
+                        "more-query-candidates"));
+                return http.NewHandle();
+            };
             JsonObject Other(int number)
             {
                 var item = (JsonObject)http.Issue.DeepClone();
@@ -216,6 +243,11 @@ namespace Twig.Cli.Tests.Commands
         {
             var http = new PrincipalTransport { CoreMetadataEnabled = true };
             foreach (var id in new[] { 42, 43, 44 }) http.SetItem(id, "original", 1, Actor);
+            if (Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_SELECTORS") == "1")
+            {
+                http.SetHierarchy(42, 43);
+                http.SetHierarchy(43, 44);
+            }
             if (Environment.GetEnvironmentVariable("TWIG_TEST_VERIFIED_PLAN") == "1") http.SetItem(45, "reviewed content", 1, Actor);
             return http.NewHandle;
         }

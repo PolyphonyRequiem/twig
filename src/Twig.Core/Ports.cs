@@ -50,6 +50,8 @@ public interface IProvider
         string? expectedTeam, ProcessSchema mappingSchema, CancellationToken ct)
         => Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning reads with recorded mapping metadata."));
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
+    Task<Result<QueryPage>> ObserveQueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => Task.FromResult(Result<QueryPage>.Fail(ErrorCode.Unsupported, "This provider does not expose capture-only query observations."));
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
     Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default);
 

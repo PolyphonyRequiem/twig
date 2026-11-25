@@ -271,6 +271,7 @@ internal sealed partial class ReleasedBenchDisplay
         {
             if (!scans.TryGetValue((storeId, bench.Id, c), out var scan) || !scan.Owners.Contains(owner)
                 || scan.Catalog != catalog.Revision || !ScanEligible(scan)) continue;
+            foreach (var pin in pins.Where(p => p.Value.Connection == c)) candidate.Remove(pin.Key);
             if (scan.State == "Known") covered.Add(c);
             else incomplete = true;
             remaining = Math.Min(remaining, Math.Min((scan.Until - now).TotalMilliseconds,

@@ -878,7 +878,13 @@ For current implementation boundaries see the
 
 The isolated v2 owner serves the same qualified membership inventory to the
 CLI and Canvas. Inspection does not refresh grants. Explicit refresh can qualify
-remote pins, supported provider queries and standalone planning browses; when
-required exclusions, edges or query evidence cannot be evaluated, it withholds
-an exact total. Local edit pages are separate, identified by their workspace
-store UUID. Parking a local workspace does not revoke unrelated provider evidence.
+remote pins, native directed subtrees, supported provider queries and standalone
+planning browses. Subtrees require complete incident edges and agreement between
+each parent and child. The owner subtracts exclusions captured for the requested
+workspace and publishes only if its rules revision still matches. A GitHub query
+must exhaust its bounded repository issue listing (up to 100) and hydrate the
+exact candidates; a continuation is not an empty result. An authenticated native
+Twig authority can affirm an item's absence; a remote access refusal cannot.
+Incomplete evidence never supplies an exact total. Local edit pages are
+separate, identified by their workspace store UUID. Parking a local workspace
+does not revoke unrelated provider evidence.

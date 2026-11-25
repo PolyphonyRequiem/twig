@@ -48,11 +48,19 @@ internal sealed partial class ReleasedBenchDisplay
         }
         var until = clock.GetUtcNow().AddSeconds(60);
         var members = new Dictionary<ItemKey, WorkItem>();
+        var excluded = new HashSet<ItemKey>();
+        var absent = new HashSet<ItemKey>();
         var state = "Known";
         var calendars = Require(await definitions.ReadPlanningCalendarsAsync(connection, ct));
-        foreach (var selector in bench.Selectors.Where(s => s.Connection == connection))
+        foreach (var (selector, excluding) in bench.Selectors.Where(s => s.Connection == connection).Select(s => (s, false))
+                     .Concat(rules.Exclusions.Select(s => (s, true))))
         {
-            if (!rules.Exclusions.IsEmpty) { state = "Unknown"; break; }
+            if (excluding && selector.Kind == SelectorKind.Pin)
+            {
+                excluded.Add(selector.Item!);
+                continue;
+            }
+            bool exhausted = true;
             string? cursor = null;
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var keys = new HashSet<ItemKey>();
@@ -61,7 +69,12 @@ internal sealed partial class ReleasedBenchDisplay
             {
                 var instant = clock.GetUtcNow();
                 var resolved = Twig.Core.Core.ResolvePlanningQuery(expression, null, instant, calendars);
-                if (!resolved.IsSuccess) { state = "Unknown"; continue; }
+                if (!resolved.IsSuccess)
+                {
+                    state = "Unknown";
+                    if (excluding) { members.Clear(); break; }
+                    continue;
+                }
                 query = resolved.Value;
                 foreach (var relative in RelativeRules(expression))
                 {
@@ -75,6 +88,8 @@ internal sealed partial class ReleasedBenchDisplay
                 Result<QueryPage> result;
                 if (selector.Kind == SelectorKind.Pin && selector.Item is { IsLocal: false } pin)
                     result = await workspace.ObserveItemsAsync([pin], ct);
+                else if (selector.Kind == SelectorKind.Subtree && selector.Item is { IsLocal: false } root)
+                    result = await workspace.ObserveSubtreeAsync(root, selector.HierarchyRelation!, ct);
                 else if (query?.Kind is QueryKind.SavedQuery or QueryKind.Backlog)
                 {
                     var page = await workspace.ObservePlanningBrowseAsync(query.PlanningTeam,
@@ -82,37 +97,51 @@ internal sealed partial class ReleasedBenchDisplay
                         query.Value!.Text!, query.PlanningTeam, ct);
                     result = page.IsSuccess ? Result<QueryPage>.Ok(page.Value.Page) : Result<QueryPage>.Fail(page.Error);
                 }
-                else if (query is not null && connection.Provider.Value != "github")
+                else if (query is not null)
                     result = await workspace.ObserveQueryPageAsync(query, cursor, ct);
-                else { if (state != "Denied") state = "Unknown"; break; }
+                else { exhausted = false; break; }
                 if (!result.IsSuccess)
                 {
+                    if (result.Error.Code == ErrorCode.NotFound && selector.Item is { IsLocal: false } rootKey
+                        && result.Error.Evidence.Contains($"authority-absent:{rootKey.NativeId}"))
+                    {
+                        absent.Add(rootKey);
+                        break;
+                    }
                     if (result.Error.Code is ErrorCode.PolicyViolation or ErrorCode.NotFound
                         || result.Error.Evidence.Any(e => e is "http:401" or "http:403" or "http:404"))
                     {
-                        Withdraw(connection, selector.Item is { IsLocal: false } ? selector.Item : null);
+                        Withdraw(connection, selector.Kind == SelectorKind.Pin && selector.Item is { IsLocal: false } ? selector.Item : null);
                         state = "Denied";
                     }
-                    else if (state != "Denied") state = "Unknown";
+                    else exhausted = false;
                     break;
                 }
                 var observed = result.Value;
                 if (observed.Complete == (observed.Continuation is not null)
                     || observed.Continuation is { } next && (!seen.Add(next) || seen.Count > 128)
-                    || selector.Item is { } expected && (observed.Items is not [var only] || only.Key != expected)
+                    || selector.Kind == SelectorKind.Pin && (observed.Items is not [var only] || only.Key != selector.Item)
                     || observed.Items.Any(i => !i.Key.BelongsTo(connection) || i.Revision is null || !keys.Add(i.Key)))
-                { state = "Unknown"; break; }
+                { exhausted = false; break; }
                 foreach (var item in observed.Items)
                 {
                     if (members.TryGetValue(item.Key, out var prior) && prior.Revision != item.Revision)
                         throw new InvalidDataException("Selectors observed different revisions; refresh the Bench again.");
+                    if (excluding) { excluded.Add(item.Key); continue; }
                     members[item.Key] = item;
                     if (members.Count > 1024) throw new InvalidDataException("Membership exceeds the bounded release.");
                 }
                 cursor = observed.Continuation;
             } while (cursor is not null);
             if (state == "Denied") break;
+            if (!exhausted)
+            {
+                state = "Unknown";
+                if (excluding) { members.Clear(); break; }
+            }
         }
+        if (absent.Overlaps(members.Keys)) throw new InvalidDataException("Selectors disagree on authoritative item presence.");
+        foreach (var key in excluded) members.Remove(key);
         if (state != "Denied")
         {
             bool Commit()
@@ -123,6 +152,12 @@ internal sealed partial class ReleasedBenchDisplay
                     {
                         if (connectionRequests[connection] != request || mark != watermark
                             || pending.Values.Any(d => d.Benches.Contains(bench.Id))) return false;
+                        foreach (var key in absent)
+                        {
+                            var id = Fingerprint(connection, key);
+                            latest[id] = request;
+                            foreach (var entry in entries.Values.Where(e => e.Grant?.Item == id).ToArray()) Withhold(entry.Scope);
+                        }
                         foreach (var key in members.Keys) latest[Fingerprint(connection, key)] = request;
                     }
                     foreach (var item in members.Values)

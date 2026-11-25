@@ -42,7 +42,41 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
         => ObserveContentAsync(() => provider.ReadAsync(connection, keys, ct, captureOnly: true));
 
     internal Task<Result<QueryPage>> ObserveQueryPageAsync(Query query, string? continuation, CancellationToken ct)
-        => ObserveContentAsync(() => provider.QueryAsync(connection, query, continuation, ct));
+        => ObserveContentAsync(() => provider.ObserveQueryAsync(connection, query, continuation, ct));
+
+    internal async Task<Result<QueryPage>> ObserveSubtreeAsync(ItemKey root, string hierarchy, CancellationToken ct)
+    {
+        var schema = await SchemaAsync(ct);
+        if (!schema.IsSuccess) return Result<QueryPage>.Fail(schema.Error);
+        if (!Capabilities.NativeRelations.Contains(hierarchy)
+            || !schema.Value.Relations.Any(r => r.Reference == hierarchy && r.Shape == RelationShape.Hierarchy && r.Directed))
+            return Result<QueryPage>.Fail(ErrorCode.Unsupported, "The selected provider hierarchy is not available.");
+        var items = ImmutableArray.CreateBuilder<WorkItem>();
+        var scheduled = new HashSet<ItemKey> { root };
+        var pending = new Queue<(ItemKey Key, ItemKey? Parent)>();
+        pending.Enqueue((root, null));
+        while (pending.TryDequeue(out var visit))
+        {
+            var read = await ObserveItemsAsync([visit.Key], ct);
+            if (!read.IsSuccess) return read;
+            var page = read.Value;
+            if (!page.Complete || page.Continuation is not null || page.Items is not [var item]
+                || item.Key != visit.Key || item.Revision is null || !item.RelationshipsComplete)
+                return Result<QueryPage>.Fail(ErrorCode.Unavailable, "Incomplete subtree item or incident-edge evidence.");
+            var edges = page.Relationships.Where(r => r.Kind == hierarchy && r.Origin == RelationshipOrigin.Provider && !r.Deleted).ToArray();
+            var parents = edges.Where(r => r.To == visit.Key).Select(r => r.From).ToArray();
+            if (parents.Length > 1 || visit.Parent is not null && (parents.Length != 1 || parents[0] != visit.Parent))
+                return Result<QueryPage>.Fail(ErrorCode.Unavailable, "Provider observations disagree on a hierarchy edge.");
+            items.Add(item);
+            foreach (var edge in edges.Where(r => r.From == visit.Key))
+            {
+                if (!edge.To.BelongsTo(connection) || !scheduled.Add(edge.To) || scheduled.Count > 1024)
+                    return Result<QueryPage>.Fail(ErrorCode.Unavailable, "The subtree repeats, exceeds the bound, or leaves the connection.");
+                pending.Enqueue((edge.To, visit.Key));
+            }
+        }
+        return Result<QueryPage>.Ok(new(items.ToImmutable(), [], null, true));
+    }
 
     internal Func<Error, Error>? RecordHistoricalReadFailure { private get; set; }
 

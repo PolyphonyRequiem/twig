@@ -47,6 +47,14 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     [CanvasQualificationFact, SupportedOSPlatform("windows")]
     public Task RealCanvasProxyAndBrowserAgreeWithDaemonMembership() => RunOwnerScenario(false, canvas: true, membership: true);
 
+    [CanvasQualificationFact, SupportedOSPlatform("windows")]
+    public Task RealCanvasShowsExhaustedAdoSubtreeWithCurrentWorkspaceExclusion()
+        => RunOwnerScenario(false, canvas: true, remote: "ado");
+
+    [CanvasQualificationFact, SupportedOSPlatform("windows")]
+    public Task RealCanvasDistinguishesCompleteAndTruncatedGitHubQuery()
+        => RunOwnerScenario(false, canvas: true, remote: "github");
+
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task LateProviderResponseCannotRestoreMembershipAfterOwnerSave() => RunOwnerScenario(false, remote: "ado", late: "save");
     [QualificationFact, SupportedOSPlatform("windows")]
@@ -304,6 +312,19 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             {
                 var marker = await File.ReadAllBytesAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName));
                 projection = JsonSerializer.Deserialize(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+                if (canvas && remote is not null)
+                {
+                    var defs = new UserBenchStore(Path.Combine(home, "benches.db"));
+                    var c = projection.Connection;
+                    ItemKey Key(string id) => ItemKey.Remote(c.Provider, c.ResourceScope, id);
+                    var selection = remote == "ado"
+                        ? new Selector(SelectorKind.Subtree, Key("42"), hierarchyRelation: "Native.ParentForward", connection: c)
+                        : new Selector(SelectorKind.Query, query: new(QueryKind.All), connection: c);
+                    var selectors = remote == "ado" ? new[] { selection, new(SelectorKind.Pin, Key("43"), connection: c) } : [selection];
+                    (await defs.SaveAsync(new(Guid.NewGuid(), "Provider selection", selectors), 0)).IsSuccess.ShouldBeTrue();
+                    if (remote == "ado")
+                        (await defs.SaveViewRulesAsync(work, c, 0, [new(SelectorKind.Pin, Key("43"), connection: c)])).IsSuccess.ShouldBeTrue();
+                }
                 var pin = ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, canvas ? "1" : "44");
                 var pinned = await new UserBenchStore(Path.Combine(home, "benches.db")).SaveAsync(new(displayBench, "Unrelated pin",
                     [new(SelectorKind.Pin, pin, connection: projection.Connection)]), 0);
@@ -376,14 +397,51 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             }
             if (canvas)
             {
+                var mirror = remote is null ? null : (await Twig.Store.Sqlite.SqliteStore.OpenAsync(
+                    projection!.DatabasePath, default, projection.DatabaseInstance)).Value;
+                var initialMirror = mirror is null ? null : (await mirror.ReadAsync(projection!.Connection, default)).Value;
                 var test = Path.Combine(Environment.GetEnvironmentVariable("TWIG_TEST_CANVAS_CHECKOUT")!, "tests", "released-owner-browser.mjs");
-                using var browser = Run("node", false, membership ? [test, cli, "membership"] : [test, cli]);
+                using var browser = Run("node", false, remote is not null ? [test, cli, remote] : membership ? [test, cli, "membership"] : [test, cli]);
                 var errors = browser.StandardError.ReadToEndAsync();
                 var output = browser.StandardOutput.ReadToEndAsync();
                 try { await browser.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(90)); }
                 finally { if (!browser.HasExited) browser.Kill(true); }
                 browser.ExitCode.ShouldBe(0, await errors + await output);
-                if (membership) return;
+                if (remote == "ado")
+                {
+                    var defs = new UserBenchStore(Path.Combine(home, "benches.db"));
+                    var c = projection!.Connection;
+                    await File.WriteAllTextAsync(Path.Combine(root, "park-read"), "");
+                    var previous = Cli(null, "workspace", "--bench", "Provider selection", "--refresh", "-o", "json");
+                    try
+                    {
+                        var wait = Stopwatch.StartNew();
+                        while (!File.Exists(Path.Combine(root, "observed-before-change")))
+                        {
+                            if (previous.IsCompleted) throw new InvalidOperationException((await previous).Error);
+                            wait.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(20));
+                            await Task.Delay(25);
+                        }
+                        (await defs.SaveViewRulesAsync(work, c, 1, [new(SelectorKind.Subtree,
+                            ItemKey.Remote(c.Provider, c.ResourceScope, "43"), hierarchyRelation: "Native.ParentForward", connection: c)])).IsSuccess.ShouldBeTrue();
+                    }
+                    finally { await File.WriteAllTextAsync(Path.Combine(root, "release-read"), ""); }
+                    var superseded = await previous;
+                    superseded.Code.ShouldNotBe(0);
+                    superseded.Error.ShouldContain("superseded");
+                    var stale = await Cli(null, "workspace", "--bench", "Provider selection", "-o", "json");
+                    using var before = JsonDocument.Parse(stale.Output);
+                    before.RootElement.GetProperty("membership").GetProperty("exactTotal").ValueKind.ShouldBe(JsonValueKind.Null);
+                    var after = await Cli(null, "workspace", "--bench", "Provider selection", "--refresh", "-o", "json");
+                    after.Code.ShouldBe(0, after.Error + after.Output);
+                    using var refreshed = JsonDocument.Parse(after.Output);
+                    refreshed.RootElement.GetProperty("membership").GetProperty("items").EnumerateArray().Single()
+                        .GetProperty("item").GetString().ShouldBe("42");
+                }
+                if (mirror is not null)
+                    (await mirror.ReadAsync(projection!.Connection, default)).Value.Version.ShouldBe(initialMirror!.Version,
+                        "Inspecting or acquiring provider membership must not update the workspace mirror.");
+                if (membership || remote is not null) return;
                 var state = (await handle!.Workspace.SnapshotAsync(default)).Value;
                 var item = (await handle.Workspace.ObserveItemsAsync([state.Items.Single().Key], default)).Value.Items.Single();
                 item.Fields[NativeProvider.Title].Text.ShouldBe("private qualification words");
@@ -862,7 +920,8 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(OwnerUpdateProcessTests).Assembly.Location;
                     start.Environment["DOTNET_ADDITIONAL_DEPS"] = Path.ChangeExtension(typeof(OwnerUpdateProcessTests).Assembly.Location, ".deps.json");
                     start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? (create ? "create" : "cas");
-                    if (late is not null) start.Environment["TWIG_TEST_LATE_ACQUISITION"] = "1";
+                    if (late is not null || canvas && remote == "ado") start.Environment["TWIG_TEST_LATE_ACQUISITION"] = "1";
+                    if (canvas) start.Environment["TWIG_TEST_REMOTE_SELECTORS"] = "1";
                     if (verifiedPlan) start.Environment["TWIG_TEST_VERIFIED_PLAN"] = "1";
                     if (remote is not null && create) start.Environment["TWIG_TEST_REMOTE_CREATE"] = "1";
                     if (begin) start.Environment["TWIG_TEST_RACE_BEGIN"] = "1";

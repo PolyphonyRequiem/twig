@@ -33,6 +33,9 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             presentation: new("Twig item", "708090", null))], []);
     }
 
+    public Task<Result<QueryPage>> ObserveQueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => QueryAsync(connection, query, continuation, ct);
+
     public Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
         => Guard(connection, async () =>
         {
@@ -58,7 +61,7 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             var missing = keys.Except(selected.Select(item => item.Key)).ToArray();
             if (missing.Length != 0)
                 throw new NativeFailure(new Error(ErrorCode.NotFound, "An exact native item is absent from this authority.")
-                    { Evidence = missing.Select(key => $"item-unavailable:{key.NativeId}").ToImmutableArray() });
+                    { Evidence = missing.SelectMany(key => new[] { $"item-unavailable:{key.NativeId}", $"authority-absent:{key.NativeId}" }).ToImmutableArray() });
             return new QueryPage(selected, [], null, true);
         });
 

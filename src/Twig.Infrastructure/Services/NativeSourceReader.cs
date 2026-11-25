@@ -182,7 +182,7 @@ public static class NativeSourceReader
             && (!Guid.TryParseExact(selectedTeam, "D", out var id) || id == Guid.Empty || id.ToString("D") != selectedTeam)
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and a canonical team ID (or explicit project scope) are required."))
             : ReadCoreAsync(workspaceRoot, expectedSource, refreshPlanning, configure, ct, refreshPlanning, discoverSources, browse,
-                explicitTeam: new(selectedTeam), readPlanning: readPlanning);
+                validateReadAccess: readPlanning, explicitTeam: new(selectedTeam), readPlanning: readPlanning);
 
     private sealed record TeamSelection(string? Team);
     private sealed record BrowseRequest(PlanningSourceKind Kind, string Id, string? Team, ProcessSchema? MappingSchema = null);

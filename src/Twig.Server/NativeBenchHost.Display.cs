@@ -10,10 +10,15 @@ public static partial class NativeBenchHost
     {
         var display = app.Services.GetRequiredService<ReleasedBenchDisplay>();
         app.MapGet("/api/v2/views/{view:guid}/benches/{bench:guid}/partitions",
-            (HttpContext context, Guid view, Guid bench) =>
-                display.ReadPartitions(sessions, view, BenchHost.Bearer(context), bench, directory =>
+            async (HttpContext context, Guid view, Guid bench) =>
+            {
+                var bearer = BenchHost.Bearer(context);
+                _ = sessions.WithDisplayOwner(view, bearer, s => s.CatalogId);
+                var catalog = BenchHost.Require(await panel.Definitions.InspectAsync(context.RequestAborted));
+                await display.ReadPartitions(sessions, view, bearer, catalog, bench, directory =>
                     context.Response.WriteAsJsonAsync(directory, DisplayJson.Default.ReleasedPartitions,
-                        contentType: "application/json", cancellationToken: context.RequestAborted), context.RequestAborted));
+                        contentType: "application/json", cancellationToken: context.RequestAborted), context.RequestAborted);
+            });
         MapReleasedInputs(app, sessions, options, display, panel.Definitions);
         app.MapGet("/api/v2/views/{view:guid}/benches", async (HttpContext context, Guid view) =>
         {

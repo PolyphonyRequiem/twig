@@ -26,11 +26,13 @@ internal sealed partial class ReleasedBenchDisplay
         => WithItem(sessions, view, bearer, bench, partition, item, frame => frame);
 
     private T WithItem<T>(ViewSessions sessions, Guid view, string bearer, Guid bench, Guid partition, string item, Func<Frame,T> use)
-        => sessions.WithDisplayOwner(view, bearer, owner =>
+    {
+        var catalog = definitions?.InspectRevision();
+        return sessions.WithDisplayOwner(view, bearer, owner =>
         {
             lock (release)
             {
-                var (entry, generation) = Select(owner, bench, partition);
+                var (entry, generation) = Select(owner, bench, partition, catalog);
                 var scope = entry.Scope;
                 if (entry.Grant is not { Revision: not null, Source: not null } grant || grant.Source.Connection != scope.Connection || grant.Item != Fingerprint(scope.Connection,
                     ItemKey.Remote(scope.Connection.Provider, scope.Connection.ResourceScope, item))) throw Denied();
@@ -41,6 +43,7 @@ internal sealed partial class ReleasedBenchDisplay
                     watermark, authCursor, grant.Revision, grant.Source));
             }
         });
+    }
 
     internal async Task ReleaseItem(ViewSessions sessions, Guid view, string bearer, Frame expected, string item, byte[] body,
         Func<Frame,Task> send, CancellationToken ct)

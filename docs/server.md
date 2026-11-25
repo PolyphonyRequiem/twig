@@ -848,3 +848,10 @@ or Apply tool is exposed by MCP.
 For current implementation boundaries see the
 [architecture overview](architecture/overview.md) and
 [clean-core contract](architecture/clean-core-contract.md).
+
+The isolated v2 owner serves the same qualified membership inventory to the
+CLI and Canvas. Inspection does not refresh grants. Explicit refresh can qualify
+remote pins, supported provider queries and standalone planning browses; when
+required exclusions, edges or query evidence cannot be evaluated, it withholds
+an exact total. Local edit pages are separate, identified by their workspace
+store UUID. Parking a local workspace does not revoke unrelated provider evidence.

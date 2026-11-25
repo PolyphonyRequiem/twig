@@ -7,7 +7,7 @@ using Twig.Infrastructure.Services;
 namespace Twig.Server;
 
 internal sealed record GrantWitness(string Connection, string Item, long Watermark, long Request, long Started,
-    string? Revision = null, NativeSourceStamp? Source = null);
+    string? Revision = null, NativeSourceStamp? Source = null, long? ScanRequest = null);
 
 internal sealed partial class ReleasedBenchDisplay
 {
@@ -33,6 +33,7 @@ internal sealed partial class ReleasedBenchDisplay
         ItemKey key, Func<Task<Result<QueryPage>>> read, bool publish, CancellationToken ct)
     {
         var scopes = new List<DisplayPartition>();
+        var revisions = new Dictionary<Guid, long>();
         Func<Func<bool>, Task<bool>>? commit = null;
         if (publish && sessions is not null)
         {
@@ -46,16 +47,20 @@ internal sealed partial class ReleasedBenchDisplay
             if (exclusions.Value.Exclusions.IsEmpty)
                 foreach (var bench in catalog.Value.Benches.Where(b => b.Selectors.Any(s => s.Connection == source.Connection
                     && s.Kind == SelectorKind.Pin && s.Item == key)))
-                    foreach (var owner in owners)
+                {
+                    revisions.Add(bench.Id, catalog.Value.Revision);
+                    foreach (var owner in owners.Append(Guid.Empty))
                         scopes.Add(new(owner, catalog.Value.InstanceId, bench.Id, partition, null, source.Connection));
+                }
         }
-        var observed = await ObserveExact(source.Connection, key, scopes, read, commit, source);
+        var observed = await ObserveExact(source.Connection, key, scopes, read, commit, source, revisions);
         if (publish && observed.IsSuccess) await ProjectWorkspace(root, source, definitions);
         return observed;
     }
 
     private async Task<Result<QueryPage>> ObserveExact(Connection origin, ItemKey key, IReadOnlyList<DisplayPartition> scopes,
-        Func<Task<Result<QueryPage>>> read, Func<Func<bool>,Task<bool>>? commit = null, NativeSourceStamp? source = null)
+        Func<Task<Result<QueryPage>>> read, Func<Func<bool>,Task<bool>>? commit = null, NativeSourceStamp? source = null,
+        Dictionary<Guid, long>? revisions = null)
     {
         var connection = Fingerprint(origin, null);
         var item = Fingerprint(origin, key);
@@ -64,6 +69,7 @@ internal sealed partial class ReleasedBenchDisplay
         {
             RequireOpen();
             if (scopes.Any(Dirty)) return Result<QueryPage>.Fail(ErrorCode.Conflict, "The selected Bench has unsettled inputs.");
+            ChangeObservations(origin);
             latest[item] = checked(++sequence);
             foreach (var scope in scopes) partitionRequests[scope] = sequence;
             witness = new(connection, item, Withdrawal(connection, item), sequence, clock.GetTimestamp());
@@ -90,7 +96,7 @@ internal sealed partial class ReleasedBenchDisplay
             var pages = Pages(Rows("provider", key.NativeId!, observed.Type, observed.Fields));
             foreach (var scope in scopes)
             {
-                bool Apply() => Publish(scope, pages, witness.Request, witness);
+                bool Apply() => Publish(scope, pages, witness.Request, witness, ruleRevision: revisions?.GetValueOrDefault(scope.Bench) ?? 0);
                 if (!(commit is null ? Apply() : await commit(Apply)))
                     return Result<QueryPage>.Fail(ErrorCode.Conflict, "Observation superseded or expired.");
             }
@@ -106,6 +112,7 @@ internal sealed partial class ReleasedBenchDisplay
         var item = Fingerprint(connection, key);
         lock (release)
         {
+            ChangeObservations(connection);
             latest[item] = checked(++sequence);
             foreach (var entry in entries.Values.Where(e => e.Grant?.Item == item).ToArray())
                 Withhold(entry.Scope);
@@ -119,6 +126,7 @@ internal sealed partial class ReleasedBenchDisplay
         long stamp;
         lock (release)
         {
+            ChangeObservations(connection);
             withdrawals[scope] = stamp = checked(++watermark);
             NotifyAuthorization();
         }

@@ -120,6 +120,7 @@ internal static class StartupHook
 
     private sealed class ParkResponse(HttpMessageHandler inner, string provider) : DelegatingHandler(inner)
     {
+        private static int parked;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             if (Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_CREATE") == "1")
@@ -139,6 +140,21 @@ internal static class StartupHook
             var mutation = provider == "ado" ? request.Method == HttpMethod.Patch :
                 request.Content is not null && (await request.Content.ReadAsStringAsync(ct)).Contains("\"query\":\"mutation", StringComparison.Ordinal);
             var response = await base.SendAsync(request, ct);
+            if (provider == "ado" && Environment.GetEnvironmentVariable("TWIG_TEST_LATE_ACQUISITION") == "1"
+                && request.Method == HttpMethod.Get && request.RequestUri!.AbsolutePath.EndsWith("/workitems/44", StringComparison.OrdinalIgnoreCase))
+            {
+                var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+                if (File.Exists(Path.Combine(root, "deny-read")))
+                {
+                    response.Dispose();
+                    return new(System.Net.HttpStatusCode.Forbidden);
+                }
+                if (File.Exists(Path.Combine(root, "park-read")) && Interlocked.Exchange(ref parked, 1) == 0)
+                {
+                    await File.WriteAllTextAsync(Path.Combine(root, "observed-before-change"), "", ct);
+                    while (!File.Exists(Path.Combine(root, "release-read"))) await Task.Delay(25, ct);
+                }
+            }
             if (mutation)
             {
                 var body = await request.Content!.ReadAsStringAsync(ct);

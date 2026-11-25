@@ -67,9 +67,21 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
         using var output = new StringWriter();
         using var errors = new StringWriter();
         var command = new UserBenchCommand(benches, new RendererFactory());
+        async Task<int> Workspace(string name)
+        {
+            var catalog = await benches.InspectAsync(token);
+            if (!catalog.IsSuccess) { errors.WriteLine(catalog.Error.Message); return 1; }
+            var matches = catalog.Value.Benches.Where(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+                || b.Id.ToString("D").Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (matches.Length != 1 || hostServices is null) { errors.WriteLine("No unique Bench definition."); return 1; }
+            var inventory = hostServices.GetRequiredService<ReleasedBenchDisplay>().CliInventory(catalog.Value, matches[0]);
+            output.WriteLine(JsonSerializer.Serialize(inventory, DisplayJson.Default.ReleasedPartitions));
+            return inventory.Membership.State == "Known" ? 0 : 1;
+        }
         var result = request.Arguments switch
         {
-            ["update" or "note" or "seed", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
+            ["workspace" or "ws", "--bench", var name, "-o", "json"] => await Workspace(name),
+            ["workspace" or "ws", "--bench", _, "--refresh", "-o", "json"] or ["update" or "note" or "seed", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
             {
                 await CommandProtocol.WriteAsync(client, FrameKind.ReadBody, "", token);
                 var input = await CommandProtocol.ReadAsync(client, token);

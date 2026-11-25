@@ -41,6 +41,9 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     internal Task<Result<QueryPage>> ObserveItemsAsync(ImmutableArray<ItemKey> keys, CancellationToken ct)
         => ObserveContentAsync(() => provider.ReadAsync(connection, keys, ct, captureOnly: true));
 
+    internal Task<Result<QueryPage>> ObserveQueryPageAsync(Query query, string? continuation, CancellationToken ct)
+        => ObserveContentAsync(() => provider.QueryAsync(connection, query, continuation, ct));
+
     internal Func<Error, Error>? RecordHistoricalReadFailure { private get; set; }
 
     internal async Task<Result<T>> ObserveContentAsync<T>(Func<Task<Result<T>>> acquire)

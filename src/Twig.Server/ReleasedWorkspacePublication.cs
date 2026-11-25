@@ -76,6 +76,7 @@ internal sealed partial class ReleasedBenchDisplay : IOwnerBenchPublication
                 lock (display.release)
                 {
                     display.pending.Add(step.Id, dep);
+                    display.ChangeObservations(source.Connection);
                     foreach (var scope in display.partitionRequests.Keys.Where(p => benches.Contains(p.Bench)
                         && p.Connection == source.Connection && (p.Origin is null || p.Origin.StoreInstance == step.Instance)).ToArray())
                         display.Withhold(scope);
@@ -134,7 +135,7 @@ internal sealed partial class ReleasedBenchDisplay : IOwnerBenchPublication
             foreach (var owner in owners)
             {
                 var commit = PrepareLocal(new(owner, catalog.Value.InstanceId, bench.Id, source.StoreInstance, source, source.Connection),
-                    observation, admitted, hash);
+                    observation, admitted, hash, catalog.Value.Revision);
                 await definitions.PublishIfCurrent(root, source.Connection, catalog.Value, rules.Value.Revision, commit, default);
             }
         }

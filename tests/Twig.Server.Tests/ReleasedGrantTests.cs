@@ -118,6 +118,33 @@ public sealed class ReleasedGrantTests
         Assert.Contains("second", await f.Client.GetStringAsync(path));
     }
 
+    [Fact]
+    public async Task TwoWorkspaceWritersKeepSameKeyIntentInSeparateOriginPages()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var c = f.Scope.Connection;
+        var defs = new UserBenchStore(Path.Combine(f.Root.FullName, "benches.db"));
+        var key = ItemKey.Local(Guid.NewGuid());
+        Assert.True((await defs.SaveAsync(new(f.Scope.Bench, "Scoped seed", [new(SelectorKind.Pin, key, connection: c)]), 0)).IsSuccess);
+        var paths = new List<string>();
+        foreach (var title in new[] { "origin-one", "origin-two" })
+        {
+            var root = Path.Combine(f.Root.FullName, title);
+            var db = Path.Combine(Directory.CreateDirectory(Path.Combine(root, ".twig")).FullName, "core.db");
+            var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(db)).Value;
+            Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+            using var lease = f.Display.TrackWorkspace(root, new(c, native.InstanceId, "principal", "binding"), defs);
+            Assert.True((await native.CommitAsync(c, 0, new(1, retainedItems: [
+                new Seed(key, "seed", FieldValues.Empty.Set("title", FieldValue.String(title)))]), default)).IsSuccess);
+            paths.Add(f.PathToPage.Replace(f.Scope.Id.ToString("D"), native.InstanceId.ToString("D")));
+        }
+        var first = await f.Client.GetStringAsync(paths[0]);
+        var second = await f.Client.GetStringAsync(paths[1]);
+        Assert.Contains("origin-one", first); Assert.DoesNotContain("origin-two", first);
+        Assert.Contains("origin-two", second); Assert.DoesNotContain("origin-one", second);
+    }
+
     [Theory]
     [InlineData("manifest", 0)]
     [InlineData("domain", 1)]

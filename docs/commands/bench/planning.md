@@ -43,3 +43,12 @@ returning a fabricated empty selection.
 Inspect nonzero exits and complete output. A cached metadata read is not fresh
 provider permission evidence. A successful browse is not approval to add a rule
 or a claim that every provider supports this planning surface.
+
+In the isolated v2 owner, `twig workspace --bench <name> -o json` inspects
+released membership; add `--refresh` before `-o json` to acquire observations
+for the selected Connection. Only `Known` has an exact total (including zero).
+`Partial` lists qualified members without claiming the list is complete;
+`Unknown` and `Denied` do not mean empty. Local edits never add provider members.
+A relative iteration requires the selected team's calendar, observed no more
+than 24 hours ago, with inclusive UTC dates and contiguous coverage through the
+requested offset. An unusable calendar is not evidence of an empty iteration.

@@ -81,6 +81,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             var create = false;
             switch (args)
             {
+                case ["workspace" or "ws", "--bench", var name, "--refresh"]:
+                    item = name; mode = "refresh"; break;
                 case ["seed", "publish", "--local-id", var id, "--review", var rev, .. var tail] when tail is [] or ["--prepare"]:
                     create = true; item = id; review = Guid.ParseExact(rev, "D"); mode = tail.Length == 0 ? "submit" : "prepare"; break;
                 case ["seed", "--find", "--local-id", var id]:
@@ -98,7 +100,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                     item = id; field = f; value = v; review = Guid.ParseExact(rev, "D"); mode = tail.Length == 0 ? "submit" : "prepare"; break;
                 default: throw new InvalidDataException("Expected an explicit update, review and work item, or --find --id.");
             }
-            if (item.Length is 0 or > 256 || mode is not ("find" or "local") && review == Guid.Empty)
+            if (item.Length is 0 or > 256 || mode is not ("find" or "local" or "refresh") && review == Guid.Empty)
                 throw new InvalidDataException("An exact item and nonempty review UUID are required.");
             await acquisitions.WaitAsync(ct);
             reading = true;
@@ -131,6 +133,9 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             pinned.Dispose();
             Require(await factory.AdmitSourceAsync(handle, ct));
             var publisher = hostServices?.GetService<IOwnerBenchPublication>();
+            if (mode == "refresh")
+                return await (publisher ?? throw new InvalidOperationException("Missing publication authority."))
+                    .RefreshAsync(handle.Workspace, handle.Source, actions, item, output, ct);
             using var publication = publisher?.TrackWorkspace(root, handle.Source, actions);
             var workspace = handle.Workspace;
             if (guard is not null && (handle.Source != guard.Source || !guard.Authorized()))

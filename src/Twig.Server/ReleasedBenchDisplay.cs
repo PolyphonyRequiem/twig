@@ -14,7 +14,10 @@ namespace Twig.Server;
 
 internal sealed record DisplayPartition(Guid Owner, Guid Store, Guid Bench, Guid Id, NativeSourceStamp? Origin, Connection Connection);
 internal sealed record DisplayRow(string Kind, string Item, string? Type, string? Field, FieldValueDto? Value);
-internal sealed record ReleasedPartitions(Guid[] Partitions);
+internal sealed record QualifiedMember(string Connection, string Item);
+internal sealed record BenchMembership(string State, int? ExactTotal, QualifiedMember[] Items);
+internal sealed record ReleasedPartitions(Guid[] Partitions, Guid[] LocalOrigins, BenchMembership Membership, Guid Generation,
+    long RemainingMilliseconds, DateTimeOffset Expires);
 [JsonSerializable(typeof(ReleasedPartitions))]
 [JsonSerializable(typeof(DisplayRow))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
@@ -24,6 +27,7 @@ internal sealed partial class ReleasedBenchDisplay
 {
     internal const int MaximumPage = 512 * 1024;
     private readonly ReleasedBenchStore store;
+    private readonly UserBenchStore? definitions;
     private readonly object publication = new();
     private readonly object release = new();
     private readonly Dictionary<(Guid Owner, Guid Store, Guid Bench, Guid Partition), Entry> entries = [];
@@ -33,11 +37,12 @@ internal sealed partial class ReleasedBenchDisplay
     private readonly SemaphoreSlim responses = new(16, 16);
     internal Func<CancellationToken, Task>? BeforeEnqueue { get; set; }
     internal Action? AfterStage { get; set; }
-    private sealed record Entry(DisplayPartition Scope, Guid Generation, int Pages, GrantWitness? Grant);
+    private sealed record Entry(DisplayPartition Scope, Guid Generation, int Pages, GrantWitness? Grant, long RuleRevision);
 
-    internal ReleasedBenchDisplay(string path, TimeProvider? clock = null, ViewSessions? sessions = null)
+    internal ReleasedBenchDisplay(string path, TimeProvider? clock = null, ViewSessions? sessions = null, UserBenchStore? definitions = null)
     {
         store = new(path);
+        this.definitions = definitions;
         this.clock = clock ?? TimeProvider.System;
         withdrawals = store.Withdrawals();
         watermark = withdrawals.Values.DefaultIfEmpty().Max();
@@ -54,7 +59,8 @@ internal sealed partial class ReleasedBenchDisplay
     private bool TryPublishLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted)
         => PrepareLocal(scope, observation, admitted)();
 
-    private Func<bool> PrepareLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted, string? hash = null)
+    private Func<bool> PrepareLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted, string? hash = null,
+        long ruleRevision = 0)
     {
         if (scope.Origin != observation.Source || scope.Connection != observation.Source.Connection)
             throw new InvalidDataException("The local observation is not from the authorized origin.");
@@ -77,7 +83,7 @@ internal sealed partial class ReleasedBenchDisplay
             _ => throw new InvalidDataException("Local intent does not belong to the released partition.")
         });
         var pages = Pages(rows);
-        return () => Publish(scope, pages, request, input: input);
+        return () => Publish(scope, pages, request, input: input, ruleRevision: ruleRevision);
     }
 
     private static IEnumerable<DisplayRow> Rows(string kind, string item, string? type, FieldValues fields)
@@ -133,7 +139,7 @@ internal sealed partial class ReleasedBenchDisplay
     }
 
     private bool Publish(DisplayPartition scope, List<byte[]> pages, long request, GrantWitness? grant = null,
-        (long Version, string Hash)? input = null)
+        (long Version, string Hash)? input = null, long ruleRevision = 0)
     {
         var key = (scope.Owner, scope.Store, scope.Bench, scope.Id);
         bool Eligible() => !Dirty(scope) && partitionRequests[scope] == request && (grant is null || Current(grant))
@@ -149,7 +155,7 @@ internal sealed partial class ReleasedBenchDisplay
                 if (old is not null && (old.Scope != scope || old.Grant?.Item != grant?.Item))
                     throw new InvalidDataException("A partition cannot change origin, grant scope or content kind.");
             }
-            var entry = new Entry(scope, Guid.NewGuid(), pages.Count, grant);
+            var entry = new Entry(scope, Guid.NewGuid(), pages.Count, grant, ruleRevision);
             if (!store.Stage($"{scope.Owner:N}/{scope.Store:N}/{scope.Bench:N}/{scope.Id:N}",
                     old?.Generation, entry.Generation, pages, grant)) return false;
             AfterStage?.Invoke();
@@ -172,11 +178,13 @@ internal sealed partial class ReleasedBenchDisplay
     internal async Task Read(ViewSessions sessions, Guid view, string bearer, Guid bench, Guid partition, string? cursor,
         string? expectedGeneration, Func<Frame, Task> send, CancellationToken ct)
     {
+        _ = sessions.WithDisplayOwner(view, bearer, owner => owner.CatalogId);
+        var catalog = definitions?.InspectRevision();
         var start = sessions.WithDisplayOwner(view, bearer, owner =>
         {
             lock (release)
             {
-                var current = Select(owner, bench, partition);
+                var current = Select(owner, bench, partition, catalog);
                 return (current.Entry, current.Generation, owner.ProfileGeneration);
             }
         });
@@ -202,11 +210,12 @@ internal sealed partial class ReleasedBenchDisplay
         if (BeforeEnqueue is { } barrier) await barrier(ct);
         ct.ThrowIfCancellationRequested();
         var outbox = Channel.CreateBounded<Frame>(1);
+        catalog = definitions?.InspectRevision();
         sessions.WithDisplayOwner(view, bearer, owner =>
         {
             lock (release)
             {
-                var current = Select(owner, bench, partition);
+                var current = Select(owner, bench, partition, catalog);
                 if (current.Entry != start.Entry || current.Generation != start.Generation
                     || owner.ProfileGeneration != start.ProfileGeneration) throw Changed();
                 var now = clock.GetUtcNow();
@@ -222,13 +231,16 @@ internal sealed partial class ReleasedBenchDisplay
         finally { responses.Release(); }
     }
 
-    private (Entry Entry, Guid Generation) Select(ViewSession owner, Guid bench, Guid partition)
+    private (Entry Entry, Guid Generation) Select(ViewSession owner, Guid bench, Guid partition, (Guid Instance, long Revision)? catalog)
     {
         RequireOpen();
         var entry = entries.GetValueOrDefault((owner.ProfileId, owner.CatalogId, bench, partition))
             ?? throw new HttpFailure(409, "RefreshRequired", "No eligible release.");
+        if (entry.RuleRevision > 0 && catalog != (entry.Scope.Store, entry.RuleRevision)) throw Changed();
         if (Dirty(entry.Scope)) throw new HttpFailure(409, "RefreshRequired", "The Bench has unsettled changes.");
         if (entry.Grant is { } grant && (Withdrawn(grant) || Remaining(grant) <= TimeSpan.Zero)) throw Denied();
+        if (entry.Grant?.ScanRequest is { } request && (!scans.TryGetValue((owner.CatalogId, bench, entry.Scope.Connection), out var scan)
+            || scan.Request != request || !ScanEligible(scan))) throw Changed();
         return (entry, generations[(owner.ProfileId, owner.CatalogId, bench)]);
     }
 
@@ -240,7 +252,67 @@ internal sealed partial class ReleasedBenchDisplay
         throw new HttpFailure(503, "Busy", "The display handoff was not accepted.");
     }
 
-    internal async Task ReadPartitions(ViewSessions views, Guid view, string bearer, Guid bench,
+    private ReleasedPartitions Inventory(Guid owner, UserBenchSnapshot catalog, Twig.Core.Bench bench, DateTimeOffset? ownerExpiry = null)
+    {
+        RequireOpen();
+        var storeId = catalog.InstanceId;
+        var scoped = entries.Values.Where(e => e.Scope.Owner == owner && e.Scope.Store == storeId
+            && e.Scope.Bench == bench.Id && !Dirty(e.Scope)).ToArray();
+        var pins = bench.Selectors.Where(s => s.Kind == SelectorKind.Pin && s.Item is { IsLocal: false }
+            && s.Connection is not null).DistinctBy(s => Fingerprint(s.Connection!, s.Item))
+            .ToDictionary(s => Fingerprint(s.Connection!, s.Item));
+        var covered = new HashSet<Connection>();
+        var incomplete = false;
+        var now = clock.GetUtcNow();
+        var remaining = Math.Min(60_000d, ((ownerExpiry ?? now.AddMinutes(1)) - now).TotalMilliseconds);
+        var candidate = pins.ToDictionary(p => p.Key, p => (Connection: p.Value.Connection!, Item: p.Value.Item!));
+        foreach (var c in bench.Connections)
+        {
+            if (!scans.TryGetValue((storeId, bench.Id, c), out var scan) || !scan.Owners.Contains(owner)
+                || scan.Catalog != catalog.Revision || !ScanEligible(scan)) continue;
+            if (scan.State == "Known") covered.Add(c);
+            else incomplete = true;
+            remaining = Math.Min(remaining, Math.Min((scan.Until - now).TotalMilliseconds,
+                (TimeSpan.FromSeconds(60) - clock.GetElapsedTime(scan.Started)).TotalMilliseconds));
+            foreach (var key in scan.Keys) candidate[Fingerprint(c, key)] = (c, key);
+        }
+        var items = new List<QualifiedMember>();
+        var partitions = new List<Guid>();
+        var denied = bench.Connections.Any(c => withdrawals.ContainsKey(Fingerprint(c, null)) && !covered.Contains(c)
+            && bench.Selectors.Any(s => s.Connection == c && s.Kind != SelectorKind.Pin));
+        foreach (var (fingerprint, selector) in candidate.OrderBy(p => p.Key, StringComparer.Ordinal))
+        {
+            var connection = Fingerprint(selector.Connection!, null);
+            var entry = scoped.SingleOrDefault(e => e.Grant?.Item == fingerprint && e.RuleRevision == catalog.Revision);
+            if (entry?.Grant is { } grant && !Withdrawn(grant) && Remaining(grant) > TimeSpan.Zero
+                && (grant.ScanRequest is null || scans.TryGetValue((storeId, bench.Id, selector.Connection), out var scan)
+                    && scan.Request == grant.ScanRequest && scan.Catalog == catalog.Revision && ScanEligible(scan)))
+            {
+                items.Add(new(connection, selector.Item!.NativeId!));
+                remaining = Math.Min(remaining, Remaining(grant).TotalMilliseconds);
+                partitions.Add(entry.Scope.Id);
+            }
+            else if (Withdrawal(connection, fingerprint) != 0 && (entry?.Grant is not { } prior || Withdrawn(prior)))
+                denied = true;
+        }
+        var origins = scoped.Where(e => e.Scope.Origin is not null && e.RuleRevision == catalog.Revision && !denied)
+            .Select(e => e.Scope.Id).ToArray();
+        partitions.AddRange(origins);
+        if (partitions.Count > 1024) throw new HttpFailure(409, "RefreshRequired", "The partition inventory exceeds the bound.");
+        var complete = !denied && !incomplete && !pending.Values.Any(d => d.Benches.Contains(bench.Id)) && candidate.Count == items.Count
+            && bench.Selectors.All(s => s.Connection is not null && (covered.Contains(s.Connection)
+                || s.Kind == SelectorKind.Pin && s.Item is { IsLocal: false }));
+        var state = denied ? "Denied" : complete ? "Known" : items.Count > 0 ? "Partial" : "Unknown";
+        return new([.. partitions], origins, new(state, complete ? items.Count : null, [.. items]),
+            generations.GetValueOrDefault((owner, storeId, bench.Id)), (long)Math.Max(0, remaining), now.AddMilliseconds(remaining));
+    }
+
+    internal ReleasedPartitions CliInventory(UserBenchSnapshot catalog, Twig.Core.Bench bench)
+    {
+        lock (release) return Inventory(Guid.Empty, catalog, bench);
+    }
+
+    internal async Task ReadPartitions(ViewSessions views, Guid view, string bearer, UserBenchSnapshot catalog, Guid bench,
         Func<ReleasedPartitions,Task> send, CancellationToken ct)
     {
         var outbox = Channel.CreateBounded<ReleasedPartitions>(1);
@@ -248,14 +320,9 @@ internal sealed partial class ReleasedBenchDisplay
         {
             lock (release)
             {
-                RequireOpen();
-                var ids = entries.Values.Where(e => e.Scope.Owner == owner.ProfileId && e.Scope.Store == owner.CatalogId
-                    && e.Scope.Bench == bench && !Dirty(e.Scope)
-                    && (e.Grant is null || !Withdrawn(e.Grant) && Remaining(e.Grant) > TimeSpan.Zero))
-                    .Select(e => e.Scope.Id).Take(1025).ToArray();
-                if (ids.Length is 0 or > 1024)
-                    throw new HttpFailure(409, "RefreshRequired", "No bounded eligible partition inventory.");
-                return Enqueue(outbox, new(ids));
+                if (owner.CatalogId != catalog.InstanceId || catalog.Benches.SingleOrDefault(b => b.Id == bench) is not { } definition)
+                    throw new HttpFailure(409, "RefreshRequired", "No current Bench definition.");
+                return Enqueue(outbox, Inventory(owner.ProfileId, catalog, definition, owner.Expires));
             }
         });
         try { await send(await outbox.Reader.ReadAsync(ct)); }

@@ -43,6 +43,16 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     [CanvasQualificationFact, SupportedOSPlatform("windows")]
     public Task RealCanvasProxyAndBrowserRecoverReleasedPrivateInput() => RunOwnerScenario(false, canvas: true);
 
+    [CanvasQualificationFact, SupportedOSPlatform("windows")]
+    public Task RealCanvasProxyAndBrowserAgreeWithDaemonMembership() => RunOwnerScenario(false, canvas: true, membership: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task LateProviderResponseCannotRestoreMembershipAfterOwnerSave() => RunOwnerScenario(false, remote: "ado", late: "save");
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task LateProviderResponseCannotRestoreMembershipAfterOwnerDenial() => RunOwnerScenario(false, remote: "ado", late: "deny");
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task LateProviderResponseCannotReplaceNewerObservation() => RunOwnerScenario(false, remote: "ado", late: "observe");
+
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task DisjointProviderAndLocalEditsSettleWhileOriginalAuthorityTransactionIsParked() => RunOwnerScenario(true);
 
@@ -89,7 +99,8 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
 
     [SupportedOSPlatform("windows")]
     private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
-        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false, bool canvas = false)
+        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false, bool canvas = false,
+        bool membership = false, string? late = null)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -154,17 +165,79 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 var pinned = await new UserBenchStore(Path.Combine(home, "benches.db")).SaveAsync(new(displayBench, "Unrelated pin",
                     [new(SelectorKind.Pin, pin, connection: projection.Connection)]), 0);
                 pinned.IsSuccess.ShouldBeTrue();
+                if (membership)
+                {
+                    (await new UserBenchStore(Path.Combine(home, "benches.db")).SaveAsync(new(Guid.NewGuid(), "Work query",
+                        [new(SelectorKind.Query, query: new(QueryKind.Equal, NativeProvider.Title, FieldValue.String("original")),
+                            connection: projection.Connection)]), 0)).IsSuccess.ShouldBeTrue();
+                    var other = Directory.CreateDirectory(Path.Combine(root, "other")).FullName;
+                    InitCommandTestFixture.InitTempWorktree(other).ShouldBeTrue();
+                    var second = await new NativeConnectionSetup(home).InitializeFreshAsync(new(other, new NativeTwigSetupTarget("qualification")));
+                    second.IsSuccess.ShouldBeTrue(second.IsSuccess ? "" : second.Error.Message);
+                    second.Value.Source.Connection.ShouldBe(projection.Connection);
+                    second.Value.Source.StoreInstance.ShouldNotBe(projection.DatabaseInstance);
+                    var defs = new UserBenchStore(Path.Combine(home, "benches.db"));
+                    var today = DateTimeOffset.UtcNow.UtcDateTime.Date;
+                    foreach (var defect in new[] { "current", "wrong team", "gap", "overlap", "undated", "offset", "stale" })
+                    {
+                        var team = Guid.NewGuid().ToString("D");
+                        var calendarTeam = defect == "wrong team" ? Guid.NewGuid().ToString("D") : team;
+                        var iterations = new List<PlanningIteration> { new("original", today.AddDays(-1), today) };
+                        if (defect == "gap") iterations.Add(new("later", today.AddDays(2), today.AddDays(3)));
+                        if (defect == "overlap") iterations.Add(new("another", today, today.AddDays(2)));
+                        if (defect == "undated") iterations.Add(new("unknown", null, null));
+                        (await defs.SavePlanningAsync(projection.Connection, calendarTeam, new(
+                            DateTimeOffset.UtcNow.AddHours(defect == "stale" ? -25 : 0), [], [.. iterations], [], calendarTeam))).IsSuccess.ShouldBeTrue();
+                        var query = new Query(QueryKind.Iteration, NativeProvider.Title,
+                            FieldValue.Strings([defect is "offset" or "gap" ? "@Current+1" : "@Current"]), planningTeam: team);
+                        (await defs.SaveAsync(new(Guid.NewGuid(), "Calendar " + defect,
+                            [new(SelectorKind.Query, query: query, connection: projection.Connection)]), 0)).IsSuccess.ShouldBeTrue();
+                    }
+                    (await defs.SaveAsync(new(Guid.NewGuid(), "Incomplete pins", [
+                        new(SelectorKind.Pin, pin, connection: projection.Connection),
+                        new(SelectorKind.Pin, ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, "99"),
+                            connection: projection.Connection)]), 0)).IsSuccess.ShouldBeTrue();
+                }
             }
             await StartOwner();
+            if (late is not null)
+            {
+                await File.WriteAllTextAsync(Path.Combine(root, "park-read"), "");
+                var old = Cli(null, "workspace", "--bench", "Unrelated pin", "--refresh", "-o", "json");
+                try
+                {
+                    var wait = Stopwatch.StartNew();
+                    while (!File.Exists(Path.Combine(root, "observed-before-change")))
+                    {
+                        if (old.IsCompleted) throw new InvalidOperationException((await old).Error);
+                        wait.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(20));
+                        await Task.Delay(25);
+                    }
+                    if (late == "deny") await File.WriteAllTextAsync(Path.Combine(root, "deny-read"), "");
+                    var newer = late == "save"
+                        ? await Cli(null, "update", "System.Title", "later saved title", "--id", "44", "--review", Guid.NewGuid().ToString())
+                        : await Cli(null, "workspace", "--bench", "Unrelated pin", "--refresh", "-o", "json");
+                    newer.Code.ShouldBe(late == "deny" ? 1 : 0, newer.Error + newer.Output);
+                }
+                finally { await File.WriteAllTextAsync(Path.Combine(root, "release-read"), ""); }
+                var superseded = await old;
+                superseded.Code.ShouldNotBe(0); superseded.Error.ShouldContain("superseded");
+                var read = await Cli(null, "workspace", "--bench", "Unrelated pin", "-o", "json");
+                using var doc = JsonDocument.Parse(read.Output);
+                doc.RootElement.GetProperty("membership").GetProperty("state").GetString()
+                    .ShouldBe(late == "save" ? "Unknown" : late == "deny" ? "Denied" : "Known");
+                return;
+            }
             if (canvas)
             {
                 var test = Path.Combine(Environment.GetEnvironmentVariable("TWIG_TEST_CANVAS_CHECKOUT")!, "tests", "released-owner-browser.mjs");
-                using var browser = Run("node", false, [test, cli]);
+                using var browser = Run("node", false, membership ? [test, cli, "membership"] : [test, cli]);
                 var errors = browser.StandardError.ReadToEndAsync();
                 var output = browser.StandardOutput.ReadToEndAsync();
                 try { await browser.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(90)); }
                 finally { if (!browser.HasExited) browser.Kill(true); }
                 browser.ExitCode.ShouldBe(0, await errors + await output);
+                if (membership) return;
                 var state = (await handle!.Workspace.SnapshotAsync(default)).Value;
                 var item = (await handle.Workspace.ObserveItemsAsync([state.Items.Single().Key], default)).Value.Items.Single();
                 item.Fields[NativeProvider.Title].Text.ShouldBe("private qualification words");
@@ -294,11 +367,27 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     http.DefaultRequestHeaders.Authorization = new("Bearer", pair.RootElement.GetProperty("contentCapability").GetString());
                     var view = pair.RootElement.GetProperty("viewId").GetGuid();
                     displayPath = $"/api/v2/views/{view:D}/benches/{displayBench:D}/partitions/{projection.DatabaseInstance:D}/page";
+                    async Task Membership(string expected, int? total)
+                    {
+                        var cliRead = await Cli(null, "workspace", "--bench", displayBench.ToString("D"), "-o", "json");
+                        cliRead.Code.ShouldBe(expected == "Known" ? 0 : 1, cliRead.Error);
+                        using var cliResult = JsonDocument.Parse(cliRead.Output);
+                        using var canvasResult = JsonDocument.Parse(await http.GetStringAsync(
+                            $"/api/v2/views/{view:D}/benches/{displayBench:D}/partitions"));
+                        var a = cliResult.RootElement.GetProperty("membership");
+                        var b = canvasResult.RootElement.GetProperty("membership");
+                        a.GetRawText().ShouldBe(b.GetRawText());
+                        a.GetProperty("state").GetString().ShouldBe(expected);
+                        if (total is { } n) a.GetProperty("exactTotal").GetInt32().ShouldBe(n);
+                        else a.GetProperty("exactTotal").ValueKind.ShouldBe(JsonValueKind.Null);
+                    }
+                    await Membership("Unknown", null);
                     var staged = await Cli(null, "update", title, "parked-read-witness", "--id", cId, "--local");
                     staged.Code.ShouldBe(0, staged.Error + staged.Output);
                     // Grants come from an exact provider read, never from that local edit.
                     var authorized = await Cli(null, "update", "--find", "--id", cId);
                     authorized.Output.ShouldContain("NotFound");
+                    await Membership("Known", 1);
                     var directory = displayPath[..displayPath.LastIndexOf("/partitions/", StringComparison.Ordinal)] + "/partitions";
                     using var inventory = JsonDocument.Parse(await http.GetStringAsync(directory));
                     var provider = inventory.RootElement.GetProperty("partitions").EnumerateArray()
@@ -598,6 +687,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(OwnerUpdateProcessTests).Assembly.Location;
                     start.Environment["DOTNET_ADDITIONAL_DEPS"] = Path.ChangeExtension(typeof(OwnerUpdateProcessTests).Assembly.Location, ".deps.json");
                     start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? (create ? "create" : "cas");
+                    if (late is not null) start.Environment["TWIG_TEST_LATE_ACQUISITION"] = "1";
                     if (remote is not null && create) start.Environment["TWIG_TEST_REMOTE_CREATE"] = "1";
                     if (begin) start.Environment["TWIG_TEST_RACE_BEGIN"] = "1";
                 }

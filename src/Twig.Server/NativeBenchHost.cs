@@ -57,7 +57,8 @@ public static partial class NativeBenchHost
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
         if (options.ExecutionV2)
         {
-            builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db"), sessions: sessions));
+            builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db"),
+                sessions: sessions, definitions: panel.Definitions));
             builder.Services.AddSingleton<Twig.Commands.IOwnerBenchPublication>(services => services.GetRequiredService<ReleasedBenchDisplay>());
         }
         if (options.ExecutionV2)

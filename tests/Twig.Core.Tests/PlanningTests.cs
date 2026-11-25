@@ -27,27 +27,30 @@ public sealed class PlanningTests
         => Should.Throw<ArgumentException>(() => new IterationExpression(text));
 
     [Fact]
-    public void CachedCalendarResolvesEveryOverlappingCurrentAndOffsetWithoutBroaderFallback()
+    public void RelativeCalendarRequiresUniqueContiguousCoverageAndFreshTeamDates()
     {
         var calendar = new PlanningMetadata(now, [],
         [
             new("Project\\Earlier", now.AddDays(-4), now.AddDays(-2)),
-            new("Project\\Current A", now.AddDays(-1), now),
-            new("Project\\Current B", now, now.AddDays(1)),
-            new("Project\\Next", now.AddDays(2), now.AddDays(3)),
-            new("Project\\Undated", null, null),
+            new("Project\\Current A", now.AddDays(-1), now.UtcDateTime.Date),
+            new("Project\\Next", now.AddDays(1), now.AddDays(3)),
+            new("Project\\Unselected", null, null, false),
         ], [], "Native team");
         var current = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current"]), planningTeam: "Native team");
         Required(Model.Matches(current, Item("project\\CURRENT a"), calendar, now)).ShouldBeTrue();
-        Required(Model.Matches(current, Item("Project\\Current B"), calendar, now)).ShouldBeTrue();
         Required(Model.Matches(current, Item("Project\\Next"), calendar, now)).ShouldBeFalse();
         var next = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current+1"]), planningTeam: "Native team");
-        Required(Model.Matches(next, Item("Project\\Current B"), calendar, now)).ShouldBeTrue();
         Required(Model.Matches(next, Item("Project\\Next"), calendar, now)).ShouldBeTrue();
         Required(Model.Matches(next, Item("Project\\Current A"), calendar, now)).ShouldBeFalse();
-        Required(Model.Matches(new(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current+99"]), planningTeam: "Native team"),
-            Item("Project\\Next"), calendar, now)).ShouldBeFalse();
-        Required(Model.Matches(current, Item("Project\\Next"), calendar, now.AddYears(1))).ShouldBeFalse();
+        foreach (var unusable in new[] {
+            calendar with { ObservedAt = now.AddHours(-24).AddTicks(-1) },
+            calendar with { Iterations = calendar.Iterations.Add(new("Undated", null, null)) },
+            calendar with { Iterations = calendar.Iterations.Add(new("Overlap", now, now)) },
+            calendar with { Iterations = [calendar.Iterations[1], new("After gap", now.AddDays(2), now.AddDays(3))] },
+            calendar with { Iterations = [calendar.Iterations[1]] },
+        })
+            Model.Matches(next, Item("Project\\Next"), unusable, now).Error.Code.ShouldBe(ErrorCode.Unavailable);
+        Required(Model.Matches(current, Item("Project\\Current A"), calendar with { ObservedAt = now.AddHours(-24) }, now)).ShouldBeTrue();
         Model.Matches(current, Item("Project\\Next")).Error.Code.ShouldBe(ErrorCode.Unavailable);
         Model.Matches(current, Item("Project\\Next"), calendar with { Team = "Different team" }, now).Error.Code.ShouldBe(ErrorCode.Unavailable);
         Model.ResolveBench(new(Guid.NewGuid(), "Relative intent", [new(SelectorKind.Query, query: current)]),

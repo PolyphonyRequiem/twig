@@ -30,6 +30,9 @@ public sealed partial class GitHubProvider
         }, ct));
 
     public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => ((IOriginalUpdateProvider)this).ApplyOriginalAsync(plan, operation, attempt, null, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.ApplyOriginalAsync(Plan plan, int operation, Guid attempt, IOriginalUpdateBarrier? barrier, CancellationToken ct)
         => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             if (attempt == Guid.Empty || operation < 0 || operation >= plan.Operations.Length)
@@ -78,10 +81,20 @@ public sealed partial class GitHubProvider
                 await bound.Session.ValidateAsync(token);
                 using var request = Request(bound, shape.Payload);
                 token.ThrowIfCancellationRequested();
+                if (barrier is not null)
+                    await barrier.OpenAsync(plan, attempt, new(intent.Method, intent.Target.AbsoluteUri, Wire.Hash(shape.Payload),
+                        bound.Actor, bound.Authority), token);
                 dispatched = true;
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
                 var bytes = await Wire.Response(response, token);
                 var text = Wire.Utf8(bytes);
+                if (barrier is not null)
+                {
+                    await admission.ObserveAsync((int)response.StatusCode, text, CancellationToken.None);
+                    var original = DecodeOriginalUpdate(plan, operation, attempt, bound.Actor, bound.Authority,
+                        (int)response.StatusCode, bytes);
+                    return original is null ? Unknown("No attributable original update acknowledgement.") : await PersistReceipt(plan, original, null);
+                }
                 evidence.Add($"http:{(int)response.StatusCode}");
                 evidence.Add($"github-response:{text}");
                 await admission.ObserveAsync((int)response.StatusCode, text, CancellationToken.None);
@@ -122,13 +135,19 @@ public sealed partial class GitHubProvider
                     : new(plan.Digest, operation, attempt, OpStatus.Failed, evidence,
                         error: new(ErrorCode.Unavailable, "Host admission/selection refused before mutation dispatch."));
             }
-            return await PersistReceipt(plan, outcome, null);
+            return barrier is not null ? outcome : await PersistReceipt(plan, outcome, null);
 
             Receipt Unknown(string message) => new(plan.Digest, operation, attempt, OpStatus.Indeterminate, evidence,
                 error: new(ErrorCode.Indeterminate, message));
         }, ct, validateAfter: false));
 
     public Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, false, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, true, ct);
+
+    private Task<Result<Receipt>> Verify(Plan plan, Receipt acknowledgement, bool original, CancellationToken ct)
         => Guard(async () =>
         {
             if (plan.Connection != _connection) throw Wire.Refuse(ErrorCode.Conflict, "Verification binding changed.");
@@ -192,8 +211,49 @@ public sealed partial class GitHubProvider
                     [$"Readback unavailable ({ex.GetType().Name}); original Applied acknowledgement remains."],
                     publishedKey: acknowledgement.PublishedKey, error: new(ErrorCode.Indeterminate, "Readback failure is not non-dispatch evidence."));
             }
-            return await PersistReceipt(plan, receipt, observations);
+            return original && receipt.Status == OpStatus.Indeterminate ? receipt : await PersistReceipt(plan, receipt, observations);
         });
+
+    private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string authority, int status, byte[] bytes)
+    {
+        var op = plan.Operations[ordinal];
+        if (op.Kind != OpKind.Batch || op.Item.IsLocal) throw Wire.Invalid("An original update is required.");
+        string[] evidence = [$"actor:{actor}", $"authority:{authority}", $"attempt:{attempt:D}", $"http:{status}"];
+        if (status is 400 or 401 or 403 or 404 or 405 or 415 or 422 or 429)
+            return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence,
+                error: new(ErrorCode.Unavailable, $"Definitive HTTP {status} rejection."));
+        if (status != 200) return null;
+        var payload = Wire.Member(Wire.Data(Wire.Parse(bytes)), "updateIssue");
+        var issue = Wire.Member(payload, "issue");
+        Repository(Wire.Member(issue, "repository"));
+        return Wire.Text(payload, "clientMutationId") == attempt.ToString("D") && Key(Wire.Text(issue, "id")) == op.Item
+            ? new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence) : null;
+    }
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.InspectOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? request, CancellationToken ct)
+        => Guard(async () =>
+        {
+            var row = (await Snapshot(ct)).Journal.Single(j => j.Digest == plan.Digest && j.Operation == 0);
+            if (plan.Connection != _connection || row.Attempt != attempt) throw Wire.Invalid("Original attempt changed.");
+            if (row.Status != OpStatus.Applying) return row.Receipts[^1];
+            if (_access is not IOriginalResponseSource source) throw Wire.Refuse(ErrorCode.Unavailable, "Original GitHub evidence reader unavailable.");
+            var observed = await source.ObserveOriginalAsync(plan, attempt, request, ct);
+            if (request is null && !observed.IsSuccess && observed.Error.Code == ErrorCode.NotFound)
+                return await PersistReceipt(plan, new(plan.Digest, 0, attempt, OpStatus.Failed, ["original:Closed"],
+                    error: new(ErrorCode.Conflict, "Original barrier permanently closed before dispatch.")), null);
+            if (request is null || !observed.IsSuccess) throw Wire.Refuse(ErrorCode.Indeterminate, "Original proof unavailable or contradictory; no resend.");
+            var acknowledgement = DecodeOriginalUpdate(plan, 0, attempt, request.Actor, request.Context, observed.Value.Status,
+                System.Text.Encoding.UTF8.GetBytes(observed.Value.Body)) ?? throw Wire.Refuse(ErrorCode.Indeterminate, "No attributable original GitHub response.");
+            return await PersistReceipt(plan, acknowledgement, null);
+        });
+
+    async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
+    {
+        if (_access is not IOriginalResponseSource source) return Result<bool>.Fail(ErrorCode.Unavailable, "Original GitHub evidence reader unavailable.");
+        var response = await source.ObserveOriginalAsync(plan, attempt, null, ct);
+        return !response.IsSuccess && response.Error.Code != ErrorCode.NotFound
+            ? Result<bool>.Fail(response.Error) : Result<bool>.Ok(!response.IsSuccess);
+    }
 
     public async Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)
     {

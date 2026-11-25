@@ -37,6 +37,20 @@ the owner to demonstrate a shared store; unqualified CLI routes never fall back
 to an executable worker. This does **not** activate a release, fence a live old
 installation, or qualify an installer for cold cutover.
 
+In the fixture's `work` directory, `twig update <field> <value> --id <item> --review <uuid> --prepare`
+freezes a single update. Use `--stdin` in place of the value to read it once.
+`twig update --submit <uuid> --id <item>` submits that review; omitting `--prepare`
+on the first command prepares and submits in one invocation. Reusing the same
+review with different input is a conflict. An unclaimed review from a prior
+daemon boot remains queued; it cannot start a provider write after restart.
+
+If the reply is lost, `twig update --find --id <item>` returns only original
+identities and states visible to the current actor, not field values. Multiple
+matches are explicit. `twig update --observe <uuid> --id <item>` checks the
+original evidence without resending. Ctrl+C detaches the observer;
+`twig update --cancel <uuid> --id <item>` cancels only before claim.
+A pending or uncertain result carries the original identities and exits nonzero.
+
 ## Install the release package
 
 From [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases),

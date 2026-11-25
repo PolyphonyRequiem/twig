@@ -126,6 +126,29 @@ public sealed class NativeProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task Original_update_settlement_prevents_late_execution_after_owner_exit()
+    {
+        var (authority, mirror, provider) = await Open();
+        var (seed, _) = await Seed(provider, mirror);
+        (await provider.ImportAsync(seed)).IsSuccess.ShouldBeTrue();
+        var created = (await provider.ApplyAsync(seed, 0, Guid.NewGuid(), default)).Value;
+        (await provider.VerifyAsync(seed, created, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var before = (await mirror.ReadAsync(authority.Connection, default)).Value;
+        var item = before.Items.Single();
+        var plan = new Plan(authority.Connection, seed.SchemaFingerprint, before.Version,
+            [new("update", OpKind.Batch, item.Key, item.Revision,
+                FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("late")))]);
+        var attempt = Guid.NewGuid();
+        var reopened = (await NativeAuthority.OpenAsync(authority.DatabasePath)).Value;
+        var rejected = (await reopened.SettleOriginalUpdateAsync(plan, attempt, default)).Value;
+        rejected.Status.ShouldBe(OpStatus.Failed);
+        rejected.Evidence.ShouldContain("authority:RejectedNoEffect");
+        (await provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
+        (await provider.ApplyAsync(plan, 0, attempt, default)).Value.Status.ShouldBe(OpStatus.Failed);
+        (await provider.ReadAsync(authority.Connection, [item.Key], default)).Value.Items.Single().Revision.ShouldBe(item.Revision);
+    }
+
+    [Fact]
     public async Task Authority_commit_survives_lost_client_ack_and_recovers_only_original_effect()
     {
         var (authority, mirror, provider) = await Open();

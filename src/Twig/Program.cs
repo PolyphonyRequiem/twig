@@ -85,6 +85,12 @@ if (args is ["server", ..])
     return;
 }
 
+if (args is ["update", ..] && Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null)
+{
+    Environment.ExitCode = await Twig.ServerCommandClient.ExecuteAsync(args);
+    return;
+}
+
 // Retired surfaces fail before workspace discovery, provider composition or input reads.
 if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is { } retiredError)
 {

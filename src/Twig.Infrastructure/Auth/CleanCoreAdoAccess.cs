@@ -17,7 +17,7 @@ namespace Twig.Infrastructure.Auth;
 /// <summary>Retains native binding/generation admission across one clean-core provider operation.</summary>
 internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication, IConnectionBindingService bindings,
     TwigConfiguration configuration, TwigPaths paths, ResolvedConnectionBinding origin, Connection connection,
-    string principal, IStore store) : AdoAccess
+    string principal, IStore store) : AdoAccess, IOriginalResponseSource
 {
     private readonly IAuthenticationProvider _authentication = authentication;
     private readonly ResolvedConnectionBinding _origin = origin;
@@ -27,6 +27,37 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     private readonly IConnectionBindingService _bindings = bindings;
     private readonly TwigPaths _paths = paths;
     private readonly Guid _storeInstance = (store as SqliteStore)?.InstanceId ?? Guid.Empty;
+
+    public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
+    {
+        if (plan.Connection != _connection || _storeInstance == Guid.Empty || attempt == Guid.Empty
+            || plan.Operations is not [{ Kind: OpKind.Batch } op])
+            return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original ADO update binding differs.");
+        using var registry = new SqliteSystemWorktreeRegistry(_bindings.RegistryPath, TimeProvider.System);
+        var read = await registry.ReadConnectionRemoteWritesAsync(_origin.Operation.WorktreeFingerprint, ct: ct);
+        if (!read.IsSuccess) return Result<OriginalResponse>.Fail(read.Error);
+        var candidates = read.Value.Where(h => h.Intent.Request.CoreCorrelation is { } c
+            && (c.Attempt == attempt || c.PlanDigest == plan.Digest && c.Operation == 0 && c.StoreInstance == _storeInstance)).ToArray();
+        if (candidates.Length == 0) return Result<OriginalResponse>.Fail(ErrorCode.NotFound, "No original ADO intent.");
+        if (candidates is not [var history]) return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Ambiguous original ADO intent.");
+        var intent = history.Intent;
+        var request = intent.Request;
+        var correlation = new CoreWriteCorrelation(ConnectionText(_connection), plan.Digest, 0, attempt,
+            ItemText(op.Item), null, op.ExpectedRevision?.Token, _storeInstance);
+        if (!ConnectionRemoteWriteAdmission.SameAuthority(_origin, intent.Origin) || request.CoreCorrelation != correlation
+            || request.Method != "PATCH" || request.EffectKind != "workitem-patch" || !HasReviewedRevision(request.Payload, op)
+            || ConnectionRemoteWriteAdmission.RequestDigest(intent.Origin, request) != intent.RequestDigest
+            || dispatch is not null && (dispatch.Actor != _principal || dispatch.Target != request.Target || dispatch.Method != request.Method
+                || dispatch.PayloadHash != Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(request.Payload)))))
+            return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original ADO request does not bind this exact update.");
+        var observations = history.Observations.Select(o => new OriginalResponse(o.Response.StatusCode, o.Response.Body)).Distinct().ToArray();
+        return observations switch
+        {
+            [var response] => Result<OriginalResponse>.Ok(response),
+            [] when history.Receipt is null => Result<OriginalResponse>.Fail(ErrorCode.NotFound, "No original ADO response."),
+            _ => Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Contradictory original ADO evidence.")
+        };
+    }
 
     internal static string Identity(ResolvedConnectionBinding origin, string principal) => Json(writer =>
     {

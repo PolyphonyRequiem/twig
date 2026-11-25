@@ -21,7 +21,7 @@ internal sealed record CoreGitHubNativeAcknowledgement(string RequestHash, int S
 /// <summary>Holds the selected native target generation and records attributed transport intent before dispatch.</summary>
 internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, TwigPaths paths,
     GitHubWorkspaceScope scope, GitHubBoundTargetResolver targets, GitHubBoundReadContext origin,
-    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath) : GitHubAccess
+    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath) : GitHubAccess, IOriginalResponseSource
 {
     private readonly TwigConfiguration _configuration = configuration;
     private readonly TwigPaths _paths = paths;
@@ -30,6 +30,44 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
     private readonly string _actor = actor;
     private readonly SqliteStore _store = store;
     private readonly string _registryPath = registryPath;
+
+    public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
+    {
+        if (plan.Connection != _connection || attempt == Guid.Empty || plan.Operations is not [{ Kind: OpKind.Batch }])
+            return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original GitHub update binding differs.");
+        var projection = GitHubWriteIntent.Project(plan, 0, attempt);
+        if (!projection.IsSuccess) return Result<OriginalResponse>.Fail(projection.Error);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(projection.Value.Payload)));
+        var expected = new CoreGitHubNativeIntent(_store.InstanceId, _connection, _actor, _connection.IdentityRef,
+            plan.Digest, 0, attempt, "POST", _scope.GraphQlEndpoint.AbsoluteUri, "application/json", hash, projection.Value.Payload);
+        if (dispatch is not null && (dispatch.Actor != _actor || dispatch.Method != expected.Method
+            || dispatch.Target != expected.Target || dispatch.PayloadHash != hash))
+            return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original GitHub dispatch correlation differs.");
+        var path = Path.Combine(_paths.TwigDir, "core-github-intents", attempt.ToString("D") + ".json");
+        try
+        {
+            var intent = await Read(path, CoreGitHubNativeJsonContext.Default.CoreGitHubNativeIntent);
+            var ack = await Read(path + ".ack", CoreGitHubNativeJsonContext.Default.CoreGitHubNativeAcknowledgement);
+            if (intent is not null && intent != expected || ack is not null && (intent is null || ack.RequestHash != hash))
+                return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Contradictory original GitHub intent/acknowledgement.");
+            return ack is null ? Result<OriginalResponse>.Fail(ErrorCode.NotFound, "No original GitHub acknowledgement.")
+                : Result<OriginalResponse>.Ok(new(ack.StatusCode, ack.Body));
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        { return Result<OriginalResponse>.Fail(ErrorCode.StorageUnavailable, "Original GitHub evidence is unreadable."); }
+
+        async Task<T?> Read<T>(string file, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> type) where T : class
+        {
+            try
+            {
+                await using var input = File.OpenRead(file);
+                if (input.Length > 16 * 1024 * 1024) throw new InvalidDataException("Oversized original evidence.");
+                return await JsonSerializer.DeserializeAsync(input, type, ct) ?? throw new JsonException("Missing original evidence.");
+            }
+            catch (FileNotFoundException) { return null; }
+            catch (DirectoryNotFoundException) when (Directory.Exists(_paths.TwigDir)) { return null; }
+        }
+    }
     internal static string Identity(GitHubBoundReadContext target, TwigConfiguration configuration, string actor)
         => JsonSerializer.Serialize(new[]
         {

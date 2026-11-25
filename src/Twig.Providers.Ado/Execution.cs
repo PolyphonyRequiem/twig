@@ -32,6 +32,9 @@ public sealed partial class AdoProvider
         }, ct));
 
     public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => ((IOriginalUpdateProvider)this).ApplyOriginalAsync(plan, operation, attempt, null, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.ApplyOriginalAsync(Plan plan, int operation, Guid attempt, IOriginalUpdateBarrier? barrier, CancellationToken ct)
         => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             if (attempt == Guid.Empty || operation < 0 || operation >= plan.Operations.Length)
@@ -78,10 +81,20 @@ public sealed partial class AdoProvider
                 request.Content = new ByteArrayContent(payload);
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(intent.MediaType);
                 token.ThrowIfCancellationRequested();
+                if (barrier is not null)
+                    await barrier.OpenAsync(plan, attempt, new(method.Method, target.AbsoluteUri,
+                        Convert.ToHexStringLower(SHA256.HashData(payload)), bound.PrincipalId, bound.ProjectName), token);
                 dispatched = true;
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
                 var bytes = await ResponseBytes(response, token);
                 var responseText = Wire.Utf8(bytes);
+                if (barrier is not null)
+                {
+                    await admission.ObserveAsync((int)response.StatusCode, responseText, CancellationToken.None);
+                    var original = DecodeOriginalUpdate(plan, operation, attempt, bound.PrincipalId, bound.ProjectName,
+                        (int)response.StatusCode, bytes);
+                    return original is null ? Unknown("No attributable original update acknowledgement.") : await PersistReceipt(plan, original, null);
+                }
                 evidence.Add($"http:{(int)response.StatusCode}");
                 evidence.Add($"ado-response:{responseText}");
                 // Native acknowledgement durability is independent of the caller canceling after dispatch.
@@ -112,13 +125,19 @@ public sealed partial class AdoProvider
                     : new(plan.Digest, operation, attempt, OpStatus.Failed, evidence,
                         error: ex is AdoFailure failure ? failure.Error : new(ErrorCode.Unavailable, "Admission failed before dispatch."));
             }
-            return await PersistReceipt(plan, receipt, acknowledgedItems);
+            return barrier is not null ? receipt : await PersistReceipt(plan, receipt, acknowledgedItems);
 
             Receipt Unknown(string message) => new(plan.Digest, operation, attempt, OpStatus.Indeterminate, evidence,
                 error: new(ErrorCode.Indeterminate, message));
         }, ct));
 
     public Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, false, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, true, ct);
+
+    private Task<Result<Receipt>> Verify(Plan plan, Receipt acknowledgement, bool original, CancellationToken ct)
         => Guard(async () =>
         {
             var stored = await Snapshot(ct);
@@ -206,9 +225,51 @@ public sealed partial class AdoProvider
                     acknowledgement.Revision, acknowledgement.PublishedKey,
                     new(ErrorCode.Indeterminate, "Applied is retained; readback failure cannot establish no effect."));
             }
+            if (original && receipt.Status == OpStatus.Indeterminate) return receipt;
             return rechecking && receipt.Status != OpStatus.Verified
                 ? row.Receipts[^1] : await PersistReceipt(plan, receipt, observations);
         });
+
+    private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string project, int status, byte[] bytes)
+    {
+        var op = plan.Operations[ordinal];
+        if (op.Kind != OpKind.Batch || op.Item.IsLocal) throw Wire.Invalid("An original update is required.");
+        string[] evidence = [$"actor:{actor}", $"attempt:{attempt:D}", $"http:{status}"];
+        if (status is 400 or 401 or 403 or 404 or 405 or 409 or 412 or 415 or 422 or 429)
+            return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence, error: HttpFailure((System.Net.HttpStatusCode)status).Error);
+        if (status != 200) return null;
+        var root = JsonSerializer.Deserialize(bytes, TwigJsonContext.Default.JsonElement);
+        Wire.Unique(root);
+        var rev = Wire.Positive(root, "rev");
+        if (Key(Wire.Positive(root, "id")) != op.Item || Wire.Text(root.GetProperty("fields"), "System.TeamProject") != project
+            || rev <= RevisionNumber(op)) return null;
+        return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, Revision(op.Item, rev));
+    }
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.InspectOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? request, CancellationToken ct)
+        => Guard(async () =>
+        {
+            var row = (await Snapshot(ct)).Journal.Single(j => j.Digest == plan.Digest && j.Operation == 0);
+            if (plan.Connection != _connection || row.Attempt != attempt) throw Wire.Invalid("Original attempt changed.");
+            if (row.Status != OpStatus.Applying) return row.Receipts[^1];
+            if (_access is not IOriginalResponseSource source) throw Wire.Refuse(ErrorCode.Unavailable, "Original ADO evidence reader unavailable.");
+            var observed = await source.ObserveOriginalAsync(plan, attempt, request, ct);
+            if (request is null && !observed.IsSuccess && observed.Error.Code == ErrorCode.NotFound)
+                return await PersistReceipt(plan, new(plan.Digest, 0, attempt, OpStatus.Failed, ["original:Closed"],
+                    error: new(ErrorCode.Conflict, "Original barrier permanently closed before dispatch.")), null);
+            if (request is null || !observed.IsSuccess) throw Wire.Refuse(ErrorCode.Indeterminate, "Original proof unavailable or contradictory; no resend.");
+            var acknowledgement = DecodeOriginalUpdate(plan, 0, attempt, request.Actor, request.Context, observed.Value.Status,
+                System.Text.Encoding.UTF8.GetBytes(observed.Value.Body)) ?? throw Wire.Refuse(ErrorCode.Indeterminate, "No attributable original ADO response.");
+            return await PersistReceipt(plan, acknowledgement, null);
+        });
+
+    async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
+    {
+        if (_access is not IOriginalResponseSource source) return Result<bool>.Fail(ErrorCode.Unavailable, "Original ADO evidence reader unavailable.");
+        var response = await source.ObserveOriginalAsync(plan, attempt, null, ct);
+        return !response.IsSuccess && response.Error.Code != ErrorCode.NotFound
+            ? Result<bool>.Fail(response.Error) : Result<bool>.Ok(!response.IsSuccess);
+    }
 
     // Recovery only continues a durable acknowledgement's readback. Applying/unknown has no positive creation evidence.
     public async Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)

@@ -1024,8 +1024,12 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                 relationships: relationships), ct).ConfigureAwait(false);
         return committed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(committed.Error);
     }
-    internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct, bool deferSeedDelivery = false)
+    internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct, bool deferSeedDelivery = false,
+        OriginalUpdate? original = null, IOriginalUpdateBarrier? barrier = null)
     {
+        if (original is not null && (barrier is null || original.Plan.Digest != plan.Digest
+            || plan.Operations is not [{ Kind: OpKind.Batch }] || provider is not IOriginalUpdateProvider))
+            return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Unsupported original update binding.");
         if (plan.Connection != connection)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The plan belongs to another immutable connection.");
         if (executionRegistryPath is not null)
@@ -1072,7 +1076,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             Result<Receipt> result;
             if (row.Status == OpStatus.Planned)
             {
-                var attempt = Guid.NewGuid();
+                var attempt = original?.Attempt ?? Guid.NewGuid();
                 using var targets = executionRegistryPath is null ? null : ConnectionOperationGate.AcquireCoreTargets(
                     executionRegistryPath, NativeCoreExecution.OperationKeys(plan.Operations[ordinal], current.Value, connection));
                 if (executionRegistryPath is not null && store is Twig.Store.Sqlite.SqliteStore nativeStore)
@@ -1083,15 +1087,19 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
                     if (!admitted.IsSuccess) return Finish(admitted.Error);
                     admitted.Value.Dispose();
                 }
-                result = await provider.ApplyAsync(plan, ordinal, attempt, ct).ConfigureAwait(false);
+                result = original is null ? await provider.ApplyAsync(plan, ordinal, attempt, ct).ConfigureAwait(false)
+                    : await ((IOriginalUpdateProvider)provider).ApplyOriginalAsync(plan, ordinal, attempt, barrier, ct).ConfigureAwait(false);
                 dispatched = true;
             }
+            else if (original is not null)
+                return Finish(new(ErrorCode.Conflict, "The original update already has an executor; inspect it without resubmitting."));
             else result = await provider.RecoverAsync(plan, ordinal, ct).ConfigureAwait(false);
             if (!result.IsSuccess) return Finish(result.Error);
             var receipt = result.Value;
             if (receipt.Status == OpStatus.Applied)
             {
-                var verified = await provider.VerifyAsync(plan, receipt, ct).ConfigureAwait(false);
+                var verified = original is null ? await provider.VerifyAsync(plan, receipt, ct).ConfigureAwait(false)
+                    : await ((IOriginalUpdateProvider)provider).VerifyOriginalAsync(plan, receipt, ct).ConfigureAwait(false);
                 if (!verified.IsSuccess) { receipts.Add(receipt); return Finish(verified.Error); }
                 receipt = verified.Value;
             }

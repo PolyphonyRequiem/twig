@@ -440,7 +440,8 @@ public sealed partial class GitHubCoreSpineTests
             Http.SchemaRequests.ShouldBe(0);
             Http.Writes.ShouldBe(0);
             var source = new NativeCoreStoreReference(_document.DatabaseInstance, _document.DatabasePath, Root, _document.Connection);
-            (await NativeCoreExecution.RegisterAsync(_bindings.RegistryPath, source, default)).IsSuccess.ShouldBeTrue();
+            var registered = await NativeCoreExecution.RegisterAsync(_bindings.RegistryPath, source, default);
+            registered.IsSuccess.ShouldBeTrue(registered.IsSuccess ? "" : registered.Error.Message);
             var inventory = await NativeCoreExecution.InventoryAsync(_bindings.RegistryPath, [Root], [source]);
             inventory.IsSuccess.ShouldBeTrue(inventory.IsSuccess ? "" : inventory.Error.Message);
             (await NativeCoreExecution.ActivateAsync(_bindings.RegistryPath, inventory.Value, inventory.Value.Digest, true, true))

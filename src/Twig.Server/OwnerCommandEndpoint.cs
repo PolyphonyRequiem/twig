@@ -8,6 +8,7 @@ namespace Twig.Server;
 
 internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStore benches)
 {
+    private readonly OwnerUpdateCommand updates = new(boot, home, benches);
     internal static async Task RefuseLegacyAsync(Stream client, CancellationToken token)
     {
         // The pinned client finishes its invocation write before reading. Drain it in fixed
@@ -54,6 +55,16 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
         var command = new UserBenchCommand(benches, new RendererFactory());
         var result = request.Arguments switch
         {
+            ["update", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
+            {
+                await CommandProtocol.WriteAsync(client, FrameKind.ReadBody, "", token);
+                var input = await CommandProtocol.ReadAsync(client, token);
+                return input.Kind == FrameKind.Text ? input.Text : throw new InvalidDataException("Missing frozen update input.");
+            }, async identity =>
+            {
+                try { await CommandProtocol.WriteAsync(client, FrameKind.Bound, identity, token); }
+                catch (IOException) { /* The client detached; the original remains owned by this daemon. */ }
+            }, output, errors, token),
             ["bench", "list", "-o", var format] => await command.ExecuteAsync("list", null, format, token, stdout: output, stderr: errors),
             ["bench", "create", var name, "-o", var format] => await command.ExecuteAsync("create", name, format, token, stdout: output, stderr: errors),
             _ => 2

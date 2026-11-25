@@ -5,7 +5,7 @@ using Model = Twig.Core.Core;
 namespace Twig.Providers.Native;
 
 /// <summary>Same-machine native protocol boundary. Remote transport/authentication is not inferred.</summary>
-public sealed class NativeProvider(NativeAuthority authority, IStore store) : IProvider, IDisposable
+public sealed class NativeProvider(NativeAuthority authority, IStore store) : IProvider, IOriginalUpdateProvider, IDisposable
 {
     public const string ItemType = "Twig.Item";
     public const string Title = "Twig.Title";
@@ -78,6 +78,9 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
         });
 
     public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => ((IOriginalUpdateProvider)this).ApplyOriginalAsync(plan, operation, attempt, null, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.ApplyOriginalAsync(Plan plan, int operation, Guid attempt, IOriginalUpdateBarrier? barrier, CancellationToken ct)
         => Guard(plan.Connection, async () =>
         {
             if (attempt == Guid.Empty) throw new NativeFailure(ErrorCode.InvalidInput, "The first attempt needs its durable UUID.");
@@ -90,6 +93,9 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             var began = before.Journal.Single(row => row.Digest == plan.Digest && row.Operation == operation).Begin(attempt);
             if (!began.IsSuccess) throw new NativeFailure(began.Error.Code, began.Error.Message);
             await Commit(before, Copy(acquired, before.Version + 1, journal: Replace(before.Journal, began.Value)), ct);
+            if (barrier is not null)
+                await barrier.OpenAsync(plan, attempt, new("authority-update", Connection.Destination, plan.Digest, Connection.IdentityRef,
+                    Connection.ResourceScope), ct);
             Receipt receipt;
             try { receipt = await authority.Execute(plan, operation, attempt, ct); }
             catch (Exception ex) when (ex is NativeFailure or Microsoft.Data.Sqlite.SqliteException or IOException or OperationCanceledException)
@@ -126,6 +132,28 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
                 observed?.Revision, acknowledgement.PublishedKey,
                 matches ? null : new(ErrorCode.Partial, "The exact native effect is no longer fully observed."));
             return await Persist(plan, receipt, items);
+        });
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => VerifyAsync(plan, acknowledgement, ct);
+
+    async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
+    {
+        var settled = await authority.SettleOriginalUpdateAsync(plan, attempt, ct);
+        return settled.IsSuccess ? Result<bool>.Ok(settled.Value.Status == OpStatus.Failed) : Result<bool>.Fail(settled.Error);
+    }
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.InspectOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? request, CancellationToken ct)
+        => Guard(plan.Connection, async () =>
+        {
+            var row = Row(await Snapshot(ct), plan, 0);
+            if (row.Attempt != attempt || request is not null && request != new OriginalDispatch("authority-update", Connection.Destination,
+                plan.Digest, Connection.IdentityRef, Connection.ResourceScope))
+                throw new NativeFailure(ErrorCode.Conflict, "Expected the original authority attempt, not a transport receipt.");
+            if (row.Status != OpStatus.Applying) return row.Receipts[^1];
+            var settled = await authority.SettleOriginalUpdateAsync(plan, attempt, ct);
+            if (!settled.IsSuccess) throw new NativeFailure(settled.Error);
+            return await Persist(plan, settled.Value, null);
         });
 
     public Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)

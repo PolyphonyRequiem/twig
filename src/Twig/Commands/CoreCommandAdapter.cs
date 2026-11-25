@@ -1787,7 +1787,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         return 0;
     }
 
-    private static bool TryParse(FieldKind kind, string text, string? format, out FieldValue value)
+    internal static bool TryParse(FieldKind kind, string text, string? format, out FieldValue value)
     {
         value = FieldValue.Null;
         if (kind == FieldKind.Integer && long.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var integer))

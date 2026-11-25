@@ -20,6 +20,9 @@ internal static class ServerCommandClient
     {
         var format = StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default;
         var dispatched = false;
+        string? recovery = null;
+        ConsoleCancelEventHandler? detach = null;
+        using var observer = new CancellationTokenSource();
         try
         {
             var fixture = OwnerFixtureSelection.Read();
@@ -51,10 +54,18 @@ internal static class ServerCommandClient
             var bodyRead = false;
             while (true)
             {
-                var (kind, text) = await CommandProtocol.ReadAsync(pipe);
+                var (kind, text) = await CommandProtocol.ReadAsync(pipe, observer.Token);
                 string? answer;
                 switch (kind)
                 {
+                    case FrameKind.Bound when run.HasValue && recovery is null && args is ["update", ..]:
+                        var binding = JsonSerializer.Deserialize(text, UpdateReplyJson.Default.UpdateReply);
+                        if (binding?.Matches is not [{ } identity] || identity.Submission == Guid.Empty || identity.Action == Guid.Empty
+                            || identity.Review == Guid.Empty) throw new InvalidDataException("Invalid original update binding.");
+                        recovery = JsonSerializer.Serialize(new UpdateReply("ObservationNeeded", [identity]), UpdateReplyJson.Default.UpdateReply);
+                        detach = (_, e) => { e.Cancel = true; observer.Cancel(); };
+                        Console.CancelKeyPress += detach;
+                        continue;
                     case FrameKind.Stdout: Console.Out.Write(text); continue;
                     case FrameKind.Stderr: Console.Error.Write(text); continue;
                     case FrameKind.Exit when int.TryParse(text, out var exit): return exit;
@@ -86,12 +97,21 @@ internal static class ServerCommandClient
             or TimeoutException or JsonException or KeyNotFoundException or ArgumentException or NotSupportedException
             or Win32Exception or SecurityException or OperationCanceledException)
         {
-            var message = dispatched
+            if (recovery is not null)
+            {
+                Console.Out.WriteLine(recovery);
+                Console.Error.WriteLine("Observation detached. Inspect the original update; no request was replayed.");
+                return 1;
+            }
+            var message = dispatched && args is ["update", ..] && Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null
+                ? "Update reply lost. Use 'twig update --find --id <item>' to locate the original; no request was replayed."
+                : dispatched
                 ? "Server command interrupted; the outcome may be unknown. Inspect native status or the plan journal before another change. No request was replayed."
                 : "The selected Twig server is unavailable or invalid. Run 'twig server status' and 'twig server start'. No command was dispatched.";
             CommandError.Write(new RendererFactory(), Console.Error, format, $"{message} {ex.Message}");
             return 1;
         }
+        finally { if (detach is not null) Console.CancelKeyPress -= detach; }
     }
 
     private static async Task<string> ReadBodyAsync()

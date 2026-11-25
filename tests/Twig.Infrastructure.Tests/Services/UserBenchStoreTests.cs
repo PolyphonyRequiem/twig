@@ -16,6 +16,27 @@ public sealed class UserBenchStoreTests : IDisposable
     private UserBenchStore Store => new(Path.Combine(directory, "user", "benches.db"));
 
     [Fact]
+    public async Task ConcurrentBindingsSurviveLostReplyAndLookupCannotDiscloseAnotherOriginsUpdate()
+    {
+        var scope = new UpdateOrigin(Guid.NewGuid(), ado, "principal", "42");
+        var review = Guid.NewGuid();
+        var boot = Guid.NewGuid();
+        var key = Key(ado, "42");
+        var plan = new Plan(ado, "schema", 1, [new("field", OpKind.Batch, key, new(key, "v1"),
+            FieldValues.Empty.Set("field", FieldValue.String("private")))]);
+        var store = Store;
+        Required(await store.ReadAsync());
+        var submitted = await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(async () =>
+            Required(await Store.BindUpdateAsync(scope, review, "input", plan, boot, default)))));
+        submitted.Distinct().Count().ShouldBe(1);
+        (await Store.BindUpdateAsync(scope, review, "different", plan, boot, default)).Error.Code.ShouldBe(ErrorCode.Conflict);
+        Required(await Store.FindUpdatesAsync(scope with { Actor = "other" }, default)).ShouldBeEmpty();
+        Required(await Store.FindUpdatesAsync(scope, default)).Single().ShouldBe(submitted[0]);
+        Required(await Store.BindUpdateAsync(scope, Guid.NewGuid(), "input", plan, boot, default));
+        Required(await Store.FindUpdatesAsync(scope, default)).Length.ShouldBe(2);
+    }
+
+    [Fact]
     public async Task SeedDeliveryPinsOnlyRemainingMembershipsInTheExactStoreAndConnection()
     {
         var store = Store;

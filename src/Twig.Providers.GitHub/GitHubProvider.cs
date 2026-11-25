@@ -5,7 +5,7 @@ using Twig.Core;
 
 namespace Twig.Providers.GitHub;
 
-public sealed partial class GitHubProvider : IProvider, IDisposable
+public sealed partial class GitHubProvider : IProvider, IOriginalUpdateProvider, IDisposable
 {
     private readonly Connection _connection;
     private readonly GitHubAccess _access;

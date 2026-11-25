@@ -6,4 +6,7 @@
     <IsAotCompatible>true</IsAotCompatible>
     <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
+  <ItemGroup>
+    <InternalsVisibleTo Include="Twig.Providers.Ado;Twig.Providers.GitHub;Twig.Providers.Native;Twig.Infrastructure;Twig;Twig.Cli.Tests;Twig.Infrastructure.Tests" />
+  </ItemGroup>
 </Project>

@@ -309,13 +309,21 @@ internal sealed partial class ReleasedBenchDisplay
 
     internal ReleasedPartitions CliInventory(UserBenchSnapshot catalog, Twig.Core.Bench bench)
     {
+        RequireCurrentCatalog(catalog);
         lock (release) return Inventory(Guid.Empty, catalog, bench);
+    }
+
+    private void RequireCurrentCatalog(UserBenchSnapshot catalog)
+    {
+        if (definitions is not null && definitions.InspectRevision() != (catalog.InstanceId, catalog.Revision))
+            throw Changed();
     }
 
     internal async Task ReadPartitions(ViewSessions views, Guid view, string bearer, UserBenchSnapshot catalog, Guid bench,
         Func<ReleasedPartitions,Task> send, CancellationToken ct)
     {
         var outbox = Channel.CreateBounded<ReleasedPartitions>(1);
+        RequireCurrentCatalog(catalog);
         views.WithDisplayOwner(view, bearer, owner =>
         {
             lock (release)

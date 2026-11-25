@@ -240,6 +240,9 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                         new(SelectorKind.Pin, pin, connection: projection.Connection),
                         new(SelectorKind.Pin, ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, "99"),
                             connection: projection.Connection)]), 0)).IsSuccess.ShouldBeTrue();
+                    (await defs.SaveAsync(new(Guid.NewGuid(), "Empty query", [new(SelectorKind.Query,
+                        query: new(QueryKind.Equal, NativeProvider.Title, FieldValue.String("no matching title")),
+                        connection: projection.Connection)]), 0)).IsSuccess.ShouldBeTrue();
                 }
             }
             await StartOwner();

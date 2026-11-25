@@ -74,7 +74,9 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
             var matches = catalog.Value.Benches.Where(b => b.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
                 || b.Id.ToString("D").Equals(name, StringComparison.OrdinalIgnoreCase)).ToArray();
             if (matches.Length != 1 || hostServices is null) { errors.WriteLine("No unique Bench definition."); return 1; }
-            var inventory = hostServices.GetRequiredService<ReleasedBenchDisplay>().CliInventory(catalog.Value, matches[0]);
+            ReleasedPartitions inventory;
+            try { inventory = hostServices.GetRequiredService<ReleasedBenchDisplay>().CliInventory(catalog.Value, matches[0]); }
+            catch (HttpFailure failure) { errors.WriteLine(failure.Message); return 1; }
             output.WriteLine(JsonSerializer.Serialize(inventory, DisplayJson.Default.ReleasedPartitions));
             return inventory.Membership.State == "Known" ? 0 : 1;
         }

@@ -24,7 +24,7 @@ public static partial class NativeBenchHost
         {
             var bearer = BenchHost.Bearer(context);
             var ownerStore = sessions.WithDisplayOwner(view, bearer, s => s.CatalogId);
-            var inventory = BenchHost.Require(await panel.ListAsync(context.RequestAborted));
+            var inventory = BenchHost.Require(await panel.Definitions.InspectAsync(context.RequestAborted));
             if (inventory.InstanceId != ownerStore) throw new HttpFailure(403, "PolicyViolation", "The owner store changed.");
             var choices = inventory.Benches.Select(bench => new ReleasedBenchChoice(bench.Id, bench.Name)).ToArray();
             _ = sessions.WithDisplayOwner(view, bearer, s => s.CatalogId);

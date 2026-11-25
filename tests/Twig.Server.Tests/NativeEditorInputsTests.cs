@@ -63,6 +63,13 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         var original = await Send(HttpMethod.Post, prefix + "/action", prepare);
         original.GetProperty("status").GetString().ShouldBe("Queued");
         var submission = original.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid();
+        async Task<JsonElement> PublishAndReauthorize(CanvasActionRequest prepared)
+        {
+            var retired = await Send(HttpMethod.Post, prefix + "/action", prepared with { Mode = "submit" }, HttpStatusCode.Conflict);
+            retired.GetProperty("code").GetString().ShouldBe("RefreshRequired");
+            Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+            return await Send(HttpMethod.Post, prefix + "/action", prepared with { Mode = "observe" });
+        }
         if (changeBaseline)
         {
             using var independent = (await NativeItemEditor.OpenAsync(Work, bench, source.Stamp, gateway.Configure, default)).Value;
@@ -84,7 +91,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
             var replacement = await Send(HttpMethod.Post, prefix + "/action", nextPrepare);
             var replacementId = replacement.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid();
             replacementId.ShouldNotBe(submission);
-            var published = await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "submit" });
+            var published = await PublishAndReauthorize(nextPrepare);
             published.GetProperty("status").GetString().ShouldBe("Complete");
             var ambiguous = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "find", Write = null });
             ambiguous.GetProperty("ambiguous").GetBoolean().ShouldBeTrue();
@@ -102,7 +109,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         duplicate.GetRawText().ShouldBe(original.GetRawText());
         var discovery = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "find", Write = null });
         discovery.GetRawText().ShouldBe(original.GetRawText());
-        var result = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "submit" });
+        var result = await PublishAndReauthorize(prepare);
         result.GetProperty("status").GetString().ShouldBe("Complete");
         result.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid().ShouldBe(submission);
         var observed = (await provider.ReadAsync(scope.Connection, [item], default, captureOnly: true)).Value.Items.Single();

@@ -1,7 +1,9 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.DependencyInjection;
+using Twig.Infrastructure.Auth;
 using Twig.Infrastructure.Config;
+using Twig.Infrastructure.GitHub;
 using Twig.Infrastructure.Services;
 
 namespace Twig.Commands;
@@ -15,7 +17,7 @@ internal sealed partial class OwnerPlanJson : JsonSerializerContext;
 internal static class OwnerPlanCommand
 {
     internal static async Task<int> ExecuteAsync(string home, UserBenchStore user, string directory, string[] args,
-        TextWriter output, TextWriter errors, IOwnerBenchPublication? publication, CancellationToken ct)
+        TextWriter output, TextWriter errors, IServiceProvider? hostServices, CancellationToken ct)
     {
         try
         {
@@ -34,15 +36,35 @@ internal static class OwnerPlanCommand
                 RejectLink(path);
             using var pin = File.Open(marker, FileMode.Open, FileAccess.Read, FileShare.Read);
             var document = await JsonSerializer.DeserializeAsync(pin, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument, ct);
-            if (!OwnerFixtureSelection.Same(document?.DatabasePath, database) || document!.Connection.Provider.Value != "twig")
+            if (!OwnerFixtureSelection.Same(document?.DatabasePath, database))
                 throw new InvalidDataException("The original Plan must belong to the selected local authority.");
             var config = await TwigConfiguration.LoadSplitAsync(paths, ct);
-            if (config.Provider != "twig" || config.NativeDatabase != "qualification")
-                throw new InvalidDataException("Only the isolated Twig qualification authority is admitted.");
+            var provider = document!.Connection.Provider.Value;
+            var transport = hostServices?.GetService<CoreTransportOverride>();
+            var credential = hostServices?.GetService<IGitHubTokenSource>();
+            if (provider != config.ResolveWorkItemProviderKind() || provider switch
+                {
+                    "twig" => config.NativeDatabase != "qualification",
+                    "ado" => transport is null,
+                    "github" => transport is null || credential is null,
+                    _ => true
+                })
+                throw new InvalidDataException("Plan recovery requires the isolated original provider fixture.");
+            using var identityClient = transport is null ? null : new HttpClient(transport.CreateHandler());
+            using var bindings = new ConnectionBindingService(home, patHttpClient: identityClient);
+            void Configure(IServiceCollection collection)
+            {
+                collection.AddSingleton<IConnectionBindingService>(bindings);
+                if (transport is not null) collection.AddSingleton(transport);
+                if (credential is not null) collection.AddSingleton(credential);
+            }
             var services = new ServiceCollection();
+            Configure(services);
             services.AddCoreWorkspaceServices(config, paths, executionOwner: true);
             using var runtime = services.BuildServiceProvider();
-            using var handle = Require(await runtime.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(ct));
+            var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
+            using var handle = Require(await factory.OpenAsync(ct));
+            Require(await factory.AdmitSourceAsync(handle, ct));
             if (!OwnerFixtureSelection.Same(handle.Document.DatabasePath, Path.Combine(paths.TwigDir, "core.db"))
                 || retained.Document.PlanId != plan.Id)
                 throw new InvalidDataException("Original Plan authority changed.");
@@ -57,11 +79,12 @@ internal static class OwnerPlanCommand
                 RejectLink(folder);
                 RejectLink(scope.DatabasePath);
             }
-            var review = Require(await NativePlanReview.OpenAsync(root, digest, ct));
+            var review = Require(await NativePlanReview.OpenAsync(root, digest, Configure, ct));
             var outcome = verb == "abandon-unadmitted" ? Require(await review.AbandonUnadmittedAsync(ct)) : Require(await review.ObserveAsync(ct));
             if (verb == "continue" && outcome.Units.Any(unit => unit.State is not ("Unadmitted" or "Abandoned")))
             {
-                if (publication is null) throw new InvalidDataException("Scoped settlement requires the original owner publication ledger.");
+                var publication = hostServices?.GetService<IOwnerBenchPublication>()
+                    ?? throw new InvalidDataException("Scoped settlement requires the original owner publication ledger.");
                 outcome = Require(await publication.ContinuePlanAsync(root, handle.Source, user, review, ct));
             }
             output.WriteLine(JsonSerializer.Serialize(new OwnerPlanReply(digest, outcome.Status, outcome.Units, outcome.Error?.Message),

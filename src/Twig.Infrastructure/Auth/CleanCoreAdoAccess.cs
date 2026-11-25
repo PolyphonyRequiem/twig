@@ -32,7 +32,7 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
     {
         if (plan.Connection != _connection || _storeInstance == Guid.Empty || attempt == Guid.Empty
-            || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment } op])
+            || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment or OpKind.Create } op])
             return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original ADO update binding differs.");
         using var registry = new SqliteSystemWorktreeRegistry(_bindings.RegistryPath, TimeProvider.System);
         var read = await registry.ReadConnectionRemoteWritesAsync(_origin.Operation.WorktreeFingerprint, ct: ct);
@@ -44,9 +44,10 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
         var intent = history.Intent;
         var request = intent.Request;
         var correlation = new CoreWriteCorrelation(ConnectionText(_connection), plan.Digest, 0, attempt,
-            ItemText(op.Item), null, op.ExpectedRevision?.Token, _storeInstance);
+            ItemText(op.Item), op.Kind == OpKind.Create ? op.Item.LocalId : null, op.ExpectedRevision?.Token, _storeInstance);
         if (!ConnectionRemoteWriteAdmission.SameAuthority(_origin, intent.Origin) || request.CoreCorrelation != correlation
-            || request.Method != "PATCH" || request.EffectKind != "workitem-patch" || !HasReviewedRevision(request.Payload, op)
+            || request.Method != (op.Kind == OpKind.Create ? "POST" : "PATCH")
+            || request.EffectKind != (op.Kind == OpKind.Create ? "workitem-create" : "workitem-patch") || !HasReviewedRevision(request.Payload, op)
             || ConnectionRemoteWriteAdmission.RequestDigest(intent.Origin, request) != intent.RequestDigest
             || dispatch is not null && (dispatch.Actor != _principal || dispatch.Target != request.Target || dispatch.Method != request.Method
                 || dispatch.PayloadHash != Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(request.Payload)))))
@@ -210,9 +211,9 @@ internal sealed class CleanCoreAdoAccess(IAuthenticationProvider authentication,
     private sealed class Admission(IConnectionRemoteWriteAdmission admission, string token, string? parameter,
         IDisposable targets) : AdoWriteAdmission
     {
+        protected override string RetainedBody(string body) => ConnectionOperationAdmission.RedactCredential(body, token, parameter);
         public override Task ObserveAsync(int statusCode, string body, CancellationToken ct)
-            => admission.RecordResponseAsync(new(statusCode,
-                ConnectionOperationAdmission.RedactCredential(body, token, parameter), null, null), ct);
+            => admission.RecordResponseAsync(new(statusCode, RetainedBody(body), null, null), ct);
         public override void Dispose() => targets.Dispose();
     }
 

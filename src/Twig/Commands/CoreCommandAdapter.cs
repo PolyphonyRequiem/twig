@@ -60,7 +60,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             ? KnownLocalKeys(snapshot.Value).SingleOrDefault(key => LocalAlias(key) == id)
             : ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, id!.Value.ToString(CultureInfo.InvariantCulture));
         if (!all && requested is null) return Error(output, "The local tree target is absent or ambiguous.");
-        ItemKey Resolve(ItemKey key) => snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        ItemKey Resolve(ItemKey key) => snapshot.Value.ResolveVerified(key);
         if (requested is not null) requested = Resolve(requested);
         if (refresh && all) return Error(output, "Refresh-all requires the retained Bench/query scope; that route is not yet connected.");
         if (refresh && requested is { IsLocal: false })
@@ -435,10 +435,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
                 var matches = KnownLocalKeys(current.Value).Where(key => LocalAlias(key) == parent).ToArray();
                 if (matches.Length != 1) return Error(output, "The local parent alias is absent or ambiguous.");
                 parentKey = matches[0];
-                var mapping = current.Value.Mappings.FirstOrDefault(value => value.Local == parentKey);
-                if (mapping is not null)
+                if (current.Value.VerifiedSeedTarget(workspace.Connection, parentKey) is { } published)
                 {
-                    var observed = await workspace.ReadAsync(mapping.Remote, ct);
+                    var observed = await workspace.ReadAsync(published, ct);
                     if (!observed.IsSuccess) return Error(output, observed.Error.Message);
                 }
                 else if (!current.Value.RetainedItems.Any(draft => draft.Key == parentKey))
@@ -989,7 +988,7 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
         var endpoint = holder == source ? target : source;
         var draft = snapshot.Value.RetainedItems.OfType<Seed>().SingleOrDefault(value => value.Key == holder);
         if (draft is null) return Error(output, "The creation-bound link owner is not an unpublished local seed.");
-        var mapped = snapshot.Value.Mappings.FirstOrDefault(value => value.Local == endpoint)?.Remote ?? endpoint;
+        var mapped = snapshot.Value.ResolveVerified(endpoint);
         if (!mapped.IsLocal)
         {
             var observed = await workspace.ReadAsync(mapped, ct);
@@ -1167,8 +1166,9 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (!resolved.IsSuccess) return Error(output, resolved.Error.Message);
             key = resolved.Value;
         }
-        var localKey = key.IsLocal ? key : original.Value.Mappings.FirstOrDefault(mapping => mapping.Remote == key)?.Local;
-        key = original.Value.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        var localKey = key.IsLocal ? key : original.Value.Mappings.FirstOrDefault(mapping => mapping.Remote == key
+            && original.Value.ResolveVerified(mapping.Local) == key)?.Local;
+        key = original.Value.ResolveVerified(key);
         if (evidence is { IsSuccess: true })
         {
             var history = new NativeHistoricalProjection(original.Value, evidence.Value);
@@ -1247,11 +1247,11 @@ internal sealed class CoreCommandAdapter(CoreWorkspaceFactory factory, RendererF
             if (!snapshot.IsSuccess) return Error(output, snapshot.Error.Message);
             var matches = KnownLocalKeys(snapshot.Value).Where(local => LocalAlias(local) == id).ToArray();
             if (matches.Length != 1) return Error(output, "The local target alias is absent or ambiguous.");
-            var mapping = snapshot.Value.Mappings.FirstOrDefault(mapping => mapping.Local == matches[0]);
+            var published = snapshot.Value.VerifiedSeedTarget(workspace.Connection, matches[0]);
             seed = snapshot.Value.RetainedItems.OfType<Seed>().SingleOrDefault(draft => draft.Key == matches[0]);
-            if (mapping is not null) key = mapping.Remote;
+            if (published is not null) key = published;
             else if (seed is null) return Error(output, "The local target has no retained draft or native mapping.");
-            if (mapping is not null) seed = null;
+            if (published is not null) seed = null;
             captured = snapshot.Value;
         }
         var schema = await workspace.SchemaAsync(ct);

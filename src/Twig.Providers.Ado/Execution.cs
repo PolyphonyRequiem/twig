@@ -99,6 +99,14 @@ public sealed partial class AdoProvider
                     await admission.ObserveAsync((int)response.StatusCode, responseText, CancellationToken.None);
                     var original = DecodeOriginalUpdate(plan, operation, attempt, bound.PrincipalId, bound.ProjectName,
                         (int)response.StatusCode, bytes);
+                    if (op.Kind == OpKind.Create && original is not null)
+                    {
+                        var retained = admission.RetainedBody(responseText);
+                        if (retained != responseText && !(DecodeOriginalUpdate(plan, operation, attempt, bound.PrincipalId,
+                            bound.ProjectName, (int)response.StatusCode, System.Text.Encoding.UTF8.GetBytes(retained)) is { } proof
+                            && SameReceipt(original, proof))) return Unknown("Redaction changed original create proof.");
+                        await barrier.WitnessCreateAsync(plan, attempt, new((int)response.StatusCode, retained), CancellationToken.None);
+                    }
                     return original is null ? Unknown("No attributable original update acknowledgement.") : await PersistReceipt(plan, original, null);
                 }
                 evidence.Add($"http:{(int)response.StatusCode}");
@@ -239,16 +247,18 @@ public sealed partial class AdoProvider
     private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string project, int status, byte[] bytes)
     {
         var op = plan.Operations[ordinal];
-        if (op.Kind is not (OpKind.Batch or OpKind.Comment) || op.Item.IsLocal) throw Wire.Invalid("An original update or comment is required.");
+        if (op.Kind is not (OpKind.Batch or OpKind.Comment or OpKind.Create)) throw Wire.Invalid("Unsupported original effect.");
         string[] evidence = [$"actor:{actor}", $"attempt:{attempt:D}", $"http:{status}"];
         if (status is 400 or 401 or 403 or 404 or 405 or 409 or 412 or 415 or 422 or 429)
             return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence, error: HttpFailure((System.Net.HttpStatusCode)status).Error);
-        if (status != 200) return null;
+        if (status != 200 && !(op.Kind == OpKind.Create && status == 201)) return null;
         var root = JsonSerializer.Deserialize(bytes, TwigJsonContext.Default.JsonElement);
         Wire.Unique(root);
         var rev = Wire.Positive(root, "rev");
-        if (Key(Wire.Positive(root, "id")) != op.Item || Wire.Text(root.GetProperty("fields"), "System.TeamProject") != project
-            || rev <= RevisionNumber(op)) return null;
+        var key = Key(Wire.Positive(root, "id"));
+        if (Wire.Text(root.GetProperty("fields"), "System.TeamProject") != project) return null;
+        if (op.Kind == OpKind.Create) return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, Revision(key, rev), key);
+        if (key != op.Item || rev <= RevisionNumber(op)) return null;
         return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, Revision(op.Item, rev));
     }
 
@@ -257,16 +267,20 @@ public sealed partial class AdoProvider
         {
             var row = (await Snapshot(ct)).Journal.Single(j => j.Digest == plan.Digest && j.Operation == 0);
             if (plan.Connection != _connection || row.Attempt != attempt) throw Wire.Invalid("Original attempt changed.");
-            if (row.Status != OpStatus.Applying) return row.Receipts[^1];
+            var create = plan.Operations[0].Kind == OpKind.Create;
+            if (row.Status != OpStatus.Applying && !create) return row.Receipts[^1];
             if (_access is not IOriginalResponseSource source) throw Wire.Refuse(ErrorCode.Unavailable, "Original ADO evidence reader unavailable.");
             var observed = await source.ObserveOriginalAsync(plan, attempt, request, ct);
             if (request is null && !observed.IsSuccess && observed.Error.Code == ErrorCode.NotFound)
                 return await PersistReceipt(plan, new(plan.Digest, 0, attempt, OpStatus.Failed, ["original:Closed"],
                     error: new(ErrorCode.Conflict, "Original barrier permanently closed before dispatch.")), null);
             if (request is null || !observed.IsSuccess) throw Wire.Refuse(ErrorCode.Indeterminate, "Original proof unavailable or contradictory; no resend.");
+            if (create && request.ResponseHash != observed.Value.Fingerprint()) throw Wire.Refuse(ErrorCode.Indeterminate, "No matching owner witness for the original ADO response.");
             var acknowledgement = DecodeOriginalUpdate(plan, 0, attempt, request.Actor, request.Context, observed.Value.Status,
                 System.Text.Encoding.UTF8.GetBytes(observed.Value.Body)) ?? throw Wire.Refuse(ErrorCode.Indeterminate, "No attributable original ADO response.");
-            return await PersistReceipt(plan, acknowledgement, null);
+            if (row.Status == OpStatus.Applying) return await PersistReceipt(plan, acknowledgement, null);
+            if (!SameReceipt(row.Receipts[0], acknowledgement)) throw Wire.Invalid("Contradictory original creation proof.");
+            return row.Receipts[^1];
         });
 
     async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
@@ -518,7 +532,7 @@ public sealed partial class AdoProvider
     }
 
     private static ItemKey Resolve(StoreSnapshot stored, ItemKey key)
-        => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        => stored.ResolveVerified(key);
 
     private static StoreSnapshot Mirror(StoreSnapshot stored, QueryPage page)
     {

@@ -1018,7 +1018,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     {
         if (original is not null && (barrier is null || original.Plan.Digest != plan.Digest || plan.Review is not { } review
             || review.Revision != original.Identity.Review || review.Store != storeInstance || review.Actor != nativeActor
-            || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment }] || provider is not IOriginalUpdateProvider))
+            || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment or OpKind.Create }] || provider is not IOriginalUpdateProvider))
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Unsupported original update binding.");
         if (plan.Connection != connection)
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "The plan belongs to another immutable connection.");
@@ -1088,6 +1088,11 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
             var receipt = result.Value;
             if (receipt.Status == OpStatus.Applied)
             {
+                if (original is not null && plan.Operations[ordinal].Kind == OpKind.Create)
+                {
+                    receipts.Add(receipt);
+                    return Finish(null); // The owner must reserve and narrow before readback.
+                }
                 var verified = original is null ? await provider.VerifyAsync(plan, receipt, ct).ConfigureAwait(false)
                     : await ((IOriginalUpdateProvider)provider).VerifyOriginalAsync(plan, receipt, ct).ConfigureAwait(false);
                 if (!verified.IsSuccess) { receipts.Add(receipt); return Finish(verified.Error); }
@@ -1235,7 +1240,7 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     }
 
     private static ItemKey Resolve(StoreSnapshot snapshot, ItemKey key)
-        => snapshot.Mappings.FirstOrDefault(m => m.Local == key)?.Remote ?? key;
+        => snapshot.ResolveVerified(key);
     private static bool SameDraft(RetainedItem left, RetainedItem right) => left.Key == right.Key && left.Type == right.Type
         && left.Fields.Equals(right.Fields) && (left, right) switch
         {

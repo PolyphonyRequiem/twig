@@ -124,7 +124,8 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
         {
             var before = await Snapshot(ct);
             var row = Row(before, plan, acknowledgement.Operation);
-            if (row.Status != OpStatus.Applied || row.Attempt != acknowledgement.Attempt || row.Receipts.Length != 1
+            var rechecking = row.CanRecheckAcknowledgedCreate && plan.Operations[acknowledgement.Operation].Kind == OpKind.Create;
+            if (!rechecking && (row.Status != OpStatus.Applied || row.Receipts.Length != 1) || row.Attempt != acknowledgement.Attempt
                 || !Same(row.Receipts[0], acknowledgement))
                 throw new NativeFailure(ErrorCode.Conflict, "Verification requires the exact durable Applied acknowledgement.");
             var authoritative = await authority.Recover(plan, acknowledgement.Operation, acknowledgement.Attempt, ct);
@@ -141,7 +142,7 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
                 [$"source:{Connection.ResourceScope}", $"principal:{Connection.IdentityRef}", "Separate authoritative readback; no replay."],
                 observed?.Revision, acknowledgement.PublishedKey,
                 matches ? null : new(ErrorCode.Partial, "The exact native effect is no longer fully observed."));
-            return await Persist(plan, receipt, items);
+            return rechecking && !matches ? row.Receipts[^1] : await Persist(plan, receipt, items);
         });
 
     Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
@@ -160,10 +161,12 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             if (row.Attempt != attempt || request is not null && request != new OriginalDispatch("authority-update", Connection.Destination,
                 plan.Digest, Connection.IdentityRef, Connection.ResourceScope))
                 throw new NativeFailure(ErrorCode.Conflict, "Expected the original authority attempt, not a transport receipt.");
-            if (row.Status != OpStatus.Applying) return row.Receipts[^1];
+            if (row.Status != OpStatus.Applying && plan.Operations[0].Kind != OpKind.Create) return row.Receipts[^1];
             var settled = await authority.SettleOriginalUpdateAsync(plan, attempt, ct);
             if (!settled.IsSuccess) throw new NativeFailure(settled.Error);
-            return await Persist(plan, settled.Value, null);
+            if (row.Status == OpStatus.Applying) return await Persist(plan, settled.Value, null);
+            if (!Same(row.Receipts[0], settled.Value)) throw new NativeFailure(ErrorCode.Conflict, "Contradictory original native creation proof.");
+            return row.Receipts[^1];
         });
 
     public Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)

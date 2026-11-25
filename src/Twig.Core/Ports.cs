@@ -85,6 +85,13 @@ public sealed record StoreSnapshot
     public ImmutableArray<PublishMapping> Mappings { get; }
     public ImmutableArray<Bench> Benches { get; }
 
+    public ItemKey ResolveVerified(ItemKey key)
+    {
+        if (!key.IsLocal || Mappings.SingleOrDefault(m => m.Local == key) is not { } map
+            || Plans.SingleOrDefault(p => p.Digest == map.PlanDigest) is not { } plan) return key;
+        return VerifiedSeedTarget(plan.Connection, key) ?? key;
+    }
+
     /// <summary>Resolves only a permanent identity proved by this store's original verified create.</summary>
     public ItemKey? VerifiedSeedTarget(Connection connection, ItemKey local, string? digest = null, int? ordinal = null)
     {

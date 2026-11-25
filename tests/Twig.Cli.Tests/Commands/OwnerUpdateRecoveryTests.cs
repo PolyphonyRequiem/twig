@@ -17,6 +17,7 @@ public sealed partial class NativePublicationConsumerTests
     [InlineData("lost-receipt")]
     [InlineData("closed")]
     [InlineData("open")]
+    [InlineData("create-lost-receipt")]
     public async Task OriginalAdoUpdateObservesRetainedEvidenceWithoutReplay(string fault)
     {
         var (paths, connection, store) = await RelationshipWorkspaceAsync();
@@ -29,8 +30,10 @@ public sealed partial class NativePublicationConsumerTests
             using var services = registration.BuildServiceProvider();
             using var handle = (await services.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
             await action(handle.Workspace);
-        }, UserBenchStore.ForRegistry(_bindings.RegistryPath), store, "42", "System.Title", fault);
+        }, UserBenchStore.ForRegistry(_bindings.RegistryPath), store, "42", "System.Title", fault,
+            failReadback: fail => _transport.FailReadbackAfterCommit = fail);
         _transport.PatchAttempts.ShouldBe(fault == "lost-receipt" ? 1 : 0);
+        _transport.PostCount.ShouldBe(fault == "create-lost-receipt" ? 1 : 0);
     }
 }
 
@@ -40,38 +43,54 @@ public sealed partial class GitHubCoreSpineTests
     [InlineData("lost-receipt")]
     [InlineData("closed")]
     [InlineData("open")]
+    [InlineData("create-lost-receipt")]
     public async Task OriginalGitHubUpdateObservesRetainedEvidenceWithoutReplay(string fault)
     {
         using var f = new Fixture();
         await f.Initialize(explicitStore: false);
+        if (fault == "create-lost-receipt") f.Http.ResponseNote = "echo: synthetic-secret";
         await OriginalUpdateCrash.Check(f.UseWorkspace, UserBenchStore.ForRegistry(f._bindings.RegistryPath),
-            (await SqliteStore.OpenAsync(f.Database)).Value, "I_opaque", GitHubProvider.Title, fault);
-        f.Http.Writes.ShouldBe(fault == "lost-receipt" ? 1 : 0);
+            (await SqliteStore.OpenAsync(f.Database)).Value, "I_opaque", GitHubProvider.Title, fault,
+            title => f.Http.Issue["title"] = title, fail => f.Http.Defect = fail ? "actor" : null);
+        f.Http.Writes.ShouldBe(fault.EndsWith("lost-receipt", StringComparison.Ordinal) ? 1 : 0);
     }
 }
 
 internal static class OriginalUpdateCrash
 {
     internal static async Task Check(Func<Func<CoreWorkspace,Task>,Task> reopen, UserBenchStore actions, SqliteStore mirror,
-        string nativeId, string field, string fault)
+        string nativeId, string field, string fault, Action<string>? changeTitle = null, Action<bool>? failReadback = null)
     {
         var boot = Guid.NewGuid();
         var review = Guid.NewGuid();
         UpdateOrigin origin = null!;
         Guid submission = default;
+        var create = fault == "create-lost-receipt";
+        var loseReceipt = create || fault == "lost-receipt";
         await reopen(async workspace =>
         {
             origin = new(mirror.InstanceId, workspace.Connection, workspace.NativeActor, nativeId);
             var key = ItemKey.Remote(workspace.Connection.Provider, workspace.Connection.ResourceScope, nativeId);
             var item = (await workspace.ReadAsync(key, default)).Value;
-            var plan = (await workspace.PrepareAsync([new(review.ToString("D"), OpKind.Batch, key, item.Revision,
-                FieldValues.Empty.Set(field, FieldValue.String("reviewed update")), concurrency: workspace.Concurrency)], default,
-                retainPolicyEvidence: true, binding: new(review, origin.Store, origin.Actor, workspace.OwnerCapture(null)))).Value;
+            var fields = FieldValues.Empty.Set(field, FieldValue.String("reviewed update"));
+            var op = new Op(review.ToString("D"), OpKind.Batch, key, item.Revision, fields, concurrency: workspace.Concurrency);
+            Seed? seed = null;
+            if (create)
+            {
+                var stateField = (await workspace.SchemaAsync(default)).Value.Types.Single(t => t.Reference == item.Type).StateField;
+                fields = fields.Set(stateField, item.Fields[stateField]);
+                seed = (await workspace.StageSeedAsync(item.Type, fields, default)).Value;
+                origin = origin with { Item = seed.Key.LocalId.ToString("D"), IsSeed = true };
+                op = new(review.ToString("D"), OpKind.Create, seed.Key, fields: seed.Fields, type: seed.Type,
+                    concurrency: ConcurrencyMode.ObservedNonAtomic);
+            }
+            var plan = (await workspace.PrepareAsync([op], default,
+                retainPolicyEvidence: true, binding: new(review, origin.Store, origin.Actor, workspace.OwnerCapture(seed)))).Value;
             submission = (await actions.BindUpdateAsync(origin, review, "input", plan, boot, default)).Value.Submission;
             var original = (await actions.OriginalUpdateAsync(origin, review, default)).Value;
             (await actions.MoveUpdateAsync(original, "Claimed", boot, default)).Value.ShouldBeTrue();
             original = (await actions.OriginalUpdateAsync(origin, review, default)).Value;
-            if (fault == "lost-receipt") await Sql("""
+            if (loseReceipt) await Sql("""
                 CREATE TRIGGER reject_core_receipt BEFORE UPDATE ON core_snapshots WHEN instr(NEW.document,'http:')>0
                 BEGIN SELECT RAISE(ABORT,'injected acknowledgement CAS conflict'); END;
                 """);
@@ -82,13 +101,24 @@ internal static class OriginalUpdateCrash
                 result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
                 result.Value.Error.ShouldNotBeNull();
             }
-            finally { if (fault == "lost-receipt") await Sql("DROP TRIGGER reject_core_receipt;"); }
+            finally { if (loseReceipt) await Sql("DROP TRIGGER reject_core_receipt;"); }
         });
         await reopen(async workspace =>
         {
             var original = (await actions.OriginalUpdateAsync(origin, review, default)).Value;
             original.Identity.Submission.ShouldBe(submission);
             original.Identity.State.ShouldBe(fault == "closed" ? "Claimed" : "Running");
+            if (create && changeTitle is not null)
+            {
+                var path = Path.Combine(Path.GetDirectoryName(mirror.DatabasePath)!, "core-github-intents", original.Attempt.ToString("D") + ".json.ack");
+                var authentic = await File.ReadAllTextAsync(path);
+                var forged = System.Text.Json.Nodes.JsonNode.Parse(authentic)!;
+                forged["statusCode"] = 403;
+                await File.WriteAllTextAsync(path, forged.ToJsonString());
+                (await workspace.InspectUpdateAsync(original, default)).IsSuccess.ShouldBeFalse();
+                (await workspace.SnapshotAsync(default)).Value.Journal.Single().Status.ShouldBe(OpStatus.Applying);
+                await File.WriteAllTextAsync(path, authentic);
+            }
             var observed = await workspace.InspectUpdateAsync(original, default);
             if (fault == "open")
             {
@@ -99,10 +129,33 @@ internal static class OriginalUpdateCrash
             {
                 observed.IsSuccess.ShouldBeTrue(observed.IsSuccess ? "" : observed.Error.Message);
                 observed.Value.ShouldBe(fault == "closed" ? "NotStarted" : "Settling");
-                (await actions.MoveUpdateAsync(original, observed.Value, Guid.NewGuid(), default)).Value.ShouldBeTrue();
-                if (fault == "lost-receipt")
+                var snapshot = (await workspace.SnapshotAsync(default)).Value;
+                var reservation = create ? snapshot.Mappings.Single(m => m.Local == original.Plan.Operations[0].Item).Remote : null;
+                (await actions.MoveUpdateAsync(original, observed.Value, Guid.NewGuid(), default, reservation)).Value.ShouldBeTrue();
+                if (loseReceipt)
                 {
                     original = (await actions.OriginalUpdateAsync(origin, review, default)).Value;
+                    if (create && failReadback is not null)
+                    {
+                        failReadback(true);
+                        for (var i = 0; i < 2; i++)
+                        {
+                            (await workspace.InspectUpdateAsync(original, default)).Value.ShouldBe("Settling");
+                            (await workspace.SnapshotAsync(default)).Value.Journal.Single().Status.ShouldBe(OpStatus.Applied);
+                        }
+                        failReadback(false);
+                    }
+                    if (create && changeTitle is not null)
+                    {
+                        changeTitle("different readback");
+                        (await workspace.InspectUpdateAsync(original, default)).Value.ShouldBe("Partial");
+                        (await actions.MoveUpdateAsync(original, "Partial", Guid.NewGuid(), default)).Value.ShouldBeTrue();
+                        var partial = (await workspace.SnapshotAsync(default)).Value;
+                        partial.Mappings.Single().Remote.ShouldBe(reservation);
+                        partial.VerifiedSeedTarget(workspace.Connection, original.Plan.Operations[0].Item).ShouldBeNull();
+                        original = (await actions.OriginalUpdateAsync(origin, review, default)).Value;
+                        changeTitle("reviewed update");
+                    }
                     var result = await workspace.InspectUpdateAsync(original, default);
                     result.Value.ShouldBe("Complete");
                 }
@@ -121,6 +174,8 @@ internal static class OriginalUpdateCrash
 
     private sealed class Interrupt(IOriginalUpdateBarrier real, string fault) : IOriginalUpdateBarrier
     {
+        public Task WitnessCreateAsync(Plan plan, Guid attempt, OriginalResponse response, CancellationToken ct)
+            => real.WitnessCreateAsync(plan, attempt, response, ct);
         public async Task OpenAsync(Plan plan, Guid attempt, OriginalDispatch dispatch, CancellationToken ct)
         {
             if (fault == "closed") throw new IOException("Injected exit before Open.");

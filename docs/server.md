@@ -85,12 +85,20 @@ reports the old and new executable digests, captures and revision evidence, and
 does not submit. Submit the new UUID separately. A predecessor can have only one
 replacement; neither reconnect nor `DeliveryConflict` authorizes one.
 
-For a retained Plan in the isolated Twig qualification database, use
-`twig plan observe <digest> --bench <bench-uuid> -o json`. Each unit identifies
+For a retained Plan in the isolated qualification workspace, use
+`twig plan observe <digest> --bench <bench-uuid> -o json`. ADO and GitHub
+qualification require the host's synthetic transport; this path cannot fall
+back to live provider HTTP. Each unit identifies
 its scope, capture, Core operation and original attempt (if any). `continue`
-observes the original attempt. The owner withholds scoped delivery because it
-cannot yet publish the scope, origin and shared Bench pin changes together;
-it does not consume captures or publish a partially updated page. `abandon-unadmitted`
+observes the original attempt and settles eligible admitted captures individually.
+A converged edit needs fresh exact item evidence. A verified operation also needs
+its original scoped journal and registry attempt; only a verified create with its
+attributable published mapping can add a pin. Readback does not send a mutation.
+The owner withholds the shared Bench while the scope step, pin, capture receipt
+and unit delivery settle. Restart checks the original ledgers; a scope-only commit
+keeps the Bench withheld until the same digest completes local delivery. An
+ineligible unit remains inspect-only with its reason and does not consume the
+draft or block a separately eligible sibling. `abandon-unadmitted`
 permanently stops admissions on that digest, without consuming any drafts or
 releasing attempted-unit claims. Neither verb publishes provider work. An
 interrupted local relationship's edge and Applied outcome are one SQLite commit:

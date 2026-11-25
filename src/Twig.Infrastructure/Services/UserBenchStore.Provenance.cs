@@ -109,13 +109,30 @@ public sealed partial class UserBenchStore
         catch (Exception ex) when (StorageFailure(ex)) { return Failure<bool>(ex); }
     }
 
+    private async Task<NativeCaptureReference?> PendingDeliveryReservation(ConvergedDelivery delivery,
+        NativeEditorCapture capture, string document, CancellationToken ct)
+    {
+        using var registry = new SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
+        var heads = await registry.CaptureHeadsAsync(ct);
+        if (!heads.IsSuccess) throw new InvalidDataException(heads.Error.Message);
+        var head = heads.Value.Single(h => h.Path == path && h.User == capture.UserInstance);
+        var row = await registry.CaptureProgressAsync(head.User, head.Generation, ct);
+        if (!row.IsSuccess) throw new InvalidDataException(row.Error.Message);
+        if (row.Value.Confirmed) return null;
+        var original = row.Value.Reference;
+        return original.Head == head.Head && original.DeliveryStep == delivery.Step && original.Capture == capture.Id
+            && original.Document == CaptureHash(document) && original.Previous == CaptureHash(
+                JsonSerializer.Serialize(delivery.Original, NativeEditorJson.Default.NativeEditorCapture))
+            ? original : throw new InvalidDataException("An unrelated capture reservation is unsettled.");
+    }
+
     private async Task<NativeCaptureReference> ReserveCapture(NativeEditorCapture capture, string document, string previous,
-        NativeCaptureHead head, CancellationToken ct)
+        NativeCaptureHead head, CancellationToken ct, Guid? deliveryStep = null)
     {
         var reference = new NativeCaptureReference(head.Path, capture.UserInstance, head.Generation + 1, head.Head,
             capture.Id, capture.Revision, CaptureHash(document), previous.Length == 0 ? "" : CaptureHash(previous),
             capture.ExecutionPath, capture.Root, capture.Origin, capture.StoreInstance, capture.StoreVersion,
-            capture.BeforeFingerprint, capture.DraftFingerprint);
+            capture.BeforeFingerprint, capture.DraftFingerprint) { DeliveryStep = deliveryStep };
         using var registry = new SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
         if (reference.ExecutionPath.Length == 0)
             throw new InvalidDataException("The current capture requires its exact execution-store path.");

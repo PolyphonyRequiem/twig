@@ -212,6 +212,51 @@ public sealed class NativePlanReview
     public Task<Result<NativePlanOutcome>> ContinueDeliveryAsync(CancellationToken ct = default)
         => Execute(true, ct);
 
+    internal async Task<Result<bool>> ObserveConvergenceAsync(NativePlanScope scope, LocalEdits draft,
+        string reviewedVersion, CancellationToken ct)
+    {
+        using var runtime = await Runtime(scope.OriginRoot, configure, ct).ConfigureAwait(false);
+        var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
+        var opened = await factory.OpenScopedAsync(scope, scope.Source, ct).ConfigureAwait(false);
+        if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
+        using var handle = opened.Value;
+        if (handle.Workspace.OwnerCapture(draft) != reviewedVersion)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The reviewed local edit was replaced.");
+        var observed = await handle.Workspace.ObserveItemsAsync([draft.Key], ct).ConfigureAwait(false);
+        if (!observed.IsSuccess) return Result<bool>.Fail(observed.Error);
+        if (observed.Value is not { Complete: true, Continuation: null, Items: [var item] } || item.Key != draft.Key
+            || draft.Type != draft.EditBaseline.Type && draft.Type != item.Type
+            || !draft.Changes.All(field => item.Fields.TryGetValue(field.Key, out var value) && value.Equals(field.Value)))
+            return Result<bool>.Fail(ErrorCode.Conflict, "The exact item no longer confirms the converged edit.");
+        using var origin = (await factory.OpenAsync(ct)) is { IsSuccess: true } result ? result.Value : null;
+        if (origin is null || origin.Source != scope.Source) return Result<bool>.Fail(ErrorCode.Conflict, "The reviewed origin changed.");
+        return await factory.AdmitSourceAsync(origin, ct);
+    }
+
+    internal async Task<Result<bool>> ObserveVerifiedTargetAsync(NativePlanScope scope, StoreSnapshot state,
+        JournalEntry row, ItemKey target, CancellationToken ct)
+    {
+        using var runtime = await Runtime(scope.OriginRoot, configure, ct).ConfigureAwait(false);
+        var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
+        using var registry = new SqliteSystemWorktreeRegistry(factory.ExecutionRegistryPath, TimeProvider.System);
+        var refs = await registry.CoreAttemptReferencesAsync(scope.StoreInstance, ct);
+        if (!refs.IsSuccess) return Result<bool>.Fail(refs.Error);
+        var exact = refs.Value.Where(r => r.Digest == row.Digest && r.Operation == row.Operation).ToArray();
+        if (exact.Length == 0 || !NativeCoreExecution.ReferencesMatch(state, exact)
+            || exact.Any(r => r.Attempt != row.Attempt))
+            return Result<bool>.Fail(ErrorCode.Indeterminate, "Original scope and registry attempt evidence disagree.");
+        var opened = await factory.OpenAsync(ct);
+        if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
+        using var origin = opened.Value;
+        if (origin.Source != scope.Source) return Result<bool>.Fail(ErrorCode.Conflict, "The reviewed origin changed.");
+        var admitted = await factory.AdmitSourceAsync(origin, ct);
+        if (!admitted.IsSuccess) return admitted;
+        var read = await origin.Workspace.ObserveItemsAsync([target], ct);
+        if (!read.IsSuccess) return Result<bool>.Fail(read.Error);
+        return read.Value is { Complete: true, Continuation: null, Items: [var item] } && item.Key == target
+            ? await factory.RevalidateSourceAsync(origin, ct) : Result<bool>.Fail(ErrorCode.Partial, "No exact original target readback.");
+    }
+
     internal async Task<Result<NativePlanOutcome>> AbandonUnadmittedAsync(CancellationToken ct = default)
     {
         var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);
@@ -226,11 +271,14 @@ public sealed class NativePlanReview
     }
 
     public async Task<Result<NativePlanOutcome>> ObserveAsync(CancellationToken ct = default)
+        => await ObserveDeliveryAsync(null, ct);
+
+    internal async Task<Result<NativePlanOutcome>> ObserveDeliveryAsync(Error? reason, CancellationToken ct)
     {
         var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);
         if (!retained.IsSuccess) return Result<NativePlanOutcome>.Fail(retained.Error);
         reference = retained.Value;
-        return Result<NativePlanOutcome>.Ok(await Outcome(null, ct).ConfigureAwait(false));
+        return Result<NativePlanOutcome>.Ok(await Outcome(reason, ct).ConfigureAwait(false));
     }
 
     private async Task<Result<NativePlanOutcome>> Execute(bool deliveryOnly, CancellationToken ct)
@@ -378,7 +426,7 @@ public sealed class NativePlanReview
         return Result<bool>.Ok(true);
     }
 
-    private static string CaptureBinding(IEnumerable<NativeEditorCapture> captures, ImmutableArray<string> versions)
+    internal static string CaptureBinding(IEnumerable<NativeEditorCapture> captures, ImmutableArray<string> versions)
         => string.Join(';', captures.Select((capture, i) => $"{capture.Id:D}:{versions[i]}"));
 
     private async Task<Result<bool>> Deliver(NativePlanReviewScope scope, CoreWorkspace workspace, CoreWorkspaceFactory factory, CancellationToken ct)
@@ -425,7 +473,7 @@ public sealed class NativePlanReview
                 int? operation = scope.Previews[c].Length == 0 ? null : ordinal++;
                 var row = snapshot.IsSuccess && operation.HasValue ? snapshot.Value.Journal.SingleOrDefault(
                     j => j.Digest == reviewed?.Digest && j.Operation == operation) : null;
-                var state = index < reference.Delivered ? "Delivered" : !reference.Units.Contains(scope.Captures[c].Id)
+                var state = index < reference.Delivered || reference.DeliveredUnits.Contains(scope.Captures[c].Id) ? "Delivered" : !reference.Units.Contains(scope.Captures[c].Id)
                     ? reference.Abandoned ? "Abandoned" : "Unadmitted" : !snapshot.IsSuccess ? "Unavailable" : row?.Status.ToString() ?? "Admitted";
                 units.Add(new(scope.Scope.Id, scope.Captures[c].Id, state, reviewed?.Digest, operation,
                     row is null || row.Attempt == Guid.Empty ? null : row.Attempt));

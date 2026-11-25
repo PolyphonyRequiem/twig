@@ -102,13 +102,22 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     public Task PlanCliAfterOwnerLossNeverConsumesAnUnadmittedCapture() => RunOwnerScenario(false, interruptedPlan: true);
 
     [QualificationFact, SupportedOSPlatform("windows")]
-    public Task PlanCliWithholdsScopedSettlementWithoutARecoverableBenchPublication()
+    public Task PlanCliSettlesOnlyTheAdmittedConvergedCaptureAndKeepsItsOriginalBenchPin()
         => RunOwnerScenario(false, interruptedPlan: true, admittedPlan: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task PlanCliDeliversVerifiedAdoSeedAndConvergedSiblingWithoutAnotherCreate()
+        => RunOwnerScenario(false, remote: "ado", verifiedPlan: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task PlanCliDeliversVerifiedGitHubEditAndConvergedSiblingWithoutAnotherMutation()
+        => RunOwnerScenario(false, remote: "github", verifiedPlan: true);
 
     [SupportedOSPlatform("windows")]
     private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
         bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false,
-        bool interruptedPlan = false, bool admittedPlan = false, bool canvas = false, bool membership = false, string? late = null)
+        bool interruptedPlan = false, bool admittedPlan = false, bool canvas = false, bool verifiedPlan = false,
+        bool membership = false, string? late = null)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -163,15 +172,93 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             await File.WriteAllTextAsync(Path.Combine(root, "current.json"),
                 $$"""{"privateDataDir":{{JsonSerializer.Serialize(home)}}}""");
             var review = Guid.NewGuid().ToString("D");
+            if (verifiedPlan)
+            {
+                var ado = remote == "ado";
+                Func<string>? exportGitHub = null;
+                var makeHandler = ado ? NativePublicationConsumerTests.OwnerFakeHttp() : GitHubCoreSpineTests.OwnerFakeHttp(out exportGitHub);
+                using var identityHttp = new HttpClient(makeHandler());
+                using var remoteBindings = new ConnectionBindingService(home, patHttpClient: identityHttp);
+                void Configure(IServiceCollection services)
+                {
+                    services.AddSingleton<IConnectionBindingService>(remoteBindings);
+                    services.AddSingleton(new CoreTransportOverride(makeHandler));
+                    services.AddSingleton<Twig.Infrastructure.GitHub.IGitHubTokenSource>(new StartupHook.FixtureToken());
+                }
+                var paths = TwigPaths.BuildPaths(Path.Combine(work, ".twig"), config, work);
+                var services = new ServiceCollection();
+                Configure(services);
+                services.AddCoreWorkspaceServices(await TwigConfiguration.LoadSplitAsync(paths, default), paths);
+                using var runtime = services.BuildServiceProvider();
+                using var origin = (await runtime.GetRequiredService<CoreWorkspaceFactory>().OpenAsync(default)).Value;
+                var user = UserBenchStore.ForRegistry(remoteBindings.RegistryPath);
+                var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Verified seed fixture", []), 0)).Value;
+                var status = (await user.ReadPlanStatusAsync(bench.Id)).Value;
+                (await user.ChangePlanModeAsync(status.UserInstance, bench.Id, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+                var sibling = ItemKey.Remote(origin.Source.Connection.Provider, origin.Source.Connection.ResourceScope, ado ? "43" : "I_43");
+                var title = ado ? "System.Title" : Twig.Providers.GitHub.GitHubProvider.Title;
+                using var editor = (await NativeItemEditor.OpenAsync(work, bench.Id, origin.Source, Configure, default)).Value;
+                var existing = (await editor.SelectAsync(sibling)).Value;
+                (await editor.StageAsync(existing.Ticket, FieldValues.Empty.Set(title, existing.Values[title]))).IsSuccess.ShouldBeTrue();
+                var target = ado ? (await editor.CreateSeedAsync(existing.Type)).Value
+                    : (await editor.SelectAsync(ItemKey.Remote(origin.Source.Connection.Provider, origin.Source.Connection.ResourceScope, "I_opaque"))).Value;
+                var changes = FieldValues.Empty.Set(title, FieldValue.String("reviewed content"));
+                if (ado) changes = changes.Set(existing.StateField, existing.Values[existing.StateField]);
+                (await editor.StageAsync(target.Ticket, changes)).IsSuccess.ShouldBeTrue();
+                var staged = (await user.ReadPlanStatusAsync(bench.Id)).Value;
+                var plan = (await NativePlanReview.ReviewAsync(work, bench.Id, staged.Sources, Configure, default)).Value;
+                var scope = plan.Document.Scopes.Single().Scope;
+                using var db = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+                    { DataSource = scope.DatabasePath, Pooling = false }.ToString());
+                db.Open();
+                using var cut = db.CreateCommand();
+                cut.CommandText = """
+                    CREATE TRIGGER fixture_cleanup BEFORE UPDATE OF document ON core_snapshots
+                    WHEN json_array_length(NEW.document,'$.Drafts') < json_array_length(OLD.document,'$.Drafts')
+                    BEGIN SELECT RAISE(ABORT,'stop before scope cleanup'); END;
+                    """;
+                cut.ExecuteNonQuery();
+                var applied = (await plan.ApplyAsync()).Value;
+                applied.Status.ShouldBe("VerifiedDeliveryPending", applied.Error?.Message);
+                cut.CommandText = "DROP TRIGGER fixture_cleanup";
+                cut.ExecuteNonQuery();
+                var scopeStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
+                var verified = (await scopeStore.ReadAsync(origin.Source.Connection, default)).Value;
+                var receipt = verified.Journal.Single();
+                receipt.Status.ShouldBe(OpStatus.Verified);
+                var published = ado ? verified.VerifiedSeedTarget(origin.Source.Connection, target.Item).ShouldNotBeNull() : target.Item;
+                if (exportGitHub is not null) await File.WriteAllTextAsync(Path.Combine(root, "fixture-github-item.json"), exportGitHub());
+                await StartOwner();
+                for (var i = 0; i < 2; i++)
+                {
+                    var reply = await Cli(null, "plan", "continue", plan.Digest, "--bench", bench.Id.ToString("D"), "-o", "json");
+                    reply.Code.ShouldBe(0, reply.Error + reply.Output);
+                    using var json = JsonDocument.Parse(reply.Output);
+                    json.RootElement.GetProperty("status").GetString().ShouldBe("Complete", reply.Output);
+                    json.RootElement.GetProperty("units").GetArrayLength().ShouldBe(2);
+                    await Restart();
+                }
+                var result = (await scopeStore.ReadAsync(origin.Source.Connection, default)).Value;
+                result.RetainedItems.ShouldBeEmpty();
+                result.Journal.Single().Attempt.ShouldBe(receipt.Attempt);
+                var pins = (await user.ReadAsync()).Value.Benches.Single().Selectors;
+                if (ado) pins.Single().Item.ShouldBe(published);
+                else pins.ShouldBeEmpty();
+                (await user.ReadEditorCapturesAsync(default)).Value.ShouldAllBe(capture => capture.Settled);
+                File.Exists(Path.Combine(root, "unexpected-plan-write")).ShouldBeFalse();
+                return;
+            }
             if (interruptedPlan)
             {
                 var user = UserBenchStore.ForRegistry(bindings.RegistryPath);
-                var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Plan fixture", []), 0)).Value;
+                var item = (await handle!.Workspace.SnapshotAsync(default)).Value.Items.Single().Key;
+                var bench = (await user.SaveAsync(new(Guid.NewGuid(), "Plan fixture",
+                    admittedPlan ? [new(SelectorKind.Pin, item, connection: handle.Source.Connection)] : []), 0)).Value;
                 var status = (await user.ReadPlanStatusAsync(bench.Id)).Value;
                 (await user.ChangePlanModeAsync(status.UserInstance, bench.Id, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
                 void Configure(IServiceCollection services) => services.AddSingleton<IConnectionBindingService>(bindings);
                 using var editor = (await NativeItemEditor.OpenAsync(work, bench.Id, handle!.Source, Configure, default)).Value;
-                var form = (await editor.SelectAsync((await handle.Workspace.SnapshotAsync(default)).Value.Items.Single().Key)).Value;
+                var form = (await editor.SelectAsync(item)).Value;
                 (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set(NativeProvider.Title, admittedPlan
                     ? form.Values[NativeProvider.Title] : FieldValue.String("never published")))).IsSuccess.ShouldBeTrue();
                 var staged = (await user.ReadPlanStatusAsync(bench.Id)).Value;
@@ -183,18 +270,31 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     (await user.AdvancePlanReviewAsync(retained, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
                     (await user.AdmitPlanCaptureAsync(retained, 0, plan.Document.Scopes.Single().Captures.Single().Id, default)).IsSuccess.ShouldBeTrue();
                 }
+                var scope = plan.Document.Scopes.Single().Scope;
+                var scopeStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
+                long? settledVersion = null;
                 await StartOwner();
-                foreach (var (verb, state) in new[] { ("observe", "Unadmitted"), ("continue", "Unadmitted"),
-                    ("abandon-unadmitted", "Abandoned"), ("observe", "Abandoned") })
+                var commands = admittedPlan
+                    ? new[] { ("observe", "Admitted"), ("continue", "Delivered"), ("continue", "Delivered"), ("observe", "Delivered") }
+                    : [("observe", "Unadmitted"), ("continue", "Unadmitted"), ("abandon-unadmitted", "Abandoned"), ("observe", "Abandoned")];
+                foreach (var (verb, state) in commands)
                 {
                     var reply = await Cli(null, "plan", verb, plan.Digest, "--bench", bench.Id.ToString("D"), "-o", "json");
                     reply.Code.ShouldBe(0, reply.Error);
                     using var json = JsonDocument.Parse(reply.Output);
-                    json.RootElement.GetProperty("units")[0].GetProperty("state").GetString().ShouldBe(admittedPlan ? "Admitted" : state);
-                    if (admittedPlan && verb == "continue") json.RootElement.GetProperty("detail").GetString().ShouldNotBeNull().ShouldContain("withheld");
+                    json.RootElement.GetProperty("units")[0].GetProperty("state").GetString().ShouldBe(state, reply.Output);
+                    if (admittedPlan && verb == "continue")
+                    {
+                        var deliveredScope = (await scopeStore.ReadAsync(scope.Source.Connection, default)).Value;
+                        deliveredScope.RetainedItems.ShouldBeEmpty();
+                        deliveredScope.Journal.ShouldBeEmpty();
+                        if (settledVersion is not null) deliveredScope.Version.ShouldBe(settledVersion.Value);
+                        settledVersion = deliveredScope.Version;
+                        await Restart();
+                    }
                 }
-                (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBeFalse();
-                (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBeEmpty();
+                (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBe(admittedPlan);
+                (await user.ReadAsync()).Value.Benches.Single().Selectors.ShouldBe(bench.Selectors);
                 (await handle.Workspace.ObserveItemsAsync([form.Item], default)).Value.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("original");
                 return;
             }
@@ -763,6 +863,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     start.Environment["DOTNET_ADDITIONAL_DEPS"] = Path.ChangeExtension(typeof(OwnerUpdateProcessTests).Assembly.Location, ".deps.json");
                     start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? (create ? "create" : "cas");
                     if (late is not null) start.Environment["TWIG_TEST_LATE_ACQUISITION"] = "1";
+                    if (verifiedPlan) start.Environment["TWIG_TEST_VERIFIED_PLAN"] = "1";
                     if (remote is not null && create) start.Environment["TWIG_TEST_REMOTE_CREATE"] = "1";
                     if (begin) start.Environment["TWIG_TEST_RACE_BEGIN"] = "1";
                 }

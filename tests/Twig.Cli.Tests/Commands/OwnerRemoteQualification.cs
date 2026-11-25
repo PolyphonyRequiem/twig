@@ -113,7 +113,7 @@ internal static class StartupHook
         }
     }
 
-    private sealed class FixtureToken : IGitHubTokenSource
+    internal sealed class FixtureToken : IGitHubTokenSource
     {
         public ValueTask<string> GetTokenAsync(CancellationToken ct) => ValueTask.FromResult("synthetic-secret");
     }
@@ -123,6 +123,19 @@ internal static class StartupHook
         private static int parked;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            if (Environment.GetEnvironmentVariable("TWIG_TEST_VERIFIED_PLAN") == "1")
+            {
+                var write = provider == "ado" ? request.Method == HttpMethod.Patch
+                    || request.Method == HttpMethod.Post && request.RequestUri!.AbsolutePath.Contains("/workitems/$", StringComparison.OrdinalIgnoreCase)
+                    : request.Content is not null && (await request.Content.ReadAsStringAsync(ct)).Contains("\"query\":\"mutation", StringComparison.Ordinal);
+                if (write)
+                {
+                    var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+                    await File.AppendAllTextAsync(Path.Combine(root, "unexpected-plan-write"), "write\n", ct);
+                    throw new InvalidOperationException("Verified Plan recovery must not send a provider mutation.");
+                }
+                return await base.SendAsync(request, ct);
+            }
             if (Environment.GetEnvironmentVariable("TWIG_TEST_REMOTE_CREATE") == "1")
             {
                 var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
@@ -174,9 +187,19 @@ namespace Twig.Cli.Tests.Commands
     public sealed partial class GitHubCoreSpineTests
     {
         internal static Func<HttpMessageHandler> OwnerFakeHttp()
+            => OwnerFakeHttp(out _);
+
+        internal static Func<HttpMessageHandler> OwnerFakeHttp(out Func<string> export)
         {
             var http = new NativeHttp();
             http.OtherIssue = Other(43); http.ThirdIssue = Other(44);
+            if (Environment.GetEnvironmentVariable("TWIG_TEST_VERIFIED_PLAN") == "1")
+            {
+                var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+                var saved = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "fixture-github-item.json")))!.AsObject();
+                foreach (var field in saved) http.Issue[field.Key] = field.Value?.DeepClone();
+            }
+            export = () => http.Issue.ToJsonString();
             return http.NewHandle;
             JsonObject Other(int number)
             {
@@ -193,6 +216,7 @@ namespace Twig.Cli.Tests.Commands
         {
             var http = new PrincipalTransport { CoreMetadataEnabled = true };
             foreach (var id in new[] { 42, 43, 44 }) http.SetItem(id, "original", 1, Actor);
+            if (Environment.GetEnvironmentVariable("TWIG_TEST_VERIFIED_PLAN") == "1") http.SetItem(45, "reviewed content", 1, Actor);
             return http.NewHandle;
         }
 

@@ -82,7 +82,8 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
         }
         var result = request.Arguments switch
         {
-            ["plan", ..] => await OwnerPlanCommand.ExecuteAsync(home, benches, request.Directory, request.Arguments, output, errors, token),
+            ["plan", ..] => await OwnerPlanCommand.ExecuteAsync(home, benches, request.Directory, request.Arguments,
+                output, errors, hostServices, token),
             ["workspace" or "ws", "--bench", var name, "-o", "json"] => await Workspace(name),
             ["workspace" or "ws", "--bench", _, "--refresh", "-o", "json"] or ["update" or "note" or "seed", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
             {

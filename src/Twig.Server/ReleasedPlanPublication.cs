@@ -236,8 +236,9 @@ internal sealed partial class ReleasedBenchDisplay
         var benchPlan = await definitions.ReadPlanAsync(doc.BenchId, ct);
         if (!catalog.IsSuccess || catalog.Value.InstanceId != doc.UserInstance || !benchPlan.IsSuccess || !benchPlan.Value.PlanMode
             || benchPlan.Value.Id != doc.PlanId || benchPlan.Value.Revision != doc.PlanRevision || !benchPlan.Value.Scopes.Contains(scope)
-            || catalog.Value.Benches.SingleOrDefault(b => b.Id == doc.BenchId) is not { } bench)
-            return Refuse("The admitted Plan no longer owns its original stores.");
+            || catalog.Value.Benches.SingleOrDefault(b => b.Id == doc.BenchId) is not { } bench
+            || bench.Revision != checked(doc.BenchRevision + current.Value.AddedPins))
+            return Refuse("The original Bench or scope changed outside this Plan's recorded delivery steps.");
         var after = UserBenchStore.WithDeliveryPin(bench, origin.Connection, pin);
         var next = capture with { Revision = checked(capture.Revision + 1), Settled = true, BenchRevision = after.Revision,
             PlanRevision = benchPlan.Value.Revision };

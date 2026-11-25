@@ -44,8 +44,8 @@ public sealed partial class UserBenchStore
         using var cmd = db.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO plan_delivered_units(digest,capture,scope,step)
-            SELECT digest,$capture,$scope,$step FROM plan_review_references
+            INSERT INTO plan_delivered_units(digest,capture,scope,step,pin_added)
+            SELECT digest,$capture,$scope,$step,$pinAdded FROM plan_review_references
             WHERE digest=$digest AND started=1 AND admitted>$index AND delivered=$index
             AND EXISTS(SELECT 1 FROM plan_capture_units WHERE digest=$digest AND capture=$capture);
             """;
@@ -53,6 +53,7 @@ public sealed partial class UserBenchStore
         cmd.Parameters.AddWithValue("$capture", capture.Id.ToString("D"));
         cmd.Parameters.AddWithValue("$scope", capture.ScopeId.ToString("D"));
         cmd.Parameters.AddWithValue("$index", delivery.ScopeIndex);
+        cmd.Parameters.AddWithValue("$pinAdded", after.Revision - bench.Revision);
         cmd.Parameters.AddWithValue("$step", delivery.Step.ToString("D"));
         if (await cmd.ExecuteNonQueryAsync(ct) != 1) throw new InvalidDataException("The original capture admission changed.");
         cmd.CommandText = """

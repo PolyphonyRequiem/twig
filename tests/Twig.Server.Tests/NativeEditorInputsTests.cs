@@ -44,6 +44,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
     [InlineData("plan-scope")]
     [InlineData("plan-receipt")]
     [InlineData("newer-edit")]
+    [InlineData("replaced-pins")]
     public async Task VerifiedSeedAndEditDeliverTheirOriginalsAndOneMappedPinAcrossRestart(string cut)
     {
         await Start(planMode: true, executionV2: true);
@@ -75,6 +76,17 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
         var replaced = await display.ContinuePlanAsync(Work, handle.Source with { StoreInstance = Guid.NewGuid() }, definitions, review, default);
         Assert.False(replaced.IsSuccess);
+        if (cut == "replaced-pins")
+        {
+            var original = Assert.Single((await definitions.ReadAsync()).Value.Benches);
+            Assert.True((await definitions.SaveAsync(new(original.Id, original.Name, []), original.Revision)).IsSuccess);
+            var outcome = (await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value;
+            Assert.Equal("VerifiedDeliveryPending", outcome.Status);
+            Assert.Contains("Bench", outcome.Error!.Message);
+            Assert.Empty(Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors);
+            Assert.All((await definitions.ReadEditorCapturesAsync(default)).Value, c => Assert.False(c.Settled));
+            return;
+        }
         if (cut == "newer-edit")
         {
             var draft = Assert.Single(before.RetainedItems.OfType<LocalEdits>());

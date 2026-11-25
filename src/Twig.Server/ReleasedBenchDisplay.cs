@@ -105,6 +105,7 @@ internal sealed partial class ReleasedBenchDisplay
             {
                 entries.Remove(key);
                 generations[(scope.Owner, scope.Store, scope.Bench)] = Guid.NewGuid();
+                NotifyAuthorization();
             }
         }
     }
@@ -132,13 +133,15 @@ internal sealed partial class ReleasedBenchDisplay
                 if (partitionRequests[scope] != request || grant is not null && !Current(grant)) return false;
                 entries[key] = entry;
                 generations[(scope.Owner, scope.Store, scope.Bench)] = Guid.NewGuid();
+                NotifyAuthorization();
                 return true;
             }
         }
     }
 
     internal sealed record Frame(byte[] Body, Guid Generation, DisplayPartition Scope, string? Next, Guid AuthEpoch,
-        DateTimeOffset Expires, long RemainingMilliseconds, long Watermark);
+        DateTimeOffset Expires, long RemainingMilliseconds, long Watermark, long Cursor, string? ItemRevision = null,
+        NativeSourceStamp? InputSource = null);
 
     internal async Task Read(ViewSessions sessions, Guid view, string bearer, Guid bench, Guid partition, string? cursor,
         string? expectedGeneration, Func<Frame, Task> send, CancellationToken ct)
@@ -186,7 +189,8 @@ internal sealed partial class ReleasedBenchDisplay
                 if (remaining <= TimeSpan.Zero) throw Denied();
                 if (!responses.Wait(0)) throw new HttpFailure(503, "Busy", "The bounded display handoff is full.");
                 if (outbox.Writer.TryWrite(new(body, start.Generation, start.Entry.Scope, next,
-                    owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark))) return true;
+                    owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark, authCursor,
+                    current.Entry.Grant?.Revision, current.Entry.Grant?.Source))) return true;
                 responses.Release();
                 throw new HttpFailure(503, "Busy", "The display handoff was not accepted.");
             }

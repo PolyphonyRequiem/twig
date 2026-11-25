@@ -18,6 +18,10 @@ public static partial class NativeBenchHost
     private const int DefinitionBodyLimit = 2 * 1024 * 1024 + 16384;
     private static bool QualifiedOwnerRoute(HttpRequest request) => (request.Method, request.Path.Value?.Split('/')) switch
     {
+        ("GET", ["", "api", "v2", "views", var view, "authorization" or "benches"]) => Guid.TryParseExact(view, "D", out _),
+        ("PUT" or "POST", ["", "api", "v2", "views", var view, "benches", var bench, "partitions", var partition, .. var rest])
+            => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _) && Guid.TryParseExact(partition, "D", out _)
+                && (request.Method == "PUT" ? rest is ["input"] : rest is ["input", "inspect"] or ["action"]),
         ("GET", ["", "api", "v2", "views", var view, "benches", var bench, "partitions", var partition, "page"])
             => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _) && Guid.TryParseExact(partition, "D", out _),
         ("GET", ["", "api", "v1", "status" or "owner-status" or "windows-profile"]) => true,
@@ -52,6 +56,9 @@ public static partial class NativeBenchHost
         if (options.ExecutionV2)
             builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db")));
         if (options.ExecutionV2)
+            builder.Services.AddSingleton(sp => new OwnerCommandEndpoint(options.ProcessInstance, options.DataDirectory,
+                panel.Definitions, sp, sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
+        if (options.ExecutionV2)
             builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = TimeSpan.FromSeconds(10));
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
@@ -78,7 +85,7 @@ public static partial class NativeBenchHost
             server.Limits.MaxConcurrentConnections = 32;
         });
         var app = builder.Build();
-        if (options.ExecutionV2) MapReleasedDisplay(app, sessions, options);
+        if (options.ExecutionV2) MapReleasedDisplay(app, sessions, options, panel);
         var diagnostics = new NativeSourceDiagnostics(app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Bench.SourceDiagnostics"));
         app.Use(async (context, next) =>
         {
@@ -603,7 +610,7 @@ public static partial class NativeBenchHost
             await Write(context, new PlanningRuleDto(BenchCodec.SerializeSelectors(
                 [new(SelectorKind.Query, query: query, connection: capture.Context.Stamp.Connection)])));
         });
-        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource, ReadAccounts);
+        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource, ReadAccounts, options.ExecutionV2);
         MapEditor(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapSeeds(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapPlan(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));

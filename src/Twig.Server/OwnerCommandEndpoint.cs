@@ -11,6 +11,18 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
 {
     private readonly OwnerUpdateCommand updates = new(boot, home, benches, hostServices, stopping);
     internal Task DrainAsync() => updates.DrainAsync();
+    internal async Task<UpdateReply> CanvasUpdate(string[] args, NativeSourceStamp source, string? baseline,
+        Func<bool> stillAuthorized, string? frozenText, CancellationToken ct)
+    {
+        using var stdout = new StringWriter();
+        using var stderr = new StringWriter();
+        var result = await updates.ExecuteAsync(args, Path.Combine(Path.GetDirectoryName(home)!, "work"),
+            () => Task.FromResult(frozenText ?? throw new InvalidDataException("Missing frozen input.")), _ => Task.CompletedTask,
+            stdout, stderr, ct, new(source, baseline, stillAuthorized));
+        if (result == 2) throw new HttpFailure(409, "ReviewRequired", "The reviewed item or authority is no longer available.");
+        return JsonSerializer.Deserialize(stdout.ToString(), UpdateReplyJson.Default.UpdateReply)
+            ?? throw new InvalidDataException("The original action reply was missing.");
+    }
     internal static async Task RefuseLegacyAsync(Stream client, CancellationToken token)
     {
         // The pinned client finishes its invocation write before reading. Drain it in fixed

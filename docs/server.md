@@ -37,6 +37,33 @@ the owner to demonstrate a shared store; unqualified CLI routes never fall back
 to an executable worker. This does **not** activate a release, fence a live old
 installation, or qualify an installer for cold cutover.
 
+**Released Display (owner fixture only).** A negotiated owner content capability
+can `GET /api/v2/views/{view}/benches/{bench}/partitions/{partition}/page`.
+The route reads the owner-published projection in `released-benches.db` using a
+read-only SQLite transaction. It neither discovers membership nor opens the
+Bench definitions, source workspace, or provider. An unpublished partition
+returns `409 RefreshRequired`, not an empty result.
+
+Each response body is a JSON array of at most 512 KiB. `edit` rows contain only
+changed fields, never their provider baseline or type; `seed` rows contain local
+intent. The publisher must match the admitted origin's store, connection,
+principal and authority stamp. A `provider` partition is separate and requires
+a fresh exact item read on its bound connection. Grants live only in the
+owner process, expire within 60 monotonic seconds of request start, and cannot
+be extended by project access or an in-flight renewal.
+
+Echo `X-Twig-Next-Cursor` as `X-Twig-Cursor` and pin `X-Twig-Generation` on
+subsequent pages. A change anywhere in this owner's Bench invalidates the
+continuation. On `409 ViewChanged`, discard **all** collected pages; the
+fixture reader restarts at most once within a five-second total budget.
+`403 GrantRequired`, `503 Busy` and `503 AuthorityUnavailable` carry no item
+bytes. Responses identify the authority, process, auth epoch, owner, store,
+connection, partition, optional origin, generation, expiry, remaining time and
+withdrawal watermark in `X-Twig-*` headers. A successful enqueue precedes
+network delivery and cannot be recalled. Clients must still check their
+revocation stream before rendering. No HTTP route can mint a grant or supply
+release rows; membership and settlement producers belong to the owner.
+
 ## Install the release package
 
 From [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases),

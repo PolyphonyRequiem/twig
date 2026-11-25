@@ -125,11 +125,15 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             using var handle = Require(await factory.OpenAsync(ct));
             pinned.Dispose();
             Require(await factory.AdmitSourceAsync(handle, ct));
+            var publisher = hostServices?.GetService<IOwnerBenchPublication>();
+            using var publication = publisher?.TrackWorkspace(root, handle.Source, actions);
             var workspace = handle.Workspace;
             if (!int.TryParse(item, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var locator)
                 || locator <= 0) throw new InvalidDataException("Use a positive provider item number.");
             var key = Require(await workspace.ResolveTargetAsync(locator, true, ct));
-            var authorized = Require(await workspace.ObserveItemsAsync([key], ct));
+            Task<Result<QueryPage>> Observe() => workspace.ObserveItemsAsync([key], ct);
+            var authorized = Require(await (publisher is null ? Observe() : publisher.Observe(root, handle.Source,
+                actions, key, Observe, mode == "find", ct)));
             if (authorized.Items is not [var permitted] || permitted.Key != key)
                 throw new InvalidDataException("The selected actor could not observe the exact item.");
             var origin = new UpdateOrigin(handle.Source.StoreInstance, workspace.Connection, handle.Source.PrincipalId, key.NativeId!);
@@ -225,7 +229,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                                 Require(await actions.MoveUpdateAsync(original, "ReviewRequired", boot, ct));
                                 return Reply(new("ReviewRequired", [Require(await actions.OriginalUpdateAsync(origin, review, ct)).Identity]));
                             }
-                            var barrier = new OwnerBarrier(actions.Barrier(original, boot), workspace, review);
+                            var barrier = new OwnerBarrier(actions.Barrier(original, boot), workspace, review, publisher);
                             var delay = 100;
                             async Task<IDisposable> ResumeLocal()
                             {
@@ -319,7 +323,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
 
     // This command is constructed only by the isolated qualification owner. Inject
     // latency after durable permission, before native SQLite starts its transaction.
-    private sealed class OwnerBarrier(IOriginalUpdateBarrier inner, CoreWorkspace workspace, Guid review) : IOriginalUpdateBarrier
+    private sealed class OwnerBarrier(IOriginalUpdateBarrier inner, CoreWorkspace workspace, Guid review, IOwnerBenchPublication? publisher) : IOriginalUpdateBarrier
     {
         internal bool CaptureChanged { get; private set; }
         public async Task OpenAsync(Plan plan, Guid attempt, OriginalDispatch request, CancellationToken ct)
@@ -337,6 +341,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                     CaptureChanged = true;
                     throw new IOException("The reviewed local capture changed before dispatch.");
                 }
+                publisher?.InvalidateItem(plan.Connection, plan.Operations.Single().Item);
                 await inner.OpenAsync(plan, attempt, request, ct);
             }
             if (Guid.TryParseExact(Environment.GetEnvironmentVariable("TWIG_TEST_PARK_ORIGINAL_REVIEW"), "D", out var parked)

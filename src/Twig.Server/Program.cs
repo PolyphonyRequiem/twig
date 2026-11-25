@@ -205,6 +205,8 @@ await using var app = NativeBenchHost.Build(new(port, data, Certificate: certifi
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
     null, Timeout.Infinite, executeOnlyOnce: true);
 var stopping = app.Lifetime.ApplicationStopping;
+if (fixture is not null)
+    app.Services.GetRequiredService<ReleasedBenchDisplay>().RecoverWorkspace(Path.Combine(fixture.Root, "work", ".twig", "core.db"));
 var execution = fixture is null ? null : new OwnerCommandEndpoint(processInstance, data, definitions, app.Services, stopping);
 await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)
     : new CommandListener(Twig.CommandEndpoint.ExecutionPipe(serverId, processInstance),

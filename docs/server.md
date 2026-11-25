@@ -112,6 +112,22 @@ network delivery and cannot be recalled. Clients must still check their
 revocation stream before rendering. No HTTP route can mint a grant or supply
 release rows; membership and settlement producers belong to the owner.
 
+For an enrolled standalone owner, `GET /api/v2/views/{view}/benches/{bench}/partitions`
+lists eligible partition IDs without opening a workspace. The fixture's update
+and note paths publish origin-owned intent for exact-pin rules. `update --find
+--id <item>` also acquires a separate provider partition for the pinned item
+using a fresh exact read. Unsupported local membership or unevaluated workspace
+exclusions do not produce a known-empty partition.
+
+Before a qualified workspace CAS, the owner records its predecessor and result
+hashes and affected Benches in `released-benches.db`. The matching step ID and
+result hash commit in the same transaction as the Core snapshot. Each Bench
+retains **all** pending dependencies; no provider call runs inside a publication
+transaction. Restart checks each original step against its workspace ledger
+before accepting writes. An absent step is no-effect only at its unchanged
+predecessor. Inconsistent evidence blocks admission; recovery never dispatches
+or reapplies the change. Pages and grants are not restored from an earlier boot.
+
 ## Install the release package
 
 From [GitHub Releases](https://github.com/PolyphonyRequiem/twig/releases),

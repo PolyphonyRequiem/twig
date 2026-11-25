@@ -8,11 +8,14 @@ using System.Collections.Immutable;
 using Twig.Core;
 using Twig.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
+using Twig.Store.Sqlite;
 
 namespace Twig.Server;
 
 internal sealed record DisplayPartition(Guid Owner, Guid Store, Guid Bench, Guid Id, NativeSourceStamp? Origin, Connection Connection);
 internal sealed record DisplayRow(string Kind, string Item, string? Type, string? Field, FieldValueDto? Value);
+internal sealed record ReleasedPartitions(Guid[] Partitions);
+[JsonSerializable(typeof(ReleasedPartitions))]
 [JsonSerializable(typeof(DisplayRow))]
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
 internal sealed partial class DisplayJson : JsonSerializerContext;
@@ -29,22 +32,40 @@ internal sealed partial class ReleasedBenchDisplay
     private readonly byte[] cursorKey = RandomNumberGenerator.GetBytes(32);
     private readonly SemaphoreSlim responses = new(16, 16);
     internal Func<CancellationToken, Task>? BeforeEnqueue { get; set; }
+    internal Action? AfterStage { get; set; }
     private sealed record Entry(DisplayPartition Scope, Guid Generation, int Pages, GrantWitness? Grant);
 
-    internal ReleasedBenchDisplay(string path, TimeProvider? clock = null)
+    internal ReleasedBenchDisplay(string path, TimeProvider? clock = null, ViewSessions? sessions = null)
     {
         store = new(path);
         this.clock = clock ?? TimeProvider.System;
         withdrawals = store.Withdrawals();
         watermark = withdrawals.Values.DefaultIfEmpty().Max();
+        this.sessions = sessions;
+        pending = store.Pending();
+        heads = store.AppliedHeads();
     }
 
     internal void PublishLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted)
     {
+        if (!TryPublishLocal(scope, observation, admitted)) throw Changed();
+    }
+
+    private bool TryPublishLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted)
+        => PrepareLocal(scope, observation, admitted)();
+
+    private Func<bool> PrepareLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted, string? hash = null)
+    {
         if (scope.Origin != observation.Source || scope.Connection != observation.Source.Connection)
             throw new InvalidDataException("The local observation is not from the authorized origin.");
+        var input = (observation.Snapshot.Version, hash ?? WorkspacePublication.Hash(Persistence.Serialize(observation.Snapshot)));
         long request;
-        lock (release) request = Begin(scope);
+        lock (release)
+        {
+            if (Dirty(scope) || heads.TryGetValue(observation.Source.StoreInstance, out var head)
+                && head != input) return () => false;
+            request = Begin(scope);
+        }
         var members = admitted.ToHashSet();
         var intent = observation.Snapshot.RetainedItems.Where(item => members.Contains(item.Key)).ToArray();
         if (intent.Length != members.Count) throw new InvalidDataException("The local projection is incomplete.");
@@ -55,7 +76,8 @@ internal sealed partial class ReleasedBenchDisplay
             Seed seed => Rows("seed", seed.Key.LocalId.ToString("D"), seed.Type, seed.Fields),
             _ => throw new InvalidDataException("Local intent does not belong to the released partition.")
         });
-        if (!Publish(scope, Pages(rows), request)) throw Changed();
+        var pages = Pages(rows);
+        return () => Publish(scope, pages, request, input: input);
     }
 
     private static IEnumerable<DisplayRow> Rows(string kind, string item, string? type, FieldValues fields)
@@ -109,16 +131,19 @@ internal sealed partial class ReleasedBenchDisplay
         }
     }
 
-    private bool Publish(DisplayPartition scope, List<byte[]> pages, long request, GrantWitness? grant = null)
+    private bool Publish(DisplayPartition scope, List<byte[]> pages, long request, GrantWitness? grant = null,
+        (long Version, string Hash)? input = null)
     {
         var key = (scope.Owner, scope.Store, scope.Bench, scope.Id);
+        bool Eligible() => !Dirty(scope) && partitionRequests[scope] == request && (grant is null || Current(grant))
+            && (scope.Origin is null || !heads.TryGetValue(scope.Origin.StoreInstance, out var head) || head == input);
         lock (publication)
         {
             Entry? old;
             lock (release)
             {
                 RequireOpen();
-                if (partitionRequests[scope] != request || grant is not null && !Current(grant)) return false;
+                if (!Eligible()) return false;
                 entries.TryGetValue(key, out old);
                 if (old is not null && (old.Scope != scope || old.Grant?.Item != grant?.Item))
                     throw new InvalidDataException("A partition cannot change origin, grant scope or content kind.");
@@ -126,10 +151,11 @@ internal sealed partial class ReleasedBenchDisplay
             var entry = new Entry(scope, Guid.NewGuid(), pages.Count, grant);
             if (!store.Stage($"{scope.Owner:N}/{scope.Store:N}/{scope.Bench:N}/{scope.Id:N}",
                     old?.Generation, entry.Generation, pages, grant)) return false;
+            AfterStage?.Invoke();
             lock (release)
             {
                 RequireOpen();
-                if (partitionRequests[scope] != request || grant is not null && !Current(grant)) return false;
+                if (!Eligible()) return false;
                 entries[key] = entry;
                 generations[(scope.Owner, scope.Store, scope.Bench)] = Guid.NewGuid();
                 return true;
@@ -184,11 +210,8 @@ internal sealed partial class ReleasedBenchDisplay
                 var remaining = owner.Expires - now;
                 if (current.Entry.Grant is { } grant) remaining = TimeSpan.FromTicks(Math.Min(remaining.Ticks, Remaining(grant).Ticks));
                 if (remaining <= TimeSpan.Zero) throw Denied();
-                if (!responses.Wait(0)) throw new HttpFailure(503, "Busy", "The bounded display handoff is full.");
-                if (outbox.Writer.TryWrite(new(body, start.Generation, start.Entry.Scope, next,
-                    owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark))) return true;
-                responses.Release();
-                throw new HttpFailure(503, "Busy", "The display handoff was not accepted.");
+                return Enqueue(outbox, new(body, start.Generation, start.Entry.Scope, next,
+                    owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark));
             }
         });
         try { await send(await outbox.Reader.ReadAsync(ct)); }
@@ -200,8 +223,39 @@ internal sealed partial class ReleasedBenchDisplay
         RequireOpen();
         var entry = entries.GetValueOrDefault((owner.ProfileId, owner.CatalogId, bench, partition))
             ?? throw new HttpFailure(409, "RefreshRequired", "No eligible release.");
+        if (Dirty(entry.Scope)) throw new HttpFailure(409, "RefreshRequired", "The Bench has unsettled changes.");
         if (entry.Grant is { } grant && (Withdrawn(grant) || Remaining(grant) <= TimeSpan.Zero)) throw Denied();
         return (entry, generations[(owner.ProfileId, owner.CatalogId, bench)]);
+    }
+
+    private bool Enqueue<T>(Channel<T> outbox, T value)
+    {
+        if (!responses.Wait(0)) throw new HttpFailure(503, "Busy", "The bounded display handoff is full.");
+        if (outbox.Writer.TryWrite(value)) return true;
+        responses.Release();
+        throw new HttpFailure(503, "Busy", "The display handoff was not accepted.");
+    }
+
+    internal async Task ReadPartitions(ViewSessions views, Guid view, string bearer, Guid bench,
+        Func<ReleasedPartitions,Task> send, CancellationToken ct)
+    {
+        var outbox = Channel.CreateBounded<ReleasedPartitions>(1);
+        views.WithDisplayOwner(view, bearer, owner =>
+        {
+            lock (release)
+            {
+                RequireOpen();
+                var ids = entries.Values.Where(e => e.Scope.Owner == owner.ProfileId && e.Scope.Store == owner.CatalogId
+                    && e.Scope.Bench == bench && !Dirty(e.Scope)
+                    && (e.Grant is null || !Withdrawn(e.Grant) && Remaining(e.Grant) > TimeSpan.Zero))
+                    .Select(e => e.Scope.Id).Take(1025).ToArray();
+                if (ids.Length is 0 or > 1024)
+                    throw new HttpFailure(409, "RefreshRequired", "No bounded eligible partition inventory.");
+                return Enqueue(outbox, new(ids));
+            }
+        });
+        try { await send(await outbox.Reader.ReadAsync(ct)); }
+        finally { responses.Release(); }
     }
 
     private static HttpFailure Changed() => new(409, "ViewChanged", "Discard the previous pages before reading a new generation.");

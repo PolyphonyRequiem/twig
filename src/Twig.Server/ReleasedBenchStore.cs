@@ -4,7 +4,7 @@ namespace Twig.Server;
 
 // The owner initializes this isolated user-store projection. Serving a page opens
 // a separate read-only connection; it never initializes or repairs a database.
-internal sealed class ReleasedBenchStore
+internal sealed partial class ReleasedBenchStore
 {
     private readonly string read;
     private readonly string write;
@@ -15,7 +15,7 @@ internal sealed class ReleasedBenchStore
         write = settings.ToString();
         settings.Mode = SqliteOpenMode.ReadOnly;
         read = settings.ToString();
-        using var db = Open(write);
+        using var db = OpenWrite();
         using var cmd = db.CreateCommand();
         cmd.CommandText = """
             PRAGMA journal_mode=WAL;
@@ -24,6 +24,14 @@ internal sealed class ReleasedBenchStore
               PRIMARY KEY(generation,ordinal)) STRICT;
             CREATE INDEX IF NOT EXISTS release_slot ON release_page(slot,generation);
             CREATE TABLE IF NOT EXISTS withdrawal(scope TEXT PRIMARY KEY, stamp INTEGER NOT NULL) STRICT;
+            CREATE TABLE IF NOT EXISTS local_transition(
+              id TEXT PRIMARY KEY, instance TEXT NOT NULL, connection TEXT NOT NULL, predecessor INTEGER NOT NULL,
+              predecessor_hash TEXT NOT NULL, successor INTEGER NOT NULL, result_hash TEXT NOT NULL,
+              state TEXT NOT NULL CHECK(state IN ('Pending','Applied','NoEffect'))) STRICT;
+            CREATE TABLE IF NOT EXISTS transition_bench(
+              transition_id TEXT NOT NULL REFERENCES local_transition(id), bench TEXT NOT NULL,
+              PRIMARY KEY(transition_id,bench)) STRICT;
+            CREATE UNIQUE INDEX IF NOT EXISTS settled_version ON local_transition(instance,successor) WHERE state='Applied';
             """;
         cmd.ExecuteNonQuery();
     }
@@ -33,6 +41,23 @@ internal sealed class ReleasedBenchStore
         var db = new SqliteConnection(connectionString);
         db.Open();
         return db;
+    }
+
+    // An idle connection holds no transaction. Keep the WAL alive for a burst of local
+    // phases instead of checkpointing, deleting and recreating it at every commit.
+    internal IDisposable KeepWal() => OpenWrite();
+
+    private SqliteConnection OpenWrite()
+    {
+        var db = Open(write);
+        try
+        {
+            using var cmd = db.CreateCommand();
+            cmd.CommandText = "PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA journal_mode;";
+            cmd.ExecuteScalar();
+            return db;
+        }
+        catch { db.Dispose(); throw; }
     }
 
     internal Dictionary<string, long> Withdrawals()
@@ -48,7 +73,7 @@ internal sealed class ReleasedBenchStore
 
     internal void Withdraw(string scope, long stamp)
     {
-        using var db = Open(write);
+        using var db = OpenWrite();
         using var cmd = db.CreateCommand();
         cmd.CommandText = """
             INSERT INTO withdrawal VALUES ($scope,$stamp)
@@ -61,7 +86,7 @@ internal sealed class ReleasedBenchStore
 
     internal bool Stage(string slot, Guid? current, Guid generation, IReadOnlyList<byte[]> pages, GrantWitness? grant)
     {
-        using var db = Open(write);
+        using var db = OpenWrite();
         using var tx = db.BeginTransaction();
         using var cmd = db.CreateCommand();
         cmd.Transaction = tx;

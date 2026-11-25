@@ -162,6 +162,7 @@ public sealed class SqliteStore : IStore
         ArgumentNullException.ThrowIfNull(connection);
         ArgumentNullException.ThrowIfNull(next);
         ct.ThrowIfCancellationRequested();
+        WorkspacePublication.Step? step = null;
         try
         {
             await using var db = new SqliteConnection(_connectionString);
@@ -182,6 +183,12 @@ public sealed class SqliteStore : IStore
                 return Result<long>.Fail(ErrorCode.Conflict, "Retained intent must belong to this exact connection binding.");
             var document = Persistence.Serialize(next);
             _ = Persistence.Deserialize(document);
+            var publication = WorkspacePublication.Current;
+            step = publication is null ? null : new WorkspacePublication.Step(Guid.NewGuid(), InstanceId,
+                Persistence.ConnectionText(connection), expectedVersion, WorkspacePublication.Hash(Persistence.Serialize(before)),
+                next.Version, WorkspacePublication.Hash(document));
+            if (step is not null)
+                await publication!.Begin(DatabasePath, step, WorkspacePublication.Footprint(before, next), ct);
             await using var command = db.CreateCommand();
             command.Transaction = transaction;
             command.CommandText = """
@@ -192,9 +199,24 @@ public sealed class SqliteStore : IStore
             command.Parameters.AddWithValue("$version", next.Version);
             command.Parameters.AddWithValue("$document", document);
             await command.ExecuteNonQueryAsync(ct);
+            if (step is not null) WorkspacePublication.Record(transaction, step);
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
+            if (step is not null)
+            {
+                try { await publication!.Committed(step); }
+                catch (Exception error) when (IsStorageFailure(error))
+                {
+                    return Result<long>.Fail(ErrorCode.Indeterminate,
+                        "The Core commit is durable; publication requires original settlement. " + error.Message);
+                }
+            }
             return Result<long>.Ok(next.Version);
+        }
+        catch (Exception ex) when (step is not null && IsStorageFailure(ex))
+        {
+            return Result<long>.Fail(ErrorCode.Indeterminate,
+                "The publication step requires original ledger reconciliation; it was not retried. " + ex.Message);
         }
         catch (SqliteException ex) when (ex.SqliteErrorCode is 5 or 6)
         {

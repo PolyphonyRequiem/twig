@@ -16,7 +16,7 @@ using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class OwnerUpdateProcessTests
+public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper log)
 {
     private sealed class QualificationFact : FactAttribute
     {
@@ -59,7 +59,7 @@ public sealed class OwnerUpdateProcessTests
     public Task ChangedCaptureDuringRescheduledBeginRequiresReviewAndSendsNothing() => RunOwnerScenario(false, casLosses: true, begin: true, editPending: true);
 
     [SupportedOSPlatform("windows")]
-    private static async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
+    private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
         bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false)
     {
         var id = Guid.NewGuid().ToString("D");
@@ -115,11 +115,51 @@ public sealed class OwnerUpdateProcessTests
             await File.WriteAllTextAsync(Path.Combine(root, "current.json"),
                 $$"""{"privateDataDir":{{JsonSerializer.Serialize(home)}}}""");
             var review = Guid.NewGuid().ToString("D");
+            var displayBench = Guid.NewGuid();
+            CoreWorkspaceDocument? projection = null;
+            if (remote == "ado")
+            {
+                var marker = await File.ReadAllBytesAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName));
+                projection = JsonSerializer.Deserialize(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+                var pin = ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, "44");
+                var pinned = await new UserBenchStore(Path.Combine(home, "benches.db")).SaveAsync(new(displayBench, "Unrelated pin",
+                    [new(SelectorKind.Pin, pin, connection: projection.Connection)]), 0);
+                pinned.IsSuccess.ShouldBeTrue();
+            }
             await StartOwner();
             if (concurrent)
             {
                 var (aId, bId, cId) = remote is null ? ("1", "2", "3") : ("42", "43", "44");
                 var title = remote switch { "ado" => "System.Title", "github" => Twig.Providers.GitHub.GitHubProvider.Title, _ => NativeProvider.Title };
+                using var http = new HttpClient(new HttpClientHandler { UseDefaultCredentials = true, UseProxy = false })
+                    { BaseAddress = new($"https://localhost:{port}") };
+                string? displayPath = null;
+                if (projection is not null)
+                {
+                    using var status = JsonDocument.Parse(await http.GetStringAsync("/api/v1/status"));
+                    http.DefaultRequestHeaders.Add("X-Twig-Execution", status.RootElement.GetProperty("executionSession").GetString());
+                    http.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
+                    using var enrolled = await http.PostAsync("/api/v1/windows-enroll", new StringContent(
+                        $$"""{"viewId":null,"profileId":"{{Guid.NewGuid():D}}"}""", System.Text.Encoding.UTF8, "application/json"));
+                    var enrollment = await enrolled.Content.ReadAsStringAsync();
+                    enrolled.IsSuccessStatusCode.ShouldBeTrue(enrollment);
+                    using var pair = JsonDocument.Parse(enrollment);
+                    http.DefaultRequestHeaders.Authorization = new("Bearer", pair.RootElement.GetProperty("contentCapability").GetString());
+                    var view = pair.RootElement.GetProperty("viewId").GetGuid();
+                    displayPath = $"/api/v2/views/{view:D}/benches/{displayBench:D}/partitions/{projection.DatabaseInstance:D}/page";
+                    var staged = await Cli(null, "update", title, "parked-read-witness", "--id", cId, "--local");
+                    staged.Code.ShouldBe(0, staged.Error + staged.Output);
+                    // Grants come from an exact provider read, never from that local edit.
+                    var authorized = await Cli(null, "update", "--find", "--id", cId);
+                    authorized.Output.ShouldContain("NotFound");
+                    var directory = displayPath[..displayPath.LastIndexOf("/partitions/", StringComparison.Ordinal)] + "/partitions";
+                    using var inventory = JsonDocument.Parse(await http.GetStringAsync(directory));
+                    var provider = inventory.RootElement.GetProperty("partitions").EnumerateArray()
+                        .Select(x => x.GetGuid()).Single(id => id != projection.DatabaseInstance);
+                    var fresh = await http.GetStringAsync($"{directory}/{provider:D}/page");
+                    fresh.ShouldContain("\"kind\":\"provider\"");
+                    fresh.ShouldNotContain("parked-read-witness");
+                }
                 var a = Cli(null, "update", title, "A", "--id", aId, "--review", review);
                 var waiting = Stopwatch.StartNew();
                 while (true)
@@ -130,16 +170,46 @@ public sealed class OwnerUpdateProcessTests
                     if (waiting.Elapsed > TimeSpan.FromSeconds(12)) throw new TimeoutException("Original never entered dispatch.");
                     await Task.Delay(50);
                 }
+                if (displayPath is not null)
+                {
+                    var successes = 0;
+                    var timer = Stopwatch.StartNew();
+                    for (var i = 0; i < 100; i++)
+                    {
+                        using var page = await http.GetAsync(displayPath);
+                        var content = await page.Content.ReadAsStringAsync();
+                        if (page.IsSuccessStatusCode)
+                        {
+                            content.ShouldContain("parked-read-witness");
+                            successes++;
+                        }
+                        else
+                        {
+                            using var refused = JsonDocument.Parse(content);
+                            refused.RootElement.GetProperty("code").GetString().ShouldBeOneOf("RefreshRequired", "Busy", "ViewChanged");
+                        }
+                    }
+                    timer.Stop();
+                    log.WriteLine($"100 daemon page reads while ADO response was parked: {successes} content, {100-successes} typed refusals, {timer.ElapsedMilliseconds} ms.");
+                    timer.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(5));
+                    successes.ShouldBeGreaterThan(0);
+                    a.IsCompleted.ShouldBeFalse();
+                }
+                log.WriteLine($"Parked {remote ?? "Twig"} provider after {waiting.ElapsedMilliseconds} ms.");
+                var parked = Stopwatch.StartNew();
                 var b = await Cli(null, "update", title, "B", "--id", bId, "--review", Guid.NewGuid().ToString());
                 b.Code.ShouldBe(0, b.Error + b.Output);
+                log.WriteLine($"Disjoint update settled at {parked.ElapsedMilliseconds} ms.");
                 if (remote is not null) File.Exists(Path.Combine(root, "provider-b")).ShouldBeTrue();
                 var c = await Cli(null, "update", title, "C", "--id", cId, "--local");
                 c.Code.ShouldBe(0, c.Error + c.Output);
+                log.WriteLine($"Local edit settled at {parked.ElapsedMilliseconds} ms.");
                 if (remote is not null)
                 {
                     var note = await Cli(null, "note", "--id", bId, "--text", "disjoint note", "--review", Guid.NewGuid().ToString());
                     note.Code.ShouldBe(0, note.Output + note.Error);
                     Match(note.Output).GetProperty("state").GetString().ShouldBe("Complete");
+                    log.WriteLine($"Disjoint note settled at {parked.ElapsedMilliseconds} ms.");
                 }
                 a.IsCompleted.ShouldBeFalse();
                 var queuedReview = Guid.NewGuid().ToString("D");

@@ -66,7 +66,7 @@ internal static class OriginalUpdateCrash
             var item = (await workspace.ReadAsync(key, default)).Value;
             var plan = (await workspace.PrepareAsync([new(review.ToString("D"), OpKind.Batch, key, item.Revision,
                 FieldValues.Empty.Set(field, FieldValue.String("reviewed update")), concurrency: workspace.Concurrency)], default,
-                retainPolicyEvidence: true)).Value;
+                retainPolicyEvidence: true, binding: new(review, origin.Store, origin.Actor, workspace.OwnerCapture(null)))).Value;
             submission = (await actions.BindUpdateAsync(origin, review, "input", plan, boot, default)).Value.Submission;
             var original = (await actions.OriginalUpdateAsync(origin, review, default)).Value;
             (await actions.MoveUpdateAsync(original, "Claimed", boot, default)).Value.ShouldBeTrue();

@@ -12,6 +12,17 @@ internal sealed partial class CoreWorkspace
         && review.Store == storeInstance && review.Actor == nativeActor
         && review.Capture == OwnerCapture(state.RetainedItems.SingleOrDefault(draft => draft.Key == plan.Operations.Single().Item));
 
+    internal async Task<Result<bool>> OriginalDependenciesAsync(Plan plan, CancellationToken ct)
+    {
+        var policy = await CheckCurrentPolicyAsync(plan, ct);
+        if (!policy.IsSuccess) return policy;
+        var op = plan.Operations.Single();
+        var remote = await ObserveItemsAsync([op.Item], ct);
+        if (!remote.IsSuccess) return Result<bool>.Fail(remote.Error);
+        return remote.Value.Items is [var item] && item.Key == op.Item && item.Revision == op.ExpectedRevision
+            ? Result<bool>.Ok(true) : Result<bool>.Fail(ErrorCode.SchemaChanged, "The reviewed item revision changed.");
+    }
+
     internal async Task<Result<bool>> DeliverOriginalUpdateAsync(UserBenchStore actions, OriginalUpdate original,
         Guid owner, CancellationToken ct)
     {
@@ -46,7 +57,7 @@ internal sealed partial class CoreWorkspace
         if (references.Any(r => r.Attempt != original.Attempt || r.Digest != plan.Digest || r.Operation != 0))
             return Result<string>.Fail(ErrorCode.Indeterminate, "Contradictory original attempt references.");
         var row = read.Value.Journal.SingleOrDefault(r => r.Digest == plan.Digest && r.Operation == 0);
-        if (original.Identity.State == "Claimed")
+        if (original.Identity.State == "Claimed" || original.Identity.State == "Pending" && original.Dispatch is null)
         {
             var absent = await qualified.CheckClosedAsync(plan, original.Attempt, ct);
             if (!absent.IsSuccess || !absent.Value)
@@ -60,7 +71,8 @@ internal sealed partial class CoreWorkspace
                 if (!result.IsSuccess || result.Value.Status != OpStatus.Failed)
                     return Result<string>.Fail(ErrorCode.Indeterminate, "Original closed-barrier proof could not be recorded.");
             }
-            else if (!row.Receipts[^1].Evidence.Any(s => s is "original:Closed" or "authority:RejectedNoEffect"))
+            else if (!row.Receipts[^1].Evidence.Any(s => s is "original:Closed" or "authority:RejectedNoEffect"
+                || s.StartsWith("no-dispatch:", StringComparison.Ordinal)))
                 return Result<string>.Fail(ErrorCode.Indeterminate, "Closed barrier has a contradictory original receipt.");
             return Result<string>.Ok("NotStarted");
         }

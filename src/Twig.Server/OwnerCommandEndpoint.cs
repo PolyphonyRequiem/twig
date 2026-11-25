@@ -7,9 +7,10 @@ using Twig.Rendering;
 namespace Twig.Server;
 
 internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStore benches,
-    IServiceProvider? hostServices = null)
+    IServiceProvider? hostServices = null, CancellationToken stopping = default)
 {
-    private readonly OwnerUpdateCommand updates = new(boot, home, benches, hostServices);
+    private readonly OwnerUpdateCommand updates = new(boot, home, benches, hostServices, stopping);
+    internal Task DrainAsync() => updates.DrainAsync();
     internal static async Task RefuseLegacyAsync(Stream client, CancellationToken token)
     {
         // The pinned client finishes its invocation write before reading. Drain it in fixed

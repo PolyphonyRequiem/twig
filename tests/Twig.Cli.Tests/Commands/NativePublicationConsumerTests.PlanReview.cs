@@ -96,6 +96,11 @@ public sealed partial class NativePublicationConsumerTests
                 (await user.ReadPlanStatusAsync(host.Bench)).Value.Sources, ConfigureHumanEditor, default);
             reviewed.IsSuccess.ShouldBeTrue(reviewed.IsSuccess ? "" : reviewed.Error.Message);
             digests.Add(reviewed.Value.Digest).ShouldBeTrue();
+            using var services = EditorServices(host.Root);
+            using var scoped = (await NativeEditor.OpenAsync(services.GetRequiredService<CoreWorkspaceFactory>(), user,
+                host.Bench, host.Stamp, default)).Value;
+            var unrelated = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "43");
+            (await scoped.Workspace.ReadAsync(unrelated, default)).IsSuccess.ShouldBeTrue();
             (await reviewed.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         }
         HumanPatchAttempts.ShouldBe(2);

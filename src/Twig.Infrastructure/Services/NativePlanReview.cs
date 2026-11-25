@@ -140,10 +140,12 @@ public sealed class NativePlanReview
                         }
                     }
                     Plan? combined = null;
+                    var versions = ordered.Select(capture => handle.Workspace.OwnerCapture(snapshot.Value.RetainedItems.Single(
+                        draft => draft.Key == Parse(capture.IntentJson).Operations.Single().Item))).ToImmutableArray();
                     if (operations.Count != 0)
                     {
                         var binding = new ReviewBinding(reviewRevision, scope.StoreInstance, handle.Source.PrincipalId,
-                            string.Join(';', ordered.Select(capture => $"{capture.Id:D}:{capture.DraftFingerprint}")));
+                            CaptureBinding(ordered, versions));
                         var prepared = await handle.Workspace.PrepareAsync(operations, ct, metadata.Value, binding: binding).ConfigureAwait(false);
                         if (!prepared.IsSuccess) return Result<NativePlanReview>.Fail(prepared.Error);
                         combined = prepared.Value;
@@ -152,12 +154,12 @@ public sealed class NativePlanReview
                     if (!snapshot.IsSuccess) return Result<NativePlanReview>.Fail(snapshot.Error);
                     var unchangedPolicy = await handle.Workspace.RevalidatePlanReviewPolicyAsync(metadata.Value, ct).ConfigureAwait(false);
                     if (!unchangedPolicy.IsSuccess) return Result<NativePlanReview>.Fail(unchangedPolicy.Error);
-                    results.Add(new(scope, snapshot.Value.Version, ordered.ToImmutableArray(), previews.ToImmutable(),
+                    results.Add(new(scope, versions, ordered.ToImmutableArray(), previews.ToImmutable(),
                         combined is null ? null : Bytes(combined)));
                 }
                 if (results.Count == 0)
                     return Result<NativePlanReview>.Fail(ErrorCode.NotFound, "This Plan has no staged intent to review.");
-                var document = new NativePlanReviewDocument(1, reviewRevision, library.Value.InstanceId, library.Value.Revision,
+                var document = new NativePlanReviewDocument(2, reviewRevision, library.Value.InstanceId, library.Value.Revision,
                     benchId, bench.Revision, plan.Value.Id, plan.Value.Revision, results.ToImmutable());
                 return Result<NativePlanReview>.Ok(new(root, user,
                     new(UserBenchStore.PlanReviewDigest(document), document, false, 0, 0), configure)
@@ -310,16 +312,27 @@ public sealed class NativePlanReview
         if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
         var captures = await user.ReadEditorCapturesAsync(ct).ConfigureAwait(false);
         if (!captures.IsSuccess) return Result<bool>.Fail(captures.Error);
-        if (snapshot.Value.Version != scope.StoreVersion || scope.Captures.Any(capture => !captures.Value.Any(current => current.SameAs(capture))))
-            return Result<bool>.Fail(ErrorCode.Conflict, "The exact reviewed Plan draft, capture or store revision changed.");
+        if (scope.CaptureVersions.IsDefault || scope.CaptureVersions.Length != scope.Captures.Length ||
+            scope.Captures.Where((capture, i) => !captures.Value.Any(current => current.SameAs(capture))
+                || !snapshot.Value.RetainedItems.Any(draft => draft.Key == Parse(capture.IntentJson).Operations.Single().Item
+                    && handle.Workspace.OwnerCapture(draft) == scope.CaptureVersions[i])).Any())
+            return Result<bool>.Fail(ErrorCode.Conflict, "The reviewed Plan draft or capture changed.");
         if (scope.Plan is not null)
         {
-            var checkedPlan = await handle.Workspace.CheckPlanAsync(Parse(scope.Plan), ct).ConfigureAwait(false);
+            var plan = Parse(scope.Plan);
+            if (plan.Review is not { } binding || binding.Revision != reference.Document.Id
+                || binding.Store != scope.Scope.StoreInstance || binding.Actor != handle.Source.PrincipalId
+                || binding.Capture != CaptureBinding(scope.Captures, scope.CaptureVersions))
+                return Result<bool>.Fail(ErrorCode.Conflict, "The Plan does not bind this deliberate review and its exact source captures.");
+            var checkedPlan = await handle.Workspace.CheckPlanAsync(plan, ct).ConfigureAwait(false);
             if (!checkedPlan.IsSuccess) return Result<bool>.Fail(checkedPlan.Error);
             if (!checkedPlan.Value.IsEmpty) return Result<bool>.Fail(checkedPlan.Value[0]);
         }
         return Result<bool>.Ok(true);
     }
+
+    private static string CaptureBinding(IEnumerable<NativeEditorCapture> captures, ImmutableArray<string> versions)
+        => string.Join(';', captures.Select((capture, i) => $"{capture.Id:D}:{versions[i]}"));
 
     private async Task<Result<bool>> Deliver(NativePlanReviewScope scope, CoreWorkspace workspace, CoreWorkspaceFactory factory, CancellationToken ct)
     {

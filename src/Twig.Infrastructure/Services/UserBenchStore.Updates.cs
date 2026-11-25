@@ -36,6 +36,7 @@ public sealed partial class UserBenchStore
         => UpdateTransaction(async (command, token) =>
         {
             if (review == Guid.Empty || boot == Guid.Empty || origin.Store == Guid.Empty || string.IsNullOrWhiteSpace(origin.Actor)
+                || !BoundReview(plan, origin, review)
                 || plan.Connection != origin.Connection || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment, ExpectedRevision: not null } op]
                 || !op.Item.BelongsTo(origin.Connection) || op.Item.NativeId != origin.Item || op.ExpectedRevision.Item != op.Item)
                 return Result<UpdateIdentity>.Fail(ErrorCode.InvalidInput, "A reviewed update must bind one exact work item and revision.");
@@ -86,7 +87,7 @@ public sealed partial class UserBenchStore
             if (!await row.ReadAsync(token)) return Result<OriginalUpdate>.Fail(ErrorCode.NotFound, "No original update for this review.");
             using var json = JsonDocument.Parse((byte[])row[6]);
             var plan = CorePlanFiles.Parse(json.RootElement);
-            if (plan.Digest != row.GetString(5) || plan.Connection != origin.Connection
+            if (plan.Digest != row.GetString(5) || plan.Connection != origin.Connection || !BoundReview(plan, origin, review)
                 || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment } op] || op.Item.NativeId != origin.Item)
                 throw new InvalidDataException("Original action no longer binds this exact origin.");
             var identity = Identity(row);
@@ -102,6 +103,9 @@ public sealed partial class UserBenchStore
         }, ct);
 
     internal IOriginalUpdateBarrier Barrier(OriginalUpdate original, Guid boot) => new UpdateBarrier(this, original, boot);
+
+    private static bool BoundReview(Plan plan, UpdateOrigin origin, Guid revision) => plan.Review is { } review
+        && review.Revision == revision && review.Store == origin.Store && review.Actor == origin.Actor;
 
     private sealed class UpdateBarrier(UserBenchStore store, OriginalUpdate original, Guid boot) : IOriginalUpdateBarrier
     {
@@ -131,7 +135,7 @@ public sealed partial class UserBenchStore
         {
             var state = original.Identity.State;
             if ((state, next) is not (("Queued", "Cancelled" or "Claimed" or "ReviewRequired") or ("Claimed", "NotStarted" or "ReviewRequired" or "Pending")
-                or ("Running" or "Pending", "Settling" or "RejectedNoEffect" or "ObservationNeeded" or "Pending")
+                or ("Pending", "Claimed" or "NotStarted") or ("Running" or "Pending", "Settling" or "RejectedNoEffect" or "ObservationNeeded" or "Pending")
                 or ("ObservationNeeded", "Settling" or "RejectedNoEffect" or "Pending") or ("Settling", "Complete" or "Partial" or "DeliveryConflict" or "Pending")))
                 throw new InvalidOperationException("Illegal submission transition.");
             command.Parameters.AddWithValue("$submission", original.Identity.Submission.ToString("D"));
@@ -161,7 +165,7 @@ public sealed partial class UserBenchStore
             command.CommandText = """
                 UPDATE update_actions SET state=$next,owner=$owner WHERE action=$action AND submission=$submission
                 AND attempt=$attempt AND digest=$digest AND state=$state AND owner IS $previous AND
-                ($next<>'Claimed' OR (owner=$owner AND
+                ($next<>'Claimed' OR (owner=$owner AND dispatch IS NULL AND
                     (SELECT count(*) FROM update_actions WHERE owner=$owner AND state IN('Claimed','Running'))<4 AND NOT EXISTS(
                     SELECT 1 FROM update_admission mine JOIN update_claims wanted ON wanted.submission=mine.submission
                     JOIN update_claims conflict ON conflict.resource=wanted.resource AND (conflict.mutation=1 OR wanted.mutation=1)

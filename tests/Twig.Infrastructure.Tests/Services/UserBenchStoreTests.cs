@@ -16,6 +16,24 @@ public sealed class UserBenchStoreTests : IDisposable
     private UserBenchStore Store => new(Path.Combine(directory, "user", "benches.db"));
 
     [Fact]
+    public async Task OriginalIntakeRequiresTheExactDeliberateReviewAndPrivateSource()
+    {
+        var origin = new UpdateOrigin(Guid.NewGuid(), ado, "actor", "42");
+        var review = Guid.NewGuid();
+        var binding = new ReviewBinding(review, origin.Store, origin.Actor, "none");
+        var key = Key(ado, "42");
+        Required(await Store.ReadAsync());
+        foreach (var wrong in new ReviewBinding?[] { null, binding with { Revision = Guid.NewGuid() },
+            binding with { Store = Guid.NewGuid() }, binding with { Actor = "other" } })
+        {
+            var plan = new Plan(ado, "schema", 0, [new("update", OpKind.Batch, key, new(key, "v1"),
+                FieldValues.Empty.Set("title", FieldValue.String("intent")))], review: wrong);
+            (await Store.BindUpdateAsync(origin, review, "input", plan, Guid.NewGuid(), default)).IsSuccess.ShouldBeFalse();
+        }
+        Required(await Store.FindUpdatesAsync(origin, default)).ShouldBeEmpty();
+    }
+
+    [Fact]
     public async Task ConflictingSubmissionsKeepTheirOrderAcrossCredentialsAndMirrorsWhileDisjointWorkPasses()
     {
         var boot = Guid.NewGuid();
@@ -27,7 +45,7 @@ public sealed class UserBenchStoreTests : IDisposable
             var review = Guid.NewGuid();
             var key = Key(connection, item);
             var plan = new Plan(connection, "schema", 0, [new(review.ToString(), OpKind.Batch, key,
-                new(key, "v1"), FieldValues.Empty.Set("title", FieldValue.String("value")))]);
+                new(key, "v1"), FieldValues.Empty.Set("title", FieldValue.String("value")))], review: new(review, origin.Store, origin.Actor, "none"));
             Required(await Store.BindUpdateAsync(origin, review, "input", plan, boot, default));
             return Required(await Store.OriginalUpdateAsync(origin, review, default));
         }
@@ -57,7 +75,7 @@ public sealed class UserBenchStoreTests : IDisposable
             var key = Key(ado, id);
             var origin = new UpdateOrigin(Guid.NewGuid(), ado, "actor", id);
             var plan = new Plan(ado, "schema", 0, [new("update", OpKind.Batch, key, new(key, "v1"),
-                FieldValues.Empty.Set("title", FieldValue.String("changed")))]);
+                FieldValues.Empty.Set("title", FieldValue.String("changed")))], review: new(review, origin.Store, origin.Actor, "none"));
             Required(await Store.BindUpdateAsync(origin, review, "hash", plan, boot, default));
             return Required(await Store.OriginalUpdateAsync(origin, review, default));
         }
@@ -112,8 +130,9 @@ public sealed class UserBenchStoreTests : IDisposable
         var review = Guid.NewGuid();
         var boot = Guid.NewGuid();
         var key = Key(ado, "42");
-        var plan = new Plan(ado, "schema", 1, [new("field", OpKind.Batch, key, new(key, "v1"),
-            FieldValues.Empty.Set("field", FieldValue.String("private")))]);
+        Plan Review(Guid revision) => new(ado, "schema", 1, [new("field", OpKind.Batch, key, new(key, "v1"),
+            FieldValues.Empty.Set("field", FieldValue.String("private")))], review: new(revision, scope.Store, scope.Actor, "none"));
+        var plan = Review(review);
         var store = Store;
         Required(await store.ReadAsync());
         var submitted = await Task.WhenAll(Enumerable.Range(0, 100).Select(_ => Task.Run(async () =>
@@ -122,7 +141,8 @@ public sealed class UserBenchStoreTests : IDisposable
         (await Store.BindUpdateAsync(scope, review, "different", plan, boot, default)).Error.Code.ShouldBe(ErrorCode.Conflict);
         Required(await Store.FindUpdatesAsync(scope with { Actor = "other" }, default)).ShouldBeEmpty();
         Required(await Store.FindUpdatesAsync(scope, default)).Single().ShouldBe(submitted[0]);
-        Required(await Store.BindUpdateAsync(scope, Guid.NewGuid(), "input", plan, boot, default));
+        var other = Guid.NewGuid();
+        Required(await Store.BindUpdateAsync(scope, other, "input", Review(other), boot, default));
         Required(await Store.FindUpdatesAsync(scope, default)).Length.ShouldBe(2);
     }
 

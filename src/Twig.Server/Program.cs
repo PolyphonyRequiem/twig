@@ -205,9 +205,10 @@ await using var app = NativeBenchHost.Build(new(port, data, Certificate: certifi
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
     null, Timeout.Infinite, executeOnlyOnce: true);
 var stopping = app.Lifetime.ApplicationStopping;
+var execution = fixture is null ? null : new OwnerCommandEndpoint(processInstance, data, definitions, app.Services, stopping);
 await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)
     : new CommandListener(Twig.CommandEndpoint.ExecutionPipe(serverId, processInstance),
-        new OwnerCommandEndpoint(processInstance, data, definitions, app.Services).ServeAsync, stopping);
+        execution!.ServeAsync, stopping, workers: 12); // Four in-flight effects must not consume the eight acquisition slots.
 await using var legacy = fixture is null ? null : new CommandListener(Twig.CommandEndpoint.PipeName(data, serverId),
     OwnerCommandEndpoint.RefuseLegacyAsync, stopping);
 await app.StartAsync();
@@ -234,6 +235,11 @@ var shutdown = app.WaitForShutdownAsync();
 if (await Task.WhenAny(shutdown, commands.Completion, legacy?.Completion ?? shutdown) != shutdown)
     app.Lifetime.StopApplication();
 await shutdown;
+if (execution is not null)
+{
+    await commands.Completion;
+    await execution.DrainAsync();
+}
 stopWait.Unregister(null);
 
 static X509Certificate2 LocalCertificate(string thumbprint)

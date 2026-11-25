@@ -15,13 +15,54 @@ internal sealed record UpdateReply(string Status, UpdateIdentity[] Matches, bool
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class UpdateReplyJson : JsonSerializerContext;
 
-internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore actions, IServiceProvider? hostServices = null)
+internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore actions, IServiceProvider? hostServices = null,
+    CancellationToken stopping = default)
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> routines = new();
     private readonly SemaphoreSlim acquisitions = new(8, 8);
+    private readonly SemaphoreSlim localBatches = new(1, 1);
+    private sealed class BatchLease(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
+    private TaskCompletionSource admissionChanged = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, Task<int>> detached = new();
+
+    private void WakeWaiters() => Interlocked.Exchange(ref admissionChanged,
+        new(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+
+    internal Task DrainAsync() => Task.WhenAll(detached.Values);
 
     internal async Task<int> ExecuteAsync(string[] args, string directory, Func<Task<string>> readBody, Func<string,Task> acknowledgeBinding,
         TextWriter output, TextWriter errors, CancellationToken ct)
+    {
+        var yielded = new TaskCompletionSource<UpdateReply>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var stdout = new StringWriter();
+        var stderr = new StringWriter();
+        var run = RunAsync(args, directory, readBody, acknowledgeBinding, stdout, stderr, yielded, ct);
+        if (await Task.WhenAny(run, yielded.Task) == yielded.Task)
+        {
+            var reply = await yielded.Task;
+            var submission = reply.Matches.Single().Submission;
+            detached[submission] = run;
+            _ = FinishAsync();
+            output.WriteLine(JsonSerializer.Serialize(reply, UpdateReplyJson.Default.UpdateReply));
+            return 1;
+
+            async Task FinishAsync()
+            {
+                try { await run; }
+                finally { detached.TryRemove(new KeyValuePair<Guid, Task<int>>(submission, run)); }
+            }
+        }
+        var code = await run;
+        output.Write(stdout.ToString());
+        errors.Write(stderr.ToString());
+        return code;
+    }
+
+    private async Task<int> RunAsync(string[] args, string directory, Func<Task<string>> readBody, Func<string,Task> acknowledgeBinding,
+        TextWriter output, TextWriter errors, TaskCompletionSource<UpdateReply> yielded, CancellationToken ct)
     {
         UpdateIdentity? bound = null;
         var reading = false;
@@ -151,18 +192,33 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             await acknowledgeBinding(JsonSerializer.Serialize(new UpdateReply(bound.State, [bound]), UpdateReplyJson.Default.UpdateReply));
             if (mode == "prepare") return Reply(new(bound.State, [bound]));
             if (mode == "cancel" && bound.State == "Queued")
+            {
                 Require(await actions.MoveUpdateAsync(original, "Cancelled", boot, ct));
-            if (mode != "cancel")
+                WakeWaiters();
+            }
+            if (mode != "cancel" && !(mode == "observe" && bound.State == "Queued"))
             {
                 if (routines.TryAdd(bound.Submission, 0))
                 {
                     try
                     {
                         original = Require(await actions.OriginalUpdateAsync(origin, review, ct));
-                        if (mode == "submit" && original.Identity.State == "Queued"
-                            && Require(await actions.MoveUpdateAsync(original, "Claimed", boot, ct)))
+                        if (mode == "submit" && original.Identity.State == "Queued" && original.Owner == boot)
                         {
+                            ct = stopping;
+                            while (true)
+                            {
+                                var wake = Volatile.Read(ref admissionChanged).Task;
+                                if (Require(await actions.MoveUpdateAsync(original, "Claimed", boot, ct))) break;
+                                original = Require(await actions.OriginalUpdateAsync(origin, review, ct));
+                                if (original.Identity.State != "Queued" || original.Owner != boot)
+                                    return Reply(new(original.Identity.State, [original.Identity]));
+                                yielded.TrySetResult(new("Queued", [original.Identity]));
+                                await wake.WaitAsync(ct);
+                            }
                             original = Require(await actions.OriginalUpdateAsync(origin, review, ct));
+                            if (yielded.Task.IsCompleted)
+                                permitted = Require(await workspace.ObserveItemsAsync([key], ct)).Items.Single(i => i.Key == key);
                             if (!workspace.MatchesReviewCapture(original.Plan, Require(await workspace.SnapshotAsync(ct)))
                                 || original.Plan.Operations[0].ExpectedRevision != permitted.Revision)
                             {
@@ -170,7 +226,31 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                                 return Reply(new("ReviewRequired", [Require(await actions.OriginalUpdateAsync(origin, review, ct)).Identity]));
                             }
                             var barrier = new OwnerBarrier(actions.Barrier(original, boot), workspace, review);
-                            var result = await workspace.ApplyAsync(original.Plan, ct, original: original, barrier: barrier);
+                            var delay = 100;
+                            async Task<IDisposable> ResumeLocal()
+                            {
+                                var row = Require(await actions.OriginalUpdateAsync(origin, review, ct));
+                                if (row.Owner != boot || !Require(await actions.MoveUpdateAsync(row, "Pending", boot, ct)))
+                                    throw new InvalidDataException("The original local continuation is no longer owned.");
+                                row = Require(await actions.OriginalUpdateAsync(origin, review, ct));
+                                yielded.TrySetResult(new("Pending", [row.Identity]));
+                                WakeWaiters();
+                                await Task.Delay(delay, ct);
+                                delay = Math.Min(2000, delay * 2);
+                                if (row.Dispatch is null)
+                                {
+                                    while (true)
+                                    {
+                                        var wake = Volatile.Read(ref admissionChanged).Task;
+                                        if (Require(await actions.MoveUpdateAsync(row, "Claimed", boot, ct))) break;
+                                        await wake.WaitAsync(ct);
+                                    }
+                                }
+                                await localBatches.WaitAsync(ct);
+                                return new BatchLease(localBatches);
+                            }
+                            var result = await LocalCommit.WithContinuationAsync(ResumeLocal, ct,
+                                () => workspace.ApplyAsync(original.Plan, ct, original: original, barrier: barrier));
                             var failure = result.IsSuccess ? result.Value.Error : result.Error;
                             if (failure is not null)
                             {
@@ -181,7 +261,9 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                                     Require(await actions.MoveUpdateAsync(original, "Pending", boot, ct));
                                     return Reply(new("Pending", [Require(await actions.OriginalUpdateAsync(origin, review, ct)).Identity]));
                                 }
-                                if ((failure.Code == ErrorCode.SchemaChanged || barrier.CaptureChanged) && original.Dispatch is null
+                                if (original.Dispatch is null && (failure.Code == ErrorCode.SchemaChanged || barrier.CaptureChanged
+                                    || failure.Code == ErrorCode.Conflict && await workspace.OriginalDependenciesAsync(original.Plan, ct)
+                                        is { IsSuccess: false, Error.Code: ErrorCode.SchemaChanged })
                                     && (await workspace.InspectUpdateAsync(original, ct)) is { IsSuccess: true, Value: "NotStarted" })
                                 {
                                     Require(await actions.MoveUpdateAsync(original, "ReviewRequired", boot, ct));
@@ -193,7 +275,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                         {
                             original = Require(await actions.OriginalUpdateAsync(origin, review, ct));
                             if (original.Identity.State is not ("Claimed" or "Running" or "Settling" or "ObservationNeeded" or "Pending")
-                                || original.Identity.State == "Pending" && original.Dispatch is null) break;
+                                || original.Identity.State == "Pending" && original.Dispatch is null && original.Owner == boot) break;
                             var next = await workspace.InspectUpdateAsync(original, ct);
                             if (!next.IsSuccess)
                             {
@@ -212,7 +294,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                             if (next.Value == original.Identity.State || !Require(await actions.MoveUpdateAsync(original, next.Value, boot, ct))) break;
                         }
                     }
-                    finally { routines.TryRemove(bound.Submission, out _); }
+                    finally { routines.TryRemove(bound.Submission, out _); WakeWaiters(); }
                 }
             }
             bound = Require(await actions.OriginalUpdateAsync(origin, review, ct)).Identity;
@@ -242,12 +324,18 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
         internal bool CaptureChanged { get; private set; }
         public async Task OpenAsync(Plan plan, Guid attempt, OriginalDispatch request, CancellationToken ct)
         {
+            var dependencies = await workspace.OriginalDependenciesAsync(plan, ct);
+            if (!dependencies.IsSuccess)
+            {
+                CaptureChanged = dependencies.Error.Code == ErrorCode.SchemaChanged;
+                throw new IOException(dependencies.Error.Message);
+            }
             using (Twig.Infrastructure.Auth.ConnectionOperationGate.Acquire(workspace.WorktreeRoot, exclusive: true))
             {
                 if (!workspace.MatchesReviewCapture(plan, Require(await workspace.SnapshotAsync(ct))))
                 {
                     CaptureChanged = true;
-                    throw new InvalidDataException("The reviewed local capture changed before dispatch.");
+                    throw new IOException("The reviewed local capture changed before dispatch.");
                 }
                 await inner.OpenAsync(plan, attempt, request, ct);
             }

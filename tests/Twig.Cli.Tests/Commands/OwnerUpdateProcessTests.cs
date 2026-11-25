@@ -46,8 +46,21 @@ public sealed class OwnerUpdateProcessTests
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task ThreeReceiptCasLossesYieldOriginalPendingThenRestartOnlyDelivers() => RunOwnerScenario(false, casLosses: true);
 
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task PendingReceiptSettlesOnTheSameBootWithoutAnotherSend() => RunOwnerScenario(false, casLosses: true, sameBootReceipt: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task ThreeBeginCasLossesResumeOnlyTheLocalReducerOnTheSameBoot() => RunOwnerScenario(false, casLosses: true, begin: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task OwnerChangeNeverResumesTheParkedPreDispatchReducer() => RunOwnerScenario(false, casLosses: true, begin: true, reboot: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task ChangedCaptureDuringRescheduledBeginRequiresReviewAndSendsNothing() => RunOwnerScenario(false, casLosses: true, begin: true, editPending: true);
+
     [SupportedOSPlatform("windows")]
-    private static async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false)
+    private static async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
+        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -129,9 +142,24 @@ public sealed class OwnerUpdateProcessTests
                     Match(note.Output).GetProperty("state").GetString().ShouldBe("Complete");
                 }
                 a.IsCompleted.ShouldBeFalse();
+                var queuedReview = Guid.NewGuid().ToString("D");
+                if (remote is null)
+                {
+                    var queued = await Cli(null, "update", title, "stale", "--id", aId, "--review", queuedReview);
+                    Match(queued.Output).GetProperty("state").GetString().ShouldBe("Queued");
+                }
                 var aResult = await a;
                 aResult.Code.ShouldBe(0, aResult.Error + aResult.Output);
                 waiting.Elapsed.ShouldBeGreaterThanOrEqualTo(TimeSpan.FromSeconds(30));
+                if (remote is null)
+                {
+                    var deadline = Stopwatch.StartNew();
+                    while (!(await Cli(null, "update", "--find", "--id", aId)).Output.Contains("\"ReviewRequired\"", StringComparison.Ordinal))
+                    {
+                        deadline.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(5), "the earlier submission must advance without another submit");
+                        await Task.Delay(50);
+                    }
+                }
                 await Restart();
                 var document = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName)),
                     CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
@@ -157,14 +185,61 @@ public sealed class OwnerUpdateProcessTests
                 row.GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
                 var before = (await handle!.Workspace.SnapshotAsync(default)).Value;
                 before.RetainedItems.Length.ShouldBe(3);
+                if (begin)
+                {
+                    if (reboot)
+                    {
+                        casLosses = false;
+                        await Restart();
+                        var stopped = await Cli(null, "update", "--submit", review, "--id", "1");
+                        Match(stopped.Output).GetProperty("state").GetString().ShouldBe("NotStarted", stopped.Output + stopped.Error);
+                        Match(stopped.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                    }
+                    if (editPending)
+                        (await Cli(null, "update", NativeProvider.Title, "later edit", "--id", "1", "--local")).Code.ShouldBe(0);
+                    await File.WriteAllTextAsync(Path.Combine(root, "continue-local"), "");
+                    var expected = reboot ? "NotStarted" : editPending ? "ReviewRequired" : "Complete";
+                    var watch = Stopwatch.StartNew();
+                    while (!(await Cli(null, "update", "--find", "--id", "1")).Output.Contains($"\"{expected}\"", StringComparison.Ordinal))
+                    {
+                        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(6), "the owner must resume the admitted reducer");
+                        await Task.Delay(50);
+                    }
+                    var completed = (await handle.Workspace.SnapshotAsync(default)).Value;
+                    if (reboot || editPending)
+                    {
+                        var authority = (await handle.Workspace.ObserveItemsAsync([completed.Items.Single().Key], default)).Value.Items.Single();
+                        authority.Fields[NativeProvider.Title].Text.ShouldBe("original");
+                        completed.Journal.Count(j => j.Status == OpStatus.Verified).ShouldBe(1);
+                        if (editPending) completed.RetainedItems.OfType<LocalEdits>().Single().Changes[NativeProvider.Title].Text.ShouldBe("later edit");
+                        return;
+                    }
+                    completed.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
+                    completed.RetainedItems.Length.ShouldBe(3);
+                    completed.Journal.Count(j => j.Status == OpStatus.Verified).ShouldBe(2);
+                    return;
+                }
                 var original = before.Journal.Single(j => j.Status == OpStatus.Applying);
                 var remoteItem = (await handle.Workspace.ObserveItemsAsync([before.Items.Single().Key], default)).Value.Items.Single();
                 remoteItem.Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
                 casLosses = false;
-                await Restart();
-                var resumed = await Cli(null, "update", "--observe", review, "--id", "1");
-                resumed.Code.ShouldBe(0, resumed.Error + resumed.Output);
-                Match(resumed.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                if (sameBootReceipt)
+                {
+                    await File.WriteAllTextAsync(Path.Combine(root, "continue-local"), "");
+                    var watch = Stopwatch.StartNew();
+                    while (!(await Cli(null, "update", "--find", "--id", "1")).Output.Contains("\"Complete\"", StringComparison.Ordinal))
+                    {
+                        watch.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(6));
+                        await Task.Delay(50);
+                    }
+                }
+                else
+                {
+                    await Restart();
+                    var resumed = await Cli(null, "update", "--observe", review, "--id", "1");
+                    resumed.Code.ShouldBe(0, resumed.Error + resumed.Output);
+                    Match(resumed.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
+                }
                 var after = (await handle.Workspace.SnapshotAsync(default)).Value;
                 after.Journal.Single(j => j.Attempt == original.Attempt).Status.ShouldBe(OpStatus.Verified);
                 after.Items.Single().Revision.ShouldBe(remoteItem.Revision);
@@ -306,6 +381,7 @@ public sealed class OwnerUpdateProcessTests
                     start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(OwnerUpdateProcessTests).Assembly.Location;
                     start.Environment["DOTNET_ADDITIONAL_DEPS"] = Path.ChangeExtension(typeof(OwnerUpdateProcessTests).Assembly.Location, ".deps.json");
                     start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? "cas";
+                    if (begin) start.Environment["TWIG_TEST_RACE_BEGIN"] = "1";
                 }
                 return Process.Start(start)!;
             }

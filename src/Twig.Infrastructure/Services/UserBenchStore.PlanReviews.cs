@@ -9,7 +9,7 @@ using Twig.Infrastructure.Persistence;
 
 namespace Twig.Infrastructure.Services;
 
-internal sealed record NativePlanReviewScope(NativePlanScope Scope, long StoreVersion,
+internal sealed record NativePlanReviewScope(NativePlanScope Scope, ImmutableArray<string> CaptureVersions,
     ImmutableArray<NativeEditorCapture> Captures, ImmutableArray<string> Previews, string? Plan);
 internal sealed record NativePlanReviewDocument(int Version, Guid Id, Guid UserInstance, long UserRevision,
     Guid BenchId, long BenchRevision, Guid PlanId, long PlanRevision, ImmutableArray<NativePlanReviewScope> Scopes);
@@ -71,6 +71,9 @@ public sealed partial class UserBenchStore
     {
         try
         {
+            if (document.Version != 2 || document.Id == Guid.Empty || document.Scopes.IsDefaultOrEmpty
+                || document.Scopes.Any(s => s.CaptureVersions.IsDefault || s.Captures.IsDefault || s.CaptureVersions.Length != s.Captures.Length))
+                return Result<NativePlanReviewReference>.Fail(ErrorCode.InvalidInput, "The Plan requires a deliberate review and exact capture versions.");
             using var lease = AcquireAuthoringLease(document.BenchId);
             var library = await ReadAsync(ct).ConfigureAwait(false);
             var plan = await ReadPlanAsync(document.BenchId, ct).ConfigureAwait(false);
@@ -146,7 +149,7 @@ public sealed partial class UserBenchStore
                 return Result<NativePlanReviewReference>.Fail(ErrorCode.NotFound, "The exact whole-Plan attempt was not retained.");
             var document = JsonSerializer.Deserialize(reader.GetString(0), NativePlanReviewJson.Default.NativePlanReviewDocument)
                 ?? throw new JsonException("Missing native review.");
-            if (document.Version != 1 || document.Id == Guid.Empty || PlanReviewDigest(document) != digest
+            if (document.Version != 2 || document.Id == Guid.Empty || PlanReviewDigest(document) != digest
                 || reader.GetInt32(2) > document.Scopes.Length || reader.GetInt32(3) > document.Scopes.Length
                 || reader.GetInt32(3) < reader.GetInt32(2))
                 throw new InvalidDataException("The original review reference is incompatible.");

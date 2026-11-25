@@ -47,7 +47,9 @@ daemon boot remains queued; it cannot start a provider write after restart.
 In that same isolated workspace, `twig update <field> <value> --id <item> --local`
 retains an edit without publishing it. Two reviewed updates to distinct items can
 proceed while a third item is edited locally. Admission orders submitted reviews
-for the same native item across credentials and mirrors. Merely preparing a review
+for the same native item across credentials and mirrors. A blocked submission
+returns `Queued`; the same owner wakes it when capacity or a conflicting claim
+is released. No client resubmission is necessary. Merely preparing a review
 does not reserve the item. If the original effect verifies but the local capture
 has changed, observation returns `DeliveryConflict`; it neither resends the update
 nor discards the later edit.
@@ -55,8 +57,19 @@ nor discards the later edit.
 ADO and GitHub also accept `twig note --id <item> --text <text> --review <uuid>`
 in this fixture. The Twig provider does not implement comments. A review keeps
 its original action and submission identities if it yields `Pending` after
-three local version conflicts. A post-dispatch observation inspects the original
-attempt; it is not a retry of the mutation.
+three local version conflicts. The same daemon reschedules only the local reducer,
+with the original inputs, in batches of up to three CAS attempts. Restart does
+not resume its provider call stack. A closed barrier needs original no-send
+proof; a post-dispatch observation inspects the original attempt, never resending it.
+
+The qualified pipe admits exactly two provider writers: reviewed scalar `update`
+(all three providers) and reviewed `note` (ADO and GitHub). `--prepare`, `--submit`,
+`--observe` and `--cancel` change original action state or settle its receipt;
+`--find` only reads. `update --local` changes the captured draft, and `bench create`
+changes only the Bench catalogue. Neither opens a provider barrier. Qualified
+HTTP routes manage profile, enrollment and view sessions or return read-only
+data; editor, file-plan, seed, and whole-Plan publication are not qualified HTTP
+or pipe routes. The installed command worker is unchanged.
 
 `OwnerUpdateProcessTests` exercises the matched CLI and server with a private
 SQLite Twig authority and deterministic HTTP substitutes for Azure DevOps and

@@ -50,11 +50,19 @@ internal static class StartupHook
 
     private sealed class RaceReceipt(IStore inner) : IStore
     {
+        private int conflicts;
         public Task<Result<StoreSnapshot>> ReadAsync(Connection c, CancellationToken ct) => inner.ReadAsync(c, ct);
         public async Task<Result<long>> CommitAsync(Connection c, long version, StoreSnapshot next, CancellationToken ct)
         {
-            if (next.Journal.Any(row => row.Status == OpStatus.Applied))
+            var begin = Environment.GetEnvironmentVariable("TWIG_TEST_RACE_BEGIN") == "1";
+            if (next.Journal.Any(row => row.Status == (begin ? OpStatus.Applying : OpStatus.Applied)))
             {
+                if (Interlocked.Increment(ref conflicts) > 3)
+                {
+                    var root = Path.GetDirectoryName(Environment.GetEnvironmentVariable("TWIG_USER_HOME")!)!;
+                    while (!File.Exists(Path.Combine(root, "continue-local"))) await Task.Delay(30, ct);
+                    return await inner.CommitAsync(c, version, next, ct);
+                }
                 var current = (await inner.ReadAsync(c, ct)).Value;
                 var seed = new Seed(ItemKey.Local(Guid.NewGuid()), Twig.Providers.Native.NativeProvider.ItemType, FieldValues.Empty);
                 (await inner.CommitAsync(c, current.Version, new(current.Version + 1, current.Items, current.Relationships,

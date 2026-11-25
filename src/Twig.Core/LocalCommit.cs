@@ -2,20 +2,47 @@ namespace Twig.Core;
 
 internal static class LocalCommit
 {
+    // Only the execution owner installs a continuation, scoped to one original call stack.
+    // The delegate can reschedule a local batch, never a provider command or barrier.
+    private sealed record Scheduling(Func<Task<IDisposable>> Resume, CancellationToken Stopping);
+    private static readonly AsyncLocal<Scheduling?> continuation = new();
+
+    internal static async Task<T> WithContinuationAsync<T>(Func<Task<IDisposable>> resume, CancellationToken stopping, Func<Task<T>> run)
+    {
+        var prior = continuation.Value;
+        continuation.Value = new(resume, stopping);
+        try { return await run(); }
+        finally { continuation.Value = prior; }
+    }
+
     // The reducer receives current content on every attempt. It must contain only
     // the local change; provider reads, credentials and dispatch do not belong here.
     internal static async Task<Result<long>> ReduceAsync(IStore store, Connection connection,
         Func<StoreSnapshot, Result<StoreSnapshot>> reduce, CancellationToken ct)
     {
-        for (int attempt = 1; ; attempt++)
+        IDisposable? slot = null;
+        try
         {
-            var current = await store.ReadAsync(connection, ct);
-            if (!current.IsSuccess) return Result<long>.Fail(current.Error);
-            var next = reduce(current.Value);
-            if (!next.IsSuccess) return Result<long>.Fail(next.Error);
-            var result = await store.CommitAsync(connection, current.Value.Version, next.Value, ct);
-            if (result.IsSuccess || !result.Error.StoreVersionChanged || attempt == 3) return result;
+            for (int attempt = 1; ; attempt++)
+            {
+                var current = await store.ReadAsync(connection, ct);
+                if (!current.IsSuccess) return Result<long>.Fail(current.Error);
+                var next = reduce(current.Value);
+                if (!next.IsSuccess) return Result<long>.Fail(next.Error);
+                var result = await store.CommitAsync(connection, current.Value.Version, next.Value, ct);
+                if (result.IsSuccess || !result.Error.StoreVersionChanged) return result;
+                if (attempt == 3)
+                {
+                    if (continuation.Value is not { } scheduling) return result;
+                    slot?.Dispose();
+                    slot = null;
+                    slot = await scheduling.Resume();
+                    ct = scheduling.Stopping;
+                    attempt = 0;
+                }
+            }
         }
+        finally { slot?.Dispose(); }
     }
 
     internal static bool ReviewedScalar(Plan plan) => plan.Review is not null
@@ -32,7 +59,7 @@ internal static class LocalCommit
             if (observed.Revision != op.ExpectedRevision
                 || cached != observed.Revision && cached != captured.Items.SingleOrDefault(i => i.Key == op.Item)?.Revision
                 || !current.Relationships.Where(Incident).ToHashSet().SetEquals(captured.Relationships.Where(Incident)))
-                return Result<StoreSnapshot>.Fail(ErrorCode.Conflict, "The reviewed target or incident relationships changed.");
+                return Result<StoreSnapshot>.Fail(ErrorCode.SchemaChanged, "The reviewed target or incident relationships changed.");
             validate(current);
             var plans = current.Plans;
             var journal = current.Journal;

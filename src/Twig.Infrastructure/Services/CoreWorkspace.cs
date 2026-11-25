@@ -1016,7 +1016,8 @@ internal sealed partial class CoreWorkspace(Connection connection, IProvider pro
     internal async Task<Result<CoreExecution>> ApplyAsync(Plan plan, CancellationToken ct, bool deferSeedDelivery = false,
         OriginalUpdate? original = null, IOriginalUpdateBarrier? barrier = null)
     {
-        if (original is not null && (barrier is null || original.Plan.Digest != plan.Digest
+        if (original is not null && (barrier is null || original.Plan.Digest != plan.Digest || plan.Review is not { } review
+            || review.Revision != original.Identity.Review || review.Store != storeInstance || review.Actor != nativeActor
             || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment }] || provider is not IOriginalUpdateProvider))
             return Result<CoreExecution>.Fail(ErrorCode.Conflict, "Unsupported original update binding.");
         if (plan.Connection != connection)

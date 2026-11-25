@@ -17,6 +17,7 @@ internal sealed partial class CoreWorkspace
         var policy = await CheckCurrentPolicyAsync(plan, ct);
         if (!policy.IsSuccess) return policy;
         var op = plan.Operations.Single();
+        if (op.Kind == OpKind.Create) return policy;
         var remote = await ObserveItemsAsync([op.Item], ct);
         if (!remote.IsSuccess) return Result<bool>.Fail(remote.Error);
         return remote.Value.Items is [var item] && item.Key == op.Item && item.Revision == op.ExpectedRevision
@@ -33,8 +34,14 @@ internal sealed partial class CoreWorkspace
             && row.Digest == original.Plan.Digest && row.Operation == 0);
         if (verified?.Status != OpStatus.Verified)
             return Result<bool>.Fail(ErrorCode.Indeterminate, "Delivery requires the verified original journal row.");
-        return await actions.MoveUpdateAsync(original, MatchesReviewCapture(original.Plan, read.Value)
-            ? "Complete" : "DeliveryConflict", owner, ct);
+        if (!MatchesReviewCapture(original.Plan, read.Value))
+            return await actions.MoveUpdateAsync(original, "DeliveryConflict", owner, ct);
+        if (original.Plan.Operations[0].Kind == OpKind.Create)
+        {
+            var delivered = await DeliverVerifiedSeedAsync(original.Plan, 0, read.Value, ct);
+            if (!delivered.IsSuccess) return Result<bool>.Fail(delivered.Error);
+        }
+        return await actions.MoveUpdateAsync(original, "Complete", owner, ct);
     }
 
     // Called only with the original routine quiescent and the execution owner lease held.
@@ -80,6 +87,12 @@ internal sealed partial class CoreWorkspace
             return Result<string>.Fail(ErrorCode.Indeterminate, "Original operation and attempt could not be correlated.");
         var receipt = await qualified.InspectOriginalAsync(plan, original.Attempt, original.Dispatch, ct);
         if (!receipt.IsSuccess) return Result<string>.Fail(receipt.Error);
+        if (original.Identity.State == "Partial" && row.CanRecheckAcknowledgedCreate && plan.Operations[0].Kind == OpKind.Create)
+        {
+            receipt = await qualified.VerifyOriginalAsync(plan, row.Receipts[0], ct);
+            if (!receipt.IsSuccess) return Result<string>.Fail(receipt.Error);
+            return Result<string>.Ok(receipt.Value.Status == OpStatus.Verified ? "Complete" : "Partial");
+        }
         if (receipt.Value.Status == OpStatus.Applied)
         {
             if (original.Identity.State != "Settling") return Result<string>.Ok("Settling");
@@ -87,7 +100,7 @@ internal sealed partial class CoreWorkspace
             if (!receipt.IsSuccess) return Result<string>.Fail(receipt.Error);
         }
         return Result<string>.Ok(receipt.Value.Status switch {
-            OpStatus.Verified => original.Identity.State == "Settling" ? "Complete" : "Settling",
+            OpStatus.Verified => original.Identity.State is "Settling" or "Partial" ? "Complete" : "Settling",
             OpStatus.Partial => original.Identity.State == "Settling" ? "Partial" : "Settling",
             OpStatus.Failed => "RejectedNoEffect",
             _ => original.Identity.State == "Settling" ? "Settling" : "ObservationNeeded"

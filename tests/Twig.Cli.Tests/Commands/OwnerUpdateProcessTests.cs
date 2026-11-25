@@ -41,6 +41,22 @@ public sealed class OwnerUpdateProcessTests
     public Task DisjointGitHubMutationAndLocalEditSettleBeforeParkedResponse() => RunOwnerScenario(true, remote: "github");
 
     [QualificationFact, SupportedOSPlatform("windows")]
+    public Task AcknowledgedSeedReservesItsNewItemButLetsADisjointUpdateFinishBeforeReadback()
+        => RunOwnerScenario(false, create: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task NativeCreateOwnerExitBeforeMirrorAcknowledgementRecoversTheOriginalAuthorityEffect()
+        => RunOwnerScenario(false, create: true, reboot: true);
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task AdoCreateKeepsItsParentQueuedWhileDisjointWorkCompletesBeforeReadback()
+        => RunOwnerScenario(false, create: true, remote: "ado");
+
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task GitHubCreateIsPublishedOnceThroughTheMatchedDaemon()
+        => RunOwnerScenario(false, create: true, remote: "github");
+
+    [QualificationFact, SupportedOSPlatform("windows")]
     public Task LaterLocalEditAfterDurableAcknowledgementSurvivesRestartAndConflictsWithOriginalDelivery()
         => RunOwnerScenario(false, deliveryConflict: true);
 
@@ -64,7 +80,7 @@ public sealed class OwnerUpdateProcessTests
 
     [SupportedOSPlatform("windows")]
     private static async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
-        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool interruptedPlan = false)
+        bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false, bool interruptedPlan = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -146,6 +162,109 @@ public sealed class OwnerUpdateProcessTests
                 return;
             }
             await StartOwner();
+            if (create && remote is not null)
+            {
+                var document = JsonSerializer.Deserialize(await File.ReadAllTextAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName)),
+                    CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
+                var store = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(document.DatabasePath)).Value;
+                var current = (await store.ReadAsync(document.Connection, default)).Value;
+                var ado = remote == "ado";
+                var title = ado ? "System.Title" : Twig.Providers.GitHub.GitHubProvider.Title;
+                var fields = FieldValues.Empty.Set(title, FieldValue.String("reviewed seed")).Set(
+                    ado ? "System.State" : Twig.Providers.GitHub.GitHubProvider.StateField, FieldValue.String(ado ? "To Do" : "OPEN"));
+                var seed = new Seed(ItemKey.Local(Guid.NewGuid()), ado ? "Fixture.Task" : Twig.Providers.GitHub.GitHubProvider.Untyped, fields,
+                    parent: ado ? ItemKey.Remote(document.Connection.Provider, document.Connection.ResourceScope, "42") : null,
+                    parentRelation: ado ? "Native.ParentForward" : null);
+                (await store.CommitAsync(document.Connection, current.Version, new(current.Version + 1, current.Items, current.Relationships,
+                    current.RetainedItems.Add(seed), current.Plans, current.Journal, current.Mappings, current.Benches), default)).Value.ShouldBe(current.Version + 1);
+                var seedId = seed.Key.LocalId.ToString("D");
+                var submit = Cli(null, "seed", "publish", "--local-id", seedId, "--review", review);
+                if (ado)
+                {
+                    var timer = Stopwatch.StartNew();
+                    while (!File.Exists(Path.Combine(root, "parked-remote-readback")))
+                    {
+                        if (submit.IsCompleted) throw new InvalidOperationException("ADO did not reach readback: " + await submit);
+                        timer.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(20));
+                        await Task.Delay(50);
+                    }
+                    var parent = await Cli(null, "update", title, "parent", "--id", "42", "--review", Guid.NewGuid().ToString());
+                    Match(parent.Output).GetProperty("state").GetString().ShouldBe("Queued");
+                    var unrelated = await Cli(null, "update", title, "disjoint", "--id", "43", "--review", Guid.NewGuid().ToString());
+                    unrelated.Code.ShouldBe(0, unrelated.Error + unrelated.Output);
+                    await File.WriteAllTextAsync(Path.Combine(root, "release-remote-readback"), "");
+                }
+                var published = await submit;
+                published.Code.ShouldBe(0, published.Output + published.Error);
+                var final = (await store.ReadAsync(document.Connection, default)).Value;
+                final.VerifiedSeedTarget(document.Connection, seed.Key)!.NativeId.ShouldBe(ado ? "45" : "I_opaque");
+                await Restart();
+                var duplicate = await Cli(null, "seed", "publish", "--local-id", seedId, "--review", review);
+                Match(duplicate.Output).GetProperty("submission").GetGuid().ShouldBe(Match(published.Output).GetProperty("submission").GetGuid());
+                File.ReadAllLines(Path.Combine(root, "remote-creates")).Length.ShouldBe(1);
+                return;
+            }
+            if (create)
+            {
+                var seed = (await handle!.Workspace.StageSeedAsync(NativeProvider.ItemType, FieldValues.Empty
+                    .Set(NativeProvider.Title, FieldValue.String("reviewed seed")).Set(NativeProvider.StateField, FieldValue.String("Open")), default)).Value;
+                var seedId = seed.Key.LocalId.ToString("D");
+                var publication = Cli(null, "seed", "publish", "--local-id", seedId, "--review", review);
+                var timer = Stopwatch.StartNew();
+                async Task Parked(string phase)
+                {
+                    while (!File.Exists(Path.Combine(root, "parked-" + phase)))
+                    {
+                        if (publication.IsCompleted) throw new InvalidOperationException("Create did not park: " + await publication);
+                        timer.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(25));
+                        await Task.Delay(50);
+                    }
+                }
+                await Parked("receipt");
+                if (reboot)
+                {
+                    var first = Match((await Cli(null, "seed", "--find", "--local-id", seedId)).Output);
+                    owner!.Kill(true);
+                    await owner.WaitForExitAsync();
+                    owner.Dispose();
+                    owner = null;
+                    (await publication).Code.ShouldNotBe(0);
+                    await File.WriteAllTextAsync(Path.Combine(root, "release-receipt"), "");
+                    await File.WriteAllTextAsync(Path.Combine(root, "release-readback"), "");
+                    await StartOwner();
+                    var waitingForProof = await Cli(null, "update", NativeProvider.Title, "blocked after restart", "--id", "1", "--review", Guid.NewGuid().ToString());
+                    Match(waitingForProof.Output).GetProperty("state").GetString().ShouldBe("Queued");
+                    var observedCreate = await Cli(null, "seed", "--observe", review, "--local-id", seedId);
+                    observedCreate.Code.ShouldBe(0, observedCreate.Output + observedCreate.Error);
+                    Match(observedCreate.Output).GetProperty("submission").GetGuid().ShouldBe(first.GetProperty("submission").GetGuid());
+                    var originalCreate = (await handle.Workspace.SnapshotAsync(default)).Value;
+                    originalCreate.VerifiedSeedTarget(handle.Workspace.Connection, seed.Key)!.NativeId.ShouldBe("2");
+                    originalCreate.Plans.SelectMany(p => p.Operations).Count(op => op.Item == seed.Key).ShouldBe(1);
+                    return;
+                }
+                var waiting = await Cli(null, "update", NativeProvider.Title, "disjoint", "--id", "1", "--review", Guid.NewGuid().ToString());
+                Match(waiting.Output).GetProperty("state").GetString().ShouldBe("Queued");
+                await File.WriteAllTextAsync(Path.Combine(root, "release-receipt"), "");
+                await Parked("readback");
+                var before = (await handle.Workspace.SnapshotAsync(default)).Value;
+                before.Mappings.Single(m => m.Local == seed.Key).Remote.NativeId.ShouldBe("2");
+                before.VerifiedSeedTarget(handle.Workspace.Connection, seed.Key).ShouldBeNull();
+                (await handle.Workspace.ResolveTargetAsync(CoreHostContext.LocalAlias(seed.Key), false, default)).Value.ShouldBe(seed.Key);
+                while (!(await Cli(null, "update", "--find", "--id", "1")).Output.Contains("\"Complete\"", StringComparison.Ordinal))
+                    timer.Elapsed.ShouldBeLessThan(TimeSpan.FromSeconds(25));
+                var blocked = await Cli(null, "update", NativeProvider.Title, "same item", "--id", "2", "--review", Guid.NewGuid().ToString());
+                Match(blocked.Output).GetProperty("state").GetString().ShouldBe("Queued");
+                publication.IsCompleted.ShouldBeFalse();
+                await File.WriteAllTextAsync(Path.Combine(root, "release-readback"), "");
+                var published = await publication;
+                published.Code.ShouldBe(0, published.Error + published.Output);
+                await Restart();
+                var recovered = await Cli(null, "seed", "--observe", review, "--local-id", seedId);
+                Match(recovered.Output).GetProperty("submission").GetGuid().ShouldBe(Match(published.Output).GetProperty("submission").GetGuid());
+                var final = (await handle.Workspace.SnapshotAsync(default)).Value;
+                final.VerifiedSeedTarget(handle.Workspace.Connection, seed.Key)!.NativeId.ShouldBe("2");
+                return;
+            }
             if (concurrent)
             {
                 var (aId, bId, cId) = remote is null ? ("1", "2", "3") : ("42", "43", "44");
@@ -435,11 +554,12 @@ public sealed class OwnerUpdateProcessTests
                 start.Environment["TWIG_SERVER_INSTALL_ROOT"] = root;
                 start.Environment["TWIG_OWNER_FIXTURE_ID"] = id;
                 if (concurrent && exe == server && remote is null) start.Environment["TWIG_TEST_PARK_ORIGINAL_REVIEW"] = review;
-                if ((remote is not null || casLosses) && exe == server)
+                if ((remote is not null || casLosses || create) && exe == server)
                 {
                     start.Environment["DOTNET_STARTUP_HOOKS"] = typeof(OwnerUpdateProcessTests).Assembly.Location;
                     start.Environment["DOTNET_ADDITIONAL_DEPS"] = Path.ChangeExtension(typeof(OwnerUpdateProcessTests).Assembly.Location, ".deps.json");
-                    start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? "cas";
+                    start.Environment["TWIG_TEST_REMOTE_PROVIDER"] = remote ?? (create ? "create" : "cas");
+                    if (remote is not null && create) start.Environment["TWIG_TEST_REMOTE_CREATE"] = "1";
                     if (begin) start.Environment["TWIG_TEST_RACE_BEGIN"] = "1";
                 }
                 return Process.Start(start)!;

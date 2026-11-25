@@ -316,7 +316,7 @@ internal static class NativeCoreExecution
 
     private static string Key(ItemKey key) => key.IsLocal ? "uuid:" + key.LocalId.ToString("D")
         : JsonSerializer.Serialize(new[] { key.Provider!.Value, key.ResourceScope!, key.NativeId! }, NativeCoreExecutionJson.Default.StringArray);
-    private static string Destination(Connection connection) => "destination:" + JsonSerializer.Serialize(
+    internal static string Destination(Connection connection) => "destination:" + JsonSerializer.Serialize(
         new[] { connection.Provider.Value, connection.ResourceScope, connection.Destination }, NativeCoreExecutionJson.Default.StringArray);
 
     internal static async Task<Result<StoreSnapshot>> Snapshot(NativeCoreStoreReference source, CancellationToken ct)

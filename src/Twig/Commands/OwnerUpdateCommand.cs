@@ -86,11 +86,18 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             Guid? predecessorReview = null;
             string? field = null, value = null;
             var comment = false;
+            var create = false;
             switch (args)
             {
                 case ["update", "--re-review", var predecessor, "--review", var successor, "--id", var id]:
                     item = id; predecessorReview = Guid.ParseExact(predecessor, "D"); review = Guid.ParseExact(successor, "D");
                     mode = "prepare"; break;
+                case ["seed", "publish", "--local-id", var id, "--review", var rev, .. var tail] when tail is [] or ["--prepare"]:
+                    create = true; item = id; review = Guid.ParseExact(rev, "D"); mode = tail.Length == 0 ? "submit" : "prepare"; break;
+                case ["seed", "--find", "--local-id", var id]:
+                    create = true; item = id; mode = "find"; break;
+                case ["seed", var op, var rev, "--local-id", var id] when op is "--submit" or "--observe" or "--cancel":
+                    create = true; item = id; mode = op[2..]; review = Guid.ParseExact(rev, "D"); break;
                 case ["update", "--find", "--id", var id]: item = id; mode = "find"; break;
                 case ["note", "--id", var id, "--text", var text, "--review", var rev, .. var tail] when tail is [] or ["--prepare"]:
                     item = id; value = text; comment = true; review = Guid.ParseExact(rev, "D"); mode = tail.Length == 0 ? "submit" : "prepare"; break;
@@ -137,13 +144,21 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             var workspace = handle.Workspace;
             if (guard is not null && (handle.Source != guard.Source || !guard.Authorized()))
                 throw new InvalidDataException("The authorized Canvas origin changed.");
-            if (!int.TryParse(item, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var locator)
-                || locator <= 0) throw new InvalidDataException("Use a positive provider item number.");
-            var key = Require(await workspace.ResolveTargetAsync(locator, true, ct));
-            var authorized = Require(await workspace.ObserveItemsAsync([key], ct));
-            if (authorized.Items is not [var permitted] || permitted.Key != key)
-                throw new InvalidDataException("The selected actor could not observe the exact item.");
-            var origin = new UpdateOrigin(handle.Source.StoreInstance, workspace.Connection, handle.Source.PrincipalId, key.NativeId!);
+            ItemKey key;
+            WorkItem? permitted = null;
+            if (create) key = ItemKey.Local(Guid.ParseExact(item, "D"));
+            else
+            {
+                if (!int.TryParse(item, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var locator)
+                    || locator <= 0) throw new InvalidDataException("Use a positive provider item number.");
+                key = Require(await workspace.ResolveTargetAsync(locator, true, ct));
+                var authorized = Require(await workspace.ObserveItemsAsync([key], ct));
+                if (authorized.Items is not [var observed] || observed.Key != key)
+                    throw new InvalidDataException("The selected actor could not observe the exact item.");
+                permitted = observed;
+            }
+            var origin = new UpdateOrigin(handle.Source.StoreInstance, workspace.Connection, handle.Source.PrincipalId,
+                create ? key.LocalId.ToString("D") : key.NativeId!, IsSeed: create);
             OriginalUpdate? replaced = null;
             if (predecessorReview is { } previous)
             {
@@ -181,7 +196,32 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                     [.. found], found.Length > 1));
             }
 
-            if (comment || field is not null)
+            if (create && args is ["seed", "publish", ..])
+            {
+                var prior = await actions.OriginalUpdateAsync(origin, review, ct);
+                if (!prior.IsSuccess)
+                {
+                    if (prior.Error.Code != ErrorCode.NotFound) throw new InvalidDataException(prior.Error.Message);
+                    var state = Require(await workspace.SnapshotAsync(ct));
+                    if (state.RetainedItems.SingleOrDefault(d => d.Key == key) is not Seed seed)
+                        throw new InvalidDataException("The reviewed seed is unavailable.");
+                    var capture = workspace.OwnerCapture(seed);
+                    foreach (var endpoint in seed.Links.Select(link => link.Other)
+                        .Concat(seed.Parent is null ? [] : new[] { seed.Parent }).Distinct())
+                    {
+                        var published = state.ResolveVerified(endpoint);
+                        if (published.IsLocal) throw new InvalidDataException("A creation endpoint has no verified native identity.");
+                        Require(await workspace.ReadAsync(published, ct, skipUnchanged: true));
+                    }
+                    var op = new Op(review.ToString("D"), OpKind.Create, seed.Key, fields: seed.Fields, type: seed.Type,
+                        other: seed.Parent, relation: seed.ParentRelation, resource: seed.Resource,
+                        concurrency: ConcurrencyMode.ObservedNonAtomic, links: seed.Links);
+                    var plan = Require(await workspace.PrepareAsync([op], ct, retainPolicyEvidence: true,
+                        binding: new(review, origin.Store, origin.Actor, capture)));
+                    bound = Require(await actions.BindUpdateAsync(origin, review, capture, plan, boot, ct));
+                }
+            }
+            else if (comment || field is not null)
             {
                 if (value == "--stdin") value = await readBody();
                 var hash = Convert.ToHexStringLower(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
@@ -265,10 +305,10 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                                 await wake.WaitAsync(ct);
                             }
                             original = Require(await actions.OriginalUpdateAsync(origin, review, ct));
-                            if (yielded.Task.IsCompleted)
+                            if (yielded.Task.IsCompleted && !create)
                                 permitted = Require(await workspace.ObserveItemsAsync([key], ct)).Items.Single(i => i.Key == key);
                             if (!workspace.MatchesReviewCapture(original.Plan, Require(await workspace.SnapshotAsync(ct)))
-                                || original.Plan.Operations[0].ExpectedRevision != permitted.Revision)
+                                || original.Plan.Operations[0].ExpectedRevision != permitted?.Revision)
                             {
                                 Require(await actions.MoveUpdateAsync(original, "ReviewRequired", boot, ct));
                                 return Reply(new("ReviewRequired", [Require(await actions.OriginalUpdateAsync(origin, review, ct)).Identity]));
@@ -322,7 +362,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                         for (var i = 0; i < 2; i++)
                         {
                             original = Require(await actions.OriginalUpdateAsync(origin, review, ct));
-                            if (original.Identity.State is not ("Claimed" or "Running" or "Settling" or "ObservationNeeded" or "Pending")
+                            if (!(original.Identity.State is "Claimed" or "Running" or "Settling" or "ObservationNeeded" or "Pending"
+                                || create && original.Identity.State == "Partial")
                                 || original.Identity.State == "Pending" && original.Dispatch is null && original.Owner == boot) break;
                             var next = await workspace.InspectUpdateAsync(original, ct);
                             if (!next.IsSuccess)
@@ -339,7 +380,18 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                                 Require(await workspace.DeliverOriginalUpdateAsync(actions, original, boot, ct));
                                 break;
                             }
-                            if (next.Value == original.Identity.State || !Require(await actions.MoveUpdateAsync(original, next.Value, boot, ct))) break;
+                            if (next.Value == original.Identity.State) break;
+                            if (create && next.Value == "Settling")
+                            {
+                                var snapshot = Require(await workspace.SnapshotAsync(ct));
+                                var mapping = snapshot.Mappings.Single(m => m.PlanDigest == original.Plan.Digest && m.Operation == 0 && m.Local == key);
+                                var op = original.Plan.Operations[0];
+                                var endpoints = op.Links.Select(l => l.Other).Concat(op.Other is null ? [] : new[] { op.Other })
+                                    .Select(k => snapshot.VerifiedSeedTarget(workspace.Connection, k) ?? k);
+                                if (!Require(await actions.MoveUpdateAsync(original, "Settling", boot, ct, mapping.Remote, endpoints))) break;
+                                WakeWaiters();
+                            }
+                            else if (!Require(await actions.MoveUpdateAsync(original, next.Value, boot, ct))) break;
                         }
                     }
                     finally { routines.TryRemove(bound.Submission, out _); WakeWaiters(); }
@@ -370,6 +422,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
     private sealed class OwnerBarrier(IOriginalUpdateBarrier inner, CoreWorkspace workspace, Guid review) : IOriginalUpdateBarrier
     {
         internal bool CaptureChanged { get; private set; }
+        public Task WitnessCreateAsync(Plan plan, Guid attempt, OriginalResponse response, CancellationToken ct)
+            => inner.WitnessCreateAsync(plan, attempt, response, ct);
         public async Task OpenAsync(Plan plan, Guid attempt, OriginalDispatch request, CancellationToken ct)
         {
             var dependencies = await workspace.OriginalDependenciesAsync(plan, ct);

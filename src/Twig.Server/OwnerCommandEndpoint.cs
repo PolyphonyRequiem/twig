@@ -70,7 +70,7 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
         var result = request.Arguments switch
         {
             ["plan", ..] => await OwnerPlanCommand.ExecuteAsync(home, benches, request.Directory, request.Arguments, output, errors, token),
-            ["update" or "note", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
+            ["update" or "note" or "seed", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>
             {
                 await CommandProtocol.WriteAsync(client, FrameKind.ReadBody, "", token);
                 var input = await CommandProtocol.ReadAsync(client, token);

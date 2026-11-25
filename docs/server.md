@@ -95,21 +95,30 @@ interrupted local relationship's edge and Applied outcome are one SQLite commit:
 recovery verifies the committed edge or records that the original transaction
 did not commit. No remote acknowledgement is inferred.
 
-The qualified pipe admits exactly two provider writers: reviewed scalar `update`
-(all three providers) and reviewed `note` (ADO and GitHub). `--prepare`, `--submit`,
+The qualified pipe admits reviewed scalar `update`, `seed publish` (all three
+providers), and `note` (ADO and GitHub). For a retained seed, use
+`twig seed publish --local-id <permanent-uuid> --review <uuid> [--prepare]`.
+`twig seed --observe <review> --local-id <permanent-uuid>` inspects the original
+attempt; `--find --local-id <permanent-uuid>` finds its submissions. Until an
+original create acknowledgement is attributable, the owner protects the whole
+destination. It then reserves the new item, seed, and creation endpoints before
+readback and wakes disjoint work. A reservation is not a published alias. A
+mismatch stays Partial and can be rechecked without sending another create.
+`--prepare`, `--submit`,
 `--observe` and `--cancel` change original action state or settle its receipt;
 `--find` only reads. `update --local` changes the captured draft, and `bench create`
 changes only the Bench catalogue. Neither opens a provider barrier. Qualified
 HTTP routes manage profile, enrollment and view sessions or return read-only
-data; editor, file-plan, seed, and whole-Plan publication are not qualified HTTP
-or pipe routes. The installed command worker is unchanged.
+data; editor, file-plan, and whole-Plan publication are not qualified HTTP
+or pipe routes. Seed publication is pipe-only. The installed command worker is unchanged.
 
 `OwnerUpdateProcessTests` exercises the matched CLI and server with a private
 SQLite Twig authority and deterministic HTTP substitutes for Azure DevOps and
-GitHub. Each case parks A for 30 seconds and requires B and the local edit to
+GitHub. The update contention cases park A for 30 seconds and require B and the local edit to
 finish before A returns. The remote-provider cases also verify a comment on B
-before A returns. These cases do not qualify creates, installed command routes,
-or live provider availability.
+before A returns. Separate create cases exercise the destination fence, identity
+reservation, creation-bound parent, and restart. These cases do not qualify
+installed command routes or live provider availability.
 
 If the reply is lost, `twig update --find --id <item>` returns only original
 identities and states visible to the current actor, not field values. Multiple

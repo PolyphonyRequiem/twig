@@ -5,10 +5,16 @@ namespace Twig.Core;
 internal interface IOriginalUpdateBarrier
 {
     Task OpenAsync(Plan plan, Guid attempt, OriginalDispatch request, CancellationToken ct);
+    Task WitnessCreateAsync(Plan plan, Guid attempt, OriginalResponse response, CancellationToken ct);
 }
 
-internal sealed record OriginalDispatch(string Method, string Target, string PayloadHash, string Actor, string Context);
-internal sealed record OriginalResponse(int Status, string Body);
+internal sealed record OriginalDispatch(string Method, string Target, string PayloadHash, string Actor, string Context,
+    string? ResponseHash = null);
+internal sealed record OriginalResponse(int Status, string Body)
+{
+    internal string Fingerprint() => Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
+        System.Text.Encoding.UTF8.GetBytes(FormattableString.Invariant($"{Status}\n{Body}"))));
+}
 
 internal interface IOriginalResponseSource
 {

@@ -190,11 +190,11 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     json.RootElement.GetProperty("units")[0].GetProperty("state").GetString().ShouldBe(state, reply.Output);
                     if (admittedPlan && verb == "continue")
                     {
-                        var settled = (await scopeStore.ReadAsync(scope.Source.Connection, default)).Value;
-                        settled.RetainedItems.ShouldBeEmpty();
-                        settled.Journal.ShouldBeEmpty();
-                        if (settledVersion is not null) settled.Version.ShouldBe(settledVersion.Value);
-                        settledVersion = settled.Version;
+                        var deliveredScope = (await scopeStore.ReadAsync(scope.Source.Connection, default)).Value;
+                        deliveredScope.RetainedItems.ShouldBeEmpty();
+                        deliveredScope.Journal.ShouldBeEmpty();
+                        if (settledVersion is not null) deliveredScope.Version.ShouldBe(settledVersion.Value);
+                        settledVersion = deliveredScope.Version;
                         await Restart();
                     }
                 }

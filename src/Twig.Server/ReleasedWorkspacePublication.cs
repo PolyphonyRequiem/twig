@@ -14,7 +14,8 @@ internal sealed partial class ReleasedBenchDisplay : IOwnerBenchPublication
     private readonly Dictionary<Guid, (long Version, string Hash)> heads;
     internal Func<string, long, Task>? StepBoundary { get; set; }
 
-    private bool Dirty(DisplayPartition scope) => pending.Values.Any(d => d.Benches.Contains(scope.Bench));
+    private bool Dirty(DisplayPartition scope) => pending.Values.Any(d => d.Benches.Contains(scope.Bench))
+        || planPending.Values.Any(p => p.User == scope.Store && p.Bench == scope.Bench);
 
     internal void RecoverWorkspace(string path)
     {

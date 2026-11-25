@@ -30,7 +30,8 @@ public sealed partial class UserBenchStore
 {
     private const int EditorCaptureDocumentBytes = 2 * 1024 * 1024;
 
-    internal async Task<Result<NativeEditorCapture>> SaveEditorCaptureAsync(NativeEditorCapture capture, long expectedRevision, CancellationToken ct)
+    internal async Task<Result<NativeEditorCapture>> SaveEditorCaptureAsync(NativeEditorCapture capture, long expectedRevision, CancellationToken ct,
+        ConvergedDelivery? delivery = null)
     {
         try
         {
@@ -39,7 +40,8 @@ public sealed partial class UserBenchStore
                 return Result<NativeEditorCapture>.Fail(ErrorCode.InvalidInput, "The serialized native editor capture exceeds its 2 MiB UTF-8 document bound.");
             using var namespaceLease = AcquireCaptureLease();
             using var lease = AcquireAuthoringLease(capture.BenchId);
-            var generation = await CaptureGeneration(ct).ConfigureAwait(false);
+            var reserved = delivery is null ? null : await PendingDeliveryReservation(delivery, capture, document, ct).ConfigureAwait(false);
+            var generation = reserved is null ? await CaptureGeneration(ct).ConfigureAwait(false) : null;
             await using var db = await Open(ct).ConfigureAwait(false);
             using var tx = db.BeginTransaction(deferred: false);
             var library = await Read(db, tx, ct).ConfigureAwait(false);
@@ -96,6 +98,8 @@ public sealed partial class UserBenchStore
                 return Result<NativeEditorCapture>.Fail(ErrorCode.Conflict, "The durable editor draft version changed; no capture was overwritten.");
             command.CommandText = "SELECT document FROM editor_captures WHERE id=$id;";
             var previousText = await command.ExecuteScalarAsync(ct).ConfigureAwait(false) as string ?? "";
+            if (delivery is not null)
+                await RecordDelivery(db, tx, delivery, previousText, document, bench.Value.Bench, ct).ConfigureAwait(false);
             if (previousText.Length != 0)
             {
                 var previous = JsonSerializer.Deserialize(previousText, NativeEditorJson.Default.NativeEditorCapture)
@@ -125,13 +129,23 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$item", CleanCoreAdoAccess.ItemText(plan.Operations[0].Item));
             command.Parameters.AddWithValue("$revision", capture.Revision);
             command.Parameters.AddWithValue("$document", document);
-            var reference = await ReserveCapture(capture, document, previousText, generation, ct).ConfigureAwait(false);
+            var reference = reserved ?? await ReserveCapture(capture, document, previousText, generation!, ct, delivery?.Step).ConfigureAwait(false);
+            if (delivery?.Boundary is { } reservedCut) await reservedCut("plan-reserved");
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             await RecordCaptureHistory(db, tx, reference, document, previousText, ct).ConfigureAwait(false);
+            if (delivery is not null)
+            {
+                command.CommandText = "UPDATE plan_delivery_ledger SET generation=$generation,head=$head WHERE step=$step";
+                command.Parameters.AddWithValue("$generation", reference.Generation);
+                command.Parameters.AddWithValue("$head", reference.Head);
+                command.Parameters.AddWithValue("$step", delivery.Step.ToString("D"));
+                if (await command.ExecuteNonQueryAsync(ct) != 1) throw new InvalidDataException("Missing original definitions step.");
+            }
             command.CommandText = "UPDATE editor_capture_meta SET digest=$digest WHERE id=1;";
             command.Parameters.AddWithValue("$digest", await CaptureDigest(db, tx, ct).ConfigureAwait(false));
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
             tx.Commit();
+            if (delivery?.Boundary is { } committedCut) await committedCut("plan-receipt");
             using var registry = new Twig.Infrastructure.Persistence.SqliteSystemWorktreeRegistry(captureRegistry!, TimeProvider.System);
             var confirmed = await registry.MarkCaptureAsync(reference.User, reference.Generation, reference.Head, false, null, ct).ConfigureAwait(false);
             if (!confirmed.IsSuccess) return Result<NativeEditorCapture>.Fail(confirmed.Error);

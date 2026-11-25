@@ -206,7 +206,12 @@ var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.
     null, Timeout.Infinite, executeOnlyOnce: true);
 var stopping = app.Lifetime.ApplicationStopping;
 if (fixture is not null)
-    app.Services.GetRequiredService<ReleasedBenchDisplay>().RecoverWorkspace(Path.Combine(fixture.Root, "work", ".twig", "core.db"));
+{
+    var display = app.Services.GetRequiredService<ReleasedBenchDisplay>();
+    var root = Path.Combine(fixture.Root, "work");
+    display.RecoverWorkspace(Path.Combine(root, ".twig", "core.db"));
+    await display.RecoverPlans(root, definitions, stopping);
+}
 var execution = fixture is null ? null : app.Services.GetRequiredService<OwnerCommandEndpoint>();
 await using var commands = fixture is null ? new CommandListener(data, serverId, stopping)
     : new CommandListener(Twig.CommandEndpoint.ExecutionPipe(serverId, processInstance),

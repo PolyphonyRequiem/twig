@@ -50,6 +50,13 @@ public sealed class ReleasedBenchHttpTests
             var edit = new LocalEdits(key, baseline.Type, baseline, FieldValues.Empty.Set("mine", FieldValue.String("owned edit")));
             Assert.Throws<InvalidDataException>(() => display.PublishLocal(scope, From(origin with { StoreInstance = Guid.NewGuid() }, edit), [key]));
             display.PublishLocal(scope, From(origin, edit), [key]);
+            using var subscription = await client.GetAsync($"/api/v2/views/{owner.ViewId:D}/authorization",
+                HttpCompletionOption.ResponseHeadersRead);
+            subscription.EnsureSuccessStatusCode();
+            using var events = new StreamReader(await subscription.Content.ReadAsStreamAsync());
+            Assert.Equal("event: ready", await events.ReadLineAsync());
+            Assert.StartsWith("data: ", await events.ReadLineAsync());
+            Assert.Equal("", await events.ReadLineAsync());
             var definitionsPath = Path.Combine(root.FullName, "benches.db");
             File.Move(definitionsPath, definitionsPath + ".held");
             var page = await client.GetStringAsync(path);
@@ -74,6 +81,8 @@ public sealed class ReleasedBenchHttpTests
             Assert.Contains("ViewChanged", await stale.Content.ReadAsStringAsync());
             client.DefaultRequestHeaders.Remove("X-Twig-Cursor");
             display.Withhold(scope);
+            using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            Assert.Equal("event: changed", await events.ReadLineAsync(deadline.Token));
             using var detached = await client.GetAsync(path);
             Assert.Equal(HttpStatusCode.Conflict, detached.StatusCode);
             Assert.DoesNotContain("local type", await detached.Content.ReadAsStringAsync());

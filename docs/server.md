@@ -37,6 +37,22 @@ the owner to demonstrate a shared store; unqualified CLI routes never fall back
 to an executable worker. This does **not** activate a release, fence a live old
 installation, or qualify an installer for cold cutover.
 
+The matched Canvas subscribes to `GET /api/v2/views/{view}/authorization` before
+rendering released partitions. Ready and subsequent cursor changes are registered
+under the same release guard as page handoff. An expired grant, denial, stream gap
+or disconnect retires the browser buffer. The browser does not persist item text.
+
+Within `benches/{bench}/partitions/{partition}` on that v2 view, a scalar `PUT input`
+requires the exact item, field, observed provider baseline, per-field version and write
+UUID. The user Bench database keeps the acknowledgement even when a later input
+replaces the text. `POST input/inspect` can inspect the original UUID without
+preparing an Action. `POST action` supports `find`, `prepare`, `submit`, and `observe`;
+these are human content-capability commands, not presentation/agent commands.
+Prepare freezes the acknowledged text; Submit names that original write; Observe
+does not resubmit. An unchanged flush cannot replace a review. Deliberate re-review
+of retained text requires a changed unsubmitted baseline or a zero-dispatch
+`ReviewRequired` Action. Private inputs are never inferred from a local-only partition.
+
 In the fixture's `work` directory, `twig update <field> <value> --id <item> --review <uuid> --prepare`
 freezes a single update. Use `--stdin` in place of the value to read it once.
 `twig update --submit <uuid> --id <item>` submits that review; omitting `--prepare`
@@ -375,23 +391,22 @@ source binding/root (including principal/authority), repository context, Bench,
 source-qualified item, execution store, Plan identity/scope, scalar/normal-seed/
 ADO-pair/LOCAL-pair mode and explicit endpoint. Tickets and views are not part
 of durable identity. Independent live buffers cannot silently merge: the
-conditional input revision must match. Revisions are opaque monotonic numbers,
-not per-buffer consecutive counters; use the returned revision even for `Empty`.
-An absent buffer uses the document's current revision floor, so simultaneous
-first writes can conflict rather than overwrite. Never adopt the newest revision
+conditional input revision must match. A never-written buffer starts at zero;
+each record advances independently, so first writes to disjoint buffers do not
+conflict. Use the returned revision, including on tombstones. Never adopt the newest revision
 and retry automatically. Input CAS failures use `InputRevisionConflict`; a
 baseline change refuses replacement with `InputBaselineConflict`. Existing
 profile-lease contention can return `ViewStateBusy`. Observe/reconcile rather
 than treating any of these as permission to overwrite.
 
 The existing profile lease and flushed atomic writer persist at most 64 buffer
-slots and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
+live buffers and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
 with 64 unique fields, strings of at most 65,536 characters, string lists of at
 most 256 elements, and 128 explicit links. The PUT transport bound is 256 KiB
 plus 16 KiB framing; existing native command body bounds remain unchanged.
 Discard/consume clear values, retaining bounded acknowledgement tombstones.
-When allocating a slot, the oldest cleared slot can be reclaimed; the revision
-floor prevents delayed initial writes from recreating discarded values.
+Cleared buffers free live capacity but retain their record revision; a delayed
+first write cannot recreate discarded values.
 No acknowledged live inputs are evicted. `InputLimit` is an explicit refusal.
 
 Recovery always authenticates/admit-checks the exact source and acquires a fresh

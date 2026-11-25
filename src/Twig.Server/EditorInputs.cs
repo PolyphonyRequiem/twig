@@ -29,7 +29,7 @@ public sealed partial class ViewSessions
     // Shares the owner profile's private directory, lease, revocation checks and atomic durable writer.
     internal EditorInputRecoveryDto ReadInputs(ViewSession session, EditorInputCapture capture)
         => Inputs(session, capture, document => Recovery(capture,
-            document.Records.SingleOrDefault(record => record.Key == capture.Key), document.Revision));
+            document.Records.SingleOrDefault(record => record.Key == capture.Key)));
 
     internal EditorInputRecoveryDto WriteInputs(ViewSession session, EditorInputCapture capture, long expectedRevision,
         Guid writeId, EditorInputValues? values)
@@ -39,7 +39,7 @@ public sealed partial class ViewSessions
             var old = records.SingleOrDefault(record => record.Key == capture.Key);
             if (expectedRevision < 0 || expectedRevision == long.MaxValue || writeId == Guid.Empty)
                 throw new HttpFailure(400, "InvalidInput", "Use an exact input revision and a new nonempty input write identity.");
-            if ((old?.Revision ?? document.Revision) != expectedRevision || old?.WriteId == writeId)
+            if ((old?.Revision ?? 0) != expectedRevision || old?.WriteId == writeId)
                 throw new HttpFailure(409, "InputRevisionConflict", "Observe the original input write and current revision before another attempt.");
             if (values is not null)
             {
@@ -47,17 +47,11 @@ public sealed partial class ViewSessions
                     throw new HttpFailure(409, "InputBaselineConflict", "Explicitly discard conflicting inputs before retaining a different native baseline.");
                 ValidateInputs(capture, values);
             }
-            var next = new EditorInputRecord(capture.Key, capture.Identity, capture.Baseline, checked(document.Revision + 1),
+            var next = new EditorInputRecord(capture.Key, capture.Identity, capture.Baseline, checked(expectedRevision + 1),
                 writeId, values is null ? "Discarded" : "Restored", values);
             var updated = records.Where(record => record.Key != capture.Key).Append(next).ToArray();
-            if (updated.Length > 64)
-            {
-                var reclaimed = updated.Where(record => record.Values is null && record.Key != next.Key)
-                    .MinBy(record => record.Revision);
-                if (reclaimed is not null) updated = updated.Where(record => record != reclaimed).ToArray();
-            }
-            SaveInputs(session, document with { Revision = next.Revision, Records = updated });
-            return Recovery(capture, next, next.Revision);
+            SaveInputs(session, document with { Revision = checked(document.Revision + 1), Records = updated });
+            return Recovery(capture, next);
         });
 
     internal void RequireInputs(ViewSession session, EditorInputCapture? capture, EditorInputReference? reference,
@@ -85,7 +79,7 @@ public sealed partial class ViewSessions
                 {
                     Revision = checked(document.Revision + 1),
                     Records = records.Select(record => record == old
-                        ? record with { Revision = checked(document.Revision + 1), Status = "Consumed", Values = null } : record).ToArray(),
+                        ? record with { Revision = checked(old.Revision + 1), Status = "Consumed", Values = null } : record).ToArray(),
                 });
             return true;
         });
@@ -112,7 +106,7 @@ public sealed partial class ViewSessions
             var document = JsonSerializer.Deserialize(File.ReadAllText(path), TransportJson.Default.EditorInputDocument)
                 ?? throw new InvalidDataException("Private editor inputs are invalid.");
             if (document.Version != 1 || document.StoreId != session.CatalogId || document.ProfileId != session.ProfileId
-                || document.Revision < 0 || document.Revision == long.MaxValue || document.Records.Length > 64
+                || document.Revision < 0 || document.Revision == long.MaxValue || document.Records.Count(record => record.Values is not null) > 64
                 || document.Records.Select(record => record.Key).Distinct().Count() != document.Records.Length
                 || document.Records.Any(record => record.Revision <= 0 || record.Revision > document.Revision || record.WriteId == Guid.Empty
                     || record.Key != EditorInputCapture.InputDigest(JsonSerializer.Serialize(record.Identity, TransportJson.Default.EditorInputIdentity))
@@ -128,7 +122,7 @@ public sealed partial class ViewSessions
     {
         if (document.Revision == long.MaxValue)
             throw new HttpFailure(409, "InputLimit", "The private input revision bound has been reached; no input write was committed.");
-        if (document.Records.Length > 64)
+        if (document.Records.Count(record => record.Values is not null) > 64)
             throw new HttpFailure(400, "InputLimit", "The profile has reached its 64 private input buffer bound.");
         var json = JsonSerializer.Serialize(document, TransportJson.Default.EditorInputDocument);
         if (Encoding.UTF8.GetByteCount(json) > InputDocumentBytes)
@@ -136,8 +130,8 @@ public sealed partial class ViewSessions
         WriteAtomic(InputsPath(session), json);
     }
 
-    private static EditorInputRecoveryDto Recovery(EditorInputCapture capture, EditorInputRecord? record, long revision)
-        => record is null ? new(capture.Key, revision, null, "Empty", null)
+    private static EditorInputRecoveryDto Recovery(EditorInputCapture capture, EditorInputRecord? record)
+        => record is null ? new(capture.Key, 0, null, "Empty", null)
             : record.Values is not null && record.Baseline != capture.Baseline
                 ? new(capture.Key, record.Revision, record.WriteId, "Conflict", null)
                 : new(capture.Key, record.Revision, record.WriteId, record.Status, record.Values);

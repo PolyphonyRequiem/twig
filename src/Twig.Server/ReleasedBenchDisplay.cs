@@ -127,6 +127,7 @@ internal sealed partial class ReleasedBenchDisplay
             {
                 entries.Remove(key);
                 generations[(scope.Owner, scope.Store, scope.Bench)] = Guid.NewGuid();
+                NotifyAuthorization();
             }
         }
     }
@@ -158,13 +159,15 @@ internal sealed partial class ReleasedBenchDisplay
                 if (!Eligible()) return false;
                 entries[key] = entry;
                 generations[(scope.Owner, scope.Store, scope.Bench)] = Guid.NewGuid();
+                NotifyAuthorization();
                 return true;
             }
         }
     }
 
     internal sealed record Frame(byte[] Body, Guid Generation, DisplayPartition Scope, string? Next, Guid AuthEpoch,
-        DateTimeOffset Expires, long RemainingMilliseconds, long Watermark);
+        DateTimeOffset Expires, long RemainingMilliseconds, long Watermark, long Cursor, string? ItemRevision = null,
+        NativeSourceStamp? InputSource = null);
 
     internal async Task Read(ViewSessions sessions, Guid view, string bearer, Guid bench, Guid partition, string? cursor,
         string? expectedGeneration, Func<Frame, Task> send, CancellationToken ct)
@@ -211,7 +214,8 @@ internal sealed partial class ReleasedBenchDisplay
                 if (current.Entry.Grant is { } grant) remaining = TimeSpan.FromTicks(Math.Min(remaining.Ticks, Remaining(grant).Ticks));
                 if (remaining <= TimeSpan.Zero) throw Denied();
                 return Enqueue(outbox, new(body, start.Generation, start.Entry.Scope, next,
-                    owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark));
+                    owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark, authCursor,
+                    current.Entry.Grant?.Revision, current.Entry.Grant?.Source));
             }
         });
         try { await send(await outbox.Reader.ReadAsync(ct)); }

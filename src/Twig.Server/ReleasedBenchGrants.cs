@@ -19,12 +19,13 @@ internal sealed partial class ReleasedBenchDisplay
 
     // Only an owner-side, already bound provider can provide evidence. In
     // particular, ValidateReadAccessAsync/project discovery is not evidence.
-    internal async Task<Result<bool>> AcquireAsync(DisplayPartition scope, ItemKey key, IProvider provider, CancellationToken ct)
+    internal async Task<Result<bool>> AcquireAsync(DisplayPartition scope, ItemKey key, IProvider provider, CancellationToken ct,
+        Twig.Infrastructure.Services.NativeSourceStamp? source = null)
     {
-        if (scope.Origin is not null || !key.BelongsTo(scope.Connection))
+        if (scope.Origin is not null || !key.BelongsTo(scope.Connection) || source is not null && source.Connection != scope.Connection)
             throw new ArgumentException("Expected one exact item of a provider partition.");
         var observed = await ObserveExact(scope.Connection, key, [scope],
-            () => provider.ReadAsync(scope.Connection, [key], ct, captureOnly: true));
+            () => provider.ReadAsync(scope.Connection, [key], ct, captureOnly: true), source: source);
         return observed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(observed.Error);
     }
 
@@ -116,7 +117,11 @@ internal sealed partial class ReleasedBenchDisplay
         if (key is not null && !key.BelongsTo(connection)) throw new ArgumentException("Invalid withdrawal scope.");
         var scope = Fingerprint(connection, key);
         long stamp;
-        lock (release) withdrawals[scope] = stamp = checked(++watermark);
+        lock (release)
+        {
+            withdrawals[scope] = stamp = checked(++watermark);
+            NotifyAuthorization();
+        }
         try { lock (publication) store.Withdraw(scope, stamp); }
         catch (Exception error) when (error is SqliteException or IOException or UnauthorizedAccessException)
         {

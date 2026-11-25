@@ -188,6 +188,40 @@ public sealed class ReleasedGrantTests
         Assert.Equal(2, (await native.ReadAsync(c, default)).Value.Version);
     }
     [Fact]
+    public async Task PrivateInputReceiptsSurviveReplacementAndRequireTheExactItemGrant()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        f.Client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
+        var provider = new Provider { Read = (_, key) => Task.FromResult(Observed(key, "baseline")) };
+        Assert.True((await f.Display.AcquireAsync(f.Scope, f.Key, provider, default,
+            new(f.Scope.Connection, Guid.NewGuid(), "actor", "authority"))).IsSuccess);
+        var path = f.PathToPage[..^4] + "input";
+        var write = Guid.NewGuid();
+        static StringContent Body(string json) => new(json, System.Text.Encoding.UTF8, "application/json");
+        using var page = await f.Client.GetAsync(f.PathToPage);
+        var baseline = Assert.Single(page.Headers.GetValues("X-Twig-Item-Version"));
+        var put = $$"""{"item":"7","field":"field","text":"private","expected":0,"write":"{{write}}","baseline":"{{baseline}}"}""";
+        using var first = await f.Client.PutAsync(path, Body(put));
+        first.EnsureSuccessStatusCode();
+        var second = Guid.NewGuid();
+        using var replace = await f.Client.PutAsync(path, Body(put.Replace(write.ToString(), second.ToString())
+            .Replace("private", "newer").Replace("\"expected\":0", "\"expected\":1")));
+        replace.EnsureSuccessStatusCode();
+        using var receipt = await f.Client.PostAsync(path + "/inspect", Body($$"""{"item":"7","field":"field","write":"{{write}}"}"""));
+        receipt.EnsureSuccessStatusCode();
+        using var json = System.Text.Json.JsonDocument.Parse(await receipt.Content.ReadAsStringAsync());
+        Assert.Equal(1, json.RootElement.GetProperty("acknowledged").GetInt64());
+        Assert.Equal("newer", json.RootElement.GetProperty("text").GetString());
+        using var stale = await f.Client.PutAsync(path, Body(put.Replace(write.ToString(), Guid.NewGuid().ToString())));
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+        f.Display.Withdraw(f.Scope.Connection, f.Key);
+        using var refused = await f.Client.PostAsync(path + "/inspect", Body("""{"item":"7","field":"field"}"""));
+        Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
+        Assert.DoesNotContain("newer", await refused.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task ExactItemDenialWinsWhileItsProjectStillAllowsReadsAndRestartRestoresNoGrant()
     {
         await using var f = new Fixture();

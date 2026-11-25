@@ -9,6 +9,11 @@ public static partial class NativeBenchHost
     private static void MapReleasedDisplay(WebApplication app, ViewSessions sessions, ServerOptions options, Bench.Infrastructure.NativePanel panel)
     {
         var display = app.Services.GetRequiredService<ReleasedBenchDisplay>();
+        app.MapGet("/api/v2/views/{view:guid}/benches/{bench:guid}/partitions",
+            (HttpContext context, Guid view, Guid bench) =>
+                display.ReadPartitions(sessions, view, BenchHost.Bearer(context), bench, directory =>
+                    context.Response.WriteAsJsonAsync(directory, DisplayJson.Default.ReleasedPartitions,
+                        contentType: "application/json", cancellationToken: context.RequestAborted), context.RequestAborted));
         MapReleasedInputs(app, sessions, options, display, panel.Definitions);
         app.MapGet("/api/v2/views/{view:guid}/benches", async (HttpContext context, Guid view) =>
         {

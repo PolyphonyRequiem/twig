@@ -78,6 +78,116 @@ public sealed class ReleasedGrantTests
         [new(key, "provider-type", FieldValues.Empty.Set("field", FieldValue.String(value)), new(key, "opaque"))], [], null, true));
 
     [Fact]
+    public async Task OwnerWorkspaceCommitPublishesOnlyPinnedLocalIntentAndInvalidatesAnInFlightPage()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var workspace = Directory.CreateDirectory(Path.Combine(f.Root.FullName, "work"));
+        var twig = Directory.CreateDirectory(Path.Combine(workspace.FullName, ".twig"));
+        var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(Path.Combine(twig.FullName, "core.db"))).Value;
+        var c = f.Scope.Connection;
+        Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+        var origin = new NativeSourceStamp(c, native.InstanceId, "principal", "binding");
+        var defs = new UserBenchStore(Path.Combine(f.Root.FullName, "benches.db"));
+        var key = ItemKey.Local(Guid.NewGuid());
+        Assert.True((await defs.SaveAsync(new(f.Scope.Bench, "Pinned", [new(SelectorKind.Pin, key, connection: c)]), 0)).IsSuccess);
+        var path = f.PathToPage.Replace(f.Scope.Id.ToString("D"), native.InstanceId.ToString("D"));
+        using var producer = f.Display.TrackWorkspace(workspace.FullName, origin, defs);
+        var hidden = new Seed(ItemKey.Local(Guid.NewGuid()), "unselected", FieldValues.Empty);
+        StoreSnapshot Next(long version, string title) => new(version, retainedItems:
+            [new Seed(key, "seed", FieldValues.Empty.Set("title", FieldValue.String(title))), hidden]);
+        Assert.True((await native.CommitAsync(c, 0, Next(1, "first"), default)).IsSuccess);
+        var first = await f.Client.GetStringAsync(path);
+        Assert.Contains("first", first);
+        Assert.DoesNotContain("unselected", first);
+        var directory = path[..path.LastIndexOf("/partitions/", StringComparison.Ordinal)] + "/partitions";
+        Assert.Contains(native.InstanceId.ToString("D"), await f.Client.GetStringAsync(directory));
+        var reached = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        f.Display.BeforeEnqueue = ct => { reached.TrySetResult(); return resume.Task.WaitAsync(ct); };
+        var racing = f.Client.GetAsync(path);
+        try
+        {
+            await reached.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.True((await native.CommitAsync(c, 1, Next(2, "second"), default)).IsSuccess);
+        }
+        finally { resume.TrySetResult(); }
+        using var refused = await racing;
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.DoesNotContain("first", await refused.Content.ReadAsStringAsync());
+        Assert.Contains("second", await f.Client.GetStringAsync(path));
+    }
+
+    [Theory]
+    [InlineData("manifest", 0)]
+    [InlineData("domain", 1)]
+    [InlineData("settled", 1)]
+    [InlineData("staged", 1)]
+    public async Task RestartSettlesExactStepWithoutReapplyingOrTrustingOldRelease(string boundary, int expected)
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var root = Path.Combine(f.Root.FullName, "work");
+        var path = Path.Combine(Directory.CreateDirectory(Path.Combine(root, ".twig")).FullName, "core.db");
+        var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(path)).Value;
+        var c = f.Scope.Connection;
+        Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+        var origin = new NativeSourceStamp(c, native.InstanceId, "principal", "binding");
+        var defs = new UserBenchStore(Path.Combine(f.Root.FullName, "benches.db"));
+        var key = ItemKey.Local(Guid.NewGuid());
+        Assert.True((await defs.SaveAsync(new(f.Scope.Bench, "Pinned", [new(SelectorKind.Pin, key, connection: c)]), 0)).IsSuccess);
+        f.Display.StepBoundary = (point, _) => point == boundary ? throw new IOException("cut power") : Task.CompletedTask;
+        if (boundary == "staged") f.Display.AfterStage = () => throw new IOException("page staged, not released");
+        using (f.Display.TrackWorkspace(root, origin, defs))
+            Assert.False((await native.CommitAsync(c, 0, new(1, retainedItems: [new Seed(key, "once", FieldValues.Empty)]), default)).IsSuccess);
+        await f.Stop();
+        await f.Start();
+        var page = f.PathToPage.Replace(f.Scope.Id.ToString("D"), native.InstanceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.Conflict, (await f.Client.GetAsync(page)).StatusCode);
+        f.Display.RecoverWorkspace(path);
+        await f.Display.ProjectWorkspace(root, origin, defs);
+        Assert.Equal(expected, (await native.ReadAsync(c, default)).Value.Version);
+        Assert.Equal(expected == 1, (await f.Client.GetStringAsync(page)).Contains("once"));
+    }
+
+    [Fact]
+    public async Task SettlingDisjointSecondCommitCannotClearFirstBenchDependencyAcrossRestart()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var root = Path.Combine(f.Root.FullName, "work");
+        var path = Path.Combine(Directory.CreateDirectory(Path.Combine(root, ".twig")).FullName, "core.db");
+        var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(path)).Value;
+        var c = f.Scope.Connection;
+        Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+        var origin = new NativeSourceStamp(c, native.InstanceId, "principal", "binding");
+        var defs = new UserBenchStore(Path.Combine(f.Root.FullName, "benches.db"));
+        var a = new Seed(ItemKey.Local(Guid.NewGuid()), "one", FieldValues.Empty);
+        var b = new Seed(ItemKey.Local(Guid.NewGuid()), "two", FieldValues.Empty);
+        Assert.True((await defs.SaveAsync(new(f.Scope.Bench, "Shared", [new(SelectorKind.Pin, a.Key, connection: c),
+                new(SelectorKind.Pin, b.Key, connection: c)]), 0)).IsSuccess);
+        var page = f.PathToPage.Replace(f.Scope.Id.ToString("D"), native.InstanceId.ToString("D"));
+        using (f.Display.TrackWorkspace(root, origin, defs))
+        {
+            f.Display.StepBoundary = (phase, version) => phase == "domain" && version == 1
+                ? throw new IOException("A lost settlement acknowledgement") : Task.CompletedTask;
+            Assert.False((await native.CommitAsync(c, 0, new(1, retainedItems: [a]), default)).IsSuccess);
+            Assert.True((await native.CommitAsync(c, 1, new(2, retainedItems: [a, b]), default)).IsSuccess);
+            Assert.Equal(HttpStatusCode.Conflict, (await f.Client.GetAsync(page)).StatusCode);
+        }
+        await f.Stop();
+        await f.Start();
+        await f.Display.ProjectWorkspace(root, origin, defs);
+        page = f.PathToPage.Replace(f.Scope.Id.ToString("D"), native.InstanceId.ToString("D"));
+        Assert.Equal(HttpStatusCode.Conflict, (await f.Client.GetAsync(page)).StatusCode);
+        f.Display.RecoverWorkspace(path);
+        await f.Display.ProjectWorkspace(root, origin, defs);
+        var clean = await f.Client.GetStringAsync(page);
+        Assert.Contains("one", clean);
+        Assert.Contains("two", clean);
+        Assert.Equal(2, (await native.ReadAsync(c, default)).Value.Version);
+    }
+    [Fact]
     public async Task PrivateInputReceiptsSurviveReplacementAndRequireTheExactItemGrant()
     {
         await using var f = new Fixture();
@@ -119,11 +229,11 @@ public sealed class ReleasedGrantTests
         var provider = new Provider
         {
             Read = (connection, key) =>
-        {
-            Assert.Equal(f.Scope.Connection, connection);
-            Assert.Equal(f.Key, key);
-            return Task.FromResult(Observed(key, "protected-content"));
-        }
+            {
+                Assert.Equal(f.Scope.Connection, connection);
+                Assert.Equal(f.Key, key);
+                return Task.FromResult(Observed(key, "protected-content"));
+            }
         };
         Assert.True((await f.Display.AcquireAsync(f.Scope, f.Key, provider, default)).IsSuccess);
         using var granted = await f.Client.GetAsync(f.PathToPage);
@@ -162,6 +272,32 @@ public sealed class ReleasedGrantTests
         using var refused = await request;
         Assert.Equal(HttpStatusCode.Forbidden, refused.StatusCode);
         Assert.DoesNotContain("revocable-field", await refused.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task PendingDomainStepDoesNotWithdrawAnUnrelatedPinnedBenchOfTheSameOrigin()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var root = Path.Combine(f.Root.FullName, "work");
+        var path = Path.Combine(Directory.CreateDirectory(Path.Combine(root, ".twig")).FullName, "core.db");
+        var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(path)).Value;
+        var c = f.Scope.Connection;
+        Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+        var origin = new NativeSourceStamp(c, native.InstanceId, "principal", "binding");
+        var defs = new UserBenchStore(Path.Combine(f.Root.FullName, "benches.db"));
+        var a = new Seed(ItemKey.Local(Guid.NewGuid()), "one", FieldValues.Empty);
+        var b = new Seed(ItemKey.Local(Guid.NewGuid()), "two", FieldValues.Empty);
+        var other = Guid.NewGuid();
+        Assert.True((await defs.SaveAsync(new(f.Scope.Bench, "A", [new(SelectorKind.Pin, a.Key, connection: c)]), 0)).IsSuccess);
+        Assert.True((await defs.SaveAsync(new(other, "B", [new(SelectorKind.Pin, b.Key, connection: c)]), 0)).IsSuccess);
+        using var producer = f.Display.TrackWorkspace(root, origin, defs);
+        Assert.True((await native.CommitAsync(c, 0, new(1, retainedItems: [a, b]), default)).IsSuccess);
+        var page = f.PathToPage.Replace(f.Scope.Id.ToString("D"), native.InstanceId.ToString("D"));
+        f.Display.StepBoundary = (phase, _) => phase == "domain" ? throw new IOException("pending settlement") : Task.CompletedTask;
+        Assert.False((await native.CommitAsync(c, 1, new(2, retainedItems: [b]), default)).IsSuccess);
+        Assert.Equal(HttpStatusCode.Conflict, (await f.Client.GetAsync(page)).StatusCode);
+        Assert.Contains("two", await f.Client.GetStringAsync(page.Replace(f.Scope.Bench.ToString("D"), other.ToString("D"))));
     }
 
     [Theory]
@@ -254,6 +390,31 @@ public sealed class ReleasedGrantTests
         public override long TimestampFrequency => 1;
         public override long GetTimestamp() => Seconds;
         public override DateTimeOffset GetUtcNow() => DateTimeOffset.UnixEpoch.AddSeconds(-Seconds);
+    }
+
+    [Fact]
+    public async Task RemovingAPinWhileItsExactProviderReadIsPendingCannotPublishOldMembership()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var defs = new UserBenchStore(Path.Combine(f.Root.FullName, "benches.db"));
+        var source = new NativeSourceStamp(f.Scope.Connection, Guid.NewGuid(), "principal", "authority");
+        var definition = (await defs.SaveAsync(new(f.Scope.Bench, "Scoped", [
+            new(SelectorKind.Pin, f.Key, connection: source.Connection)]), 0)).Value;
+        var paused = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var remote = new TaskCompletionSource<Result<QueryPage>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var result = f.Display.Observe(f.Root.FullName, source, defs, f.Key, () =>
+        {
+            paused.SetResult();
+            return remote.Task;
+        }, true, default);
+        await paused.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.True((await defs.DeleteAsync(definition.Id, definition.Revision)).IsSuccess);
+        remote.SetResult(Observed(f.Key, "stale member"));
+        Assert.False((await result).IsSuccess);
+        var directory = f.PathToPage[..f.PathToPage.LastIndexOf("/partitions/", StringComparison.Ordinal)] + "/partitions";
+        using var reply = await f.Client.GetAsync(directory);
+        Assert.Equal(HttpStatusCode.Conflict, reply.StatusCode);
     }
 
     [Fact]

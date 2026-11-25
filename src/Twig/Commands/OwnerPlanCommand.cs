@@ -59,11 +59,13 @@ internal static class OwnerPlanCommand
             }
             var review = Require(await NativePlanReview.OpenAsync(root, digest, ct));
             var outcome = Require(verb switch {
-                "continue" => await review.ContinueDeliveryAsync(ct),
                 "abandon-unadmitted" => await review.AbandonUnadmittedAsync(ct),
                 _ => await review.ObserveAsync(ct)
             });
-            output.WriteLine(JsonSerializer.Serialize(new OwnerPlanReply(digest, outcome.Status, outcome.Units, outcome.Error?.Message),
+            var detail = outcome.Error?.Message;
+            if (detail is null && verb == "continue" && outcome.Units.Any(unit => unit.State is not ("Unadmitted" or "Abandoned" or "Delivered")))
+                detail = "Original attempt observed. Scoped settlement is withheld until scope, origin and shared Bench pins can publish together.";
+            output.WriteLine(JsonSerializer.Serialize(new OwnerPlanReply(digest, outcome.Status, outcome.Units, detail),
                 OwnerPlanJson.Default.OwnerPlanReply));
             return 0;
         }

@@ -2,11 +2,12 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Twig.Core;
+using Twig.Infrastructure.Services;
 
 namespace Twig.Server;
 
-internal sealed record GrantWitness(string Connection, string Item, long Watermark, long Request, long Started, string? Revision = null,
-    Twig.Infrastructure.Services.NativeSourceStamp? Source = null);
+internal sealed record GrantWitness(string Connection, string Item, long Watermark, long Request, long Started,
+    string? Revision = null, NativeSourceStamp? Source = null);
 
 internal sealed partial class ReleasedBenchDisplay
 {
@@ -23,42 +24,92 @@ internal sealed partial class ReleasedBenchDisplay
     {
         if (scope.Origin is not null || !key.BelongsTo(scope.Connection) || source is not null && source.Connection != scope.Connection)
             throw new ArgumentException("Expected one exact item of a provider partition.");
-        var connection = Fingerprint(scope.Connection, null);
-        var item = Fingerprint(scope.Connection, key);
+        var observed = await ObserveExact(scope.Connection, key, [scope],
+            () => provider.ReadAsync(scope.Connection, [key], ct, captureOnly: true), source: source);
+        return observed.IsSuccess ? Result<bool>.Ok(true) : Result<bool>.Fail(observed.Error);
+    }
+
+    public async Task<Result<QueryPage>> Observe(string root, NativeSourceStamp source, UserBenchStore definitions,
+        ItemKey key, Func<Task<Result<QueryPage>>> read, bool publish, CancellationToken ct)
+    {
+        var scopes = new List<DisplayPartition>();
+        Func<Func<bool>, Task<bool>>? commit = null;
+        if (publish && sessions is not null)
+        {
+            var catalog = await definitions.ReadAsync(ct);
+            var exclusions = await definitions.ReadViewRulesAsync(root, source.Connection, ct);
+            if (!catalog.IsSuccess || !exclusions.IsSuccess)
+                return Result<QueryPage>.Fail(ErrorCode.StorageUnavailable, "Bench projection inputs unavailable.");
+            commit = apply => definitions.PublishIfCurrent(root, source.Connection, catalog.Value, exclusions.Value.Revision, apply, ct);
+            var owners = sessions.StandaloneDisplayOwners(catalog.Value.InstanceId);
+            var partition = new Guid(Convert.FromHexString(Fingerprint(source.Connection, key)).AsSpan(0, 16));
+            if (exclusions.Value.Exclusions.IsEmpty)
+                foreach (var bench in catalog.Value.Benches.Where(b => b.Selectors.Any(s => s.Connection == source.Connection
+                    && s.Kind == SelectorKind.Pin && s.Item == key)))
+                    foreach (var owner in owners)
+                        scopes.Add(new(owner, catalog.Value.InstanceId, bench.Id, partition, null, source.Connection));
+        }
+        var observed = await ObserveExact(source.Connection, key, scopes, read, commit, source);
+        if (publish && observed.IsSuccess) await ProjectWorkspace(root, source, definitions);
+        return observed;
+    }
+
+    private async Task<Result<QueryPage>> ObserveExact(Connection origin, ItemKey key, IReadOnlyList<DisplayPartition> scopes,
+        Func<Task<Result<QueryPage>>> read, Func<Func<bool>,Task<bool>>? commit = null, NativeSourceStamp? source = null)
+    {
+        var connection = Fingerprint(origin, null);
+        var item = Fingerprint(origin, key);
         GrantWitness witness;
         lock (release)
         {
-            latest[item] = Begin(scope);
+            RequireOpen();
+            if (scopes.Any(Dirty)) return Result<QueryPage>.Fail(ErrorCode.Conflict, "The selected Bench has unsettled inputs.");
+            latest[item] = checked(++sequence);
+            foreach (var scope in scopes) partitionRequests[scope] = sequence;
             witness = new(connection, item, Withdrawal(connection, item), sequence, clock.GetTimestamp());
         }
-        var result = await provider.ReadAsync(scope.Connection, [key], ct, captureOnly: true);
+        var result = await read();
         if (!result.IsSuccess)
         {
             var error = result.Error;
             if (error.Evidence.Any(e => e is "http:401" or "http:403" or "http:404"))
-                Withdraw(scope.Connection, error.Evidence.Contains("item-unavailable:" + key.NativeId) ? key : null);
-            else if (error.Code == ErrorCode.Conflict) Withdraw(scope.Connection, null);
-            else if (error.Code is ErrorCode.NotFound or ErrorCode.PolicyViolation) Withdraw(scope.Connection, key);
-            return Result<bool>.Fail(error);
+                Withdraw(origin, error.Evidence.Contains("item-unavailable:" + key.NativeId) ? key : null);
+            else if (error.Code == ErrorCode.Conflict) Withdraw(origin, null);
+            else if (error.Code is ErrorCode.NotFound or ErrorCode.PolicyViolation) Withdraw(origin, key);
+            return result;
         }
         var page = result.Value;
         if (!page.Complete || page.Continuation is not null || page.Items is not [var observed] || observed.Key != key)
         {
-            Withdraw(scope.Connection, key);
-            return Result<bool>.Fail(ErrorCode.Partial, "The exact item was not observed; no grant was issued.");
+            Withdraw(origin, key);
+            return Result<QueryPage>.Fail(ErrorCode.Partial, "The exact item was not observed; no grant was issued.");
         }
-        var published = Publish(scope, Pages(Rows("provider", key.NativeId!, observed.Type, observed.Fields)), witness.Request,
-            witness with { Revision = observed.Revision?.Token, Source = source });
-        return published ? Result<bool>.Ok(true) : Result<bool>.Fail(ErrorCode.Conflict, "Observation superseded or expired.");
+        if (scopes.Count > 0)
+        {
+            witness = witness with { Revision = observed.Revision?.Token, Source = source };
+            var pages = Pages(Rows("provider", key.NativeId!, observed.Type, observed.Fields));
+            foreach (var scope in scopes)
+            {
+                bool Apply() => Publish(scope, pages, witness.Request, witness);
+                if (!(commit is null ? Apply() : await commit(Apply)))
+                    return Result<QueryPage>.Fail(ErrorCode.Conflict, "Observation superseded or expired.");
+            }
+        }
+        return result;
     }
 
     // Called before Save changes the observation against which an acquisition
     // started. This is ordering, not a new observation or a renewable grant.
-    internal void InvalidateItem(Connection connection, ItemKey key)
+    public void InvalidateItem(Connection connection, ItemKey key)
     {
         if (!key.BelongsTo(connection)) throw new ArgumentException("Invalid acquisition scope.");
         var item = Fingerprint(connection, key);
-        lock (release) latest[item] = checked(++sequence);
+        lock (release)
+        {
+            latest[item] = checked(++sequence);
+            foreach (var entry in entries.Values.Where(e => e.Grant?.Item == item).ToArray())
+                Withhold(entry.Scope);
+        }
     }
 
     internal void Withdraw(Connection connection, ItemKey? key)

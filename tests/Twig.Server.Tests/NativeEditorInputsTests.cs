@@ -84,7 +84,9 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
             var replacement = await Send(HttpMethod.Post, prefix + "/action", nextPrepare);
             var replacementId = replacement.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid();
             replacementId.ShouldNotBe(submission);
-            var published = await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "submit" });
+            await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "submit" }, HttpStatusCode.Conflict);
+            Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+            var published = await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "observe" });
             published.GetProperty("status").GetString().ShouldBe("Complete");
             var ambiguous = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "find", Write = null });
             ambiguous.GetProperty("ambiguous").GetBoolean().ShouldBeTrue();
@@ -102,7 +104,10 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         duplicate.GetRawText().ShouldBe(original.GetRawText());
         var discovery = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "find", Write = null });
         discovery.GetRawText().ShouldBe(original.GetRawText());
-        var result = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "submit" });
+        // A dispatched save invalidates the old page. Recover its original, never submit a second action.
+        await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "submit" }, HttpStatusCode.Conflict);
+        Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+        var result = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "observe" });
         result.GetProperty("status").GetString().ShouldBe("Complete");
         result.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid().ShouldBe(submission);
         var observed = (await provider.ReadAsync(scope.Connection, [item], default, captureOnly: true)).Value.Items.Single();

@@ -70,6 +70,14 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     private static readonly TimeSpan OwnerRenewalLead = TimeSpan.FromHours(12);
     private readonly object gate = new();
     private readonly Dictionary<Guid, ViewSession> sessions = [];
+    internal Guid[] StandaloneDisplayOwners(Guid store)
+    {
+        lock (gate)
+            return sessions.Values.Where(s => s.CatalogId == store && s.OwnerAuthenticated && Standalone(s)
+                && !s.Revoked && s.Expires > time.GetUtcNow()).Select(s => s.ProfileId).Distinct().ToArray();
+    }
+    private static bool Standalone(ViewSession session) => session.RepositoryBindings is null && session.RepositoryRoot is null
+        && session.RuntimeContext is null or { WorkingDirectory: null, GitRoot: null, Repository: null, IsRemote: not true };
     public CanvasRegistration RegisterNativeCanvas(Guid instance, CanvasRuntimeContext? context = null)
     {
         lock (gate)
@@ -360,7 +368,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         lock (gate)
         {
             var session = Admit(id, capability, false, readProfile: false);
-            if (!session.OwnerAuthenticated || session.NativeContentBlocked || session.ProfileId == Guid.Empty)
+            if (!session.OwnerAuthenticated || session.NativeContentBlocked || session.ProfileId == Guid.Empty || !Standalone(session))
                 throw new HttpFailure(403, "OwnerRequired", "An owner content capability is required.");
             return action(session);
         }

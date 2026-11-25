@@ -24,6 +24,8 @@ public static partial class NativeBenchHost
                 && (request.Method == "PUT" ? rest is ["input"] : rest is ["input", "inspect"] or ["action"]),
         ("GET", ["", "api", "v2", "views", var view, "benches", var bench, "partitions", var partition, "page"])
             => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _) && Guid.TryParseExact(partition, "D", out _),
+        ("GET", ["", "api", "v2", "views", var view, "benches", var bench, "partitions"])
+            => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _),
         ("GET", ["", "api", "v1", "status" or "owner-status" or "windows-profile"]) => true,
         ("POST", ["", "api", "v1", "canvas-views" or "windows-profile" or "windows-enroll" or "windows-renew" or "windows-agent"]) => true,
         ("GET", ["", "api", "v1", "views", var id, "benches" or "events" or "session" or "presentation"])
@@ -54,7 +56,10 @@ public static partial class NativeBenchHost
             throw new ArgumentException("Same-owner Windows authentication requires the existing trusted stable HTTPS localhost endpoint.");
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
         if (options.ExecutionV2)
-            builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db")));
+        {
+            builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db"), sessions: sessions));
+            builder.Services.AddSingleton<Twig.Commands.IOwnerBenchPublication>(services => services.GetRequiredService<ReleasedBenchDisplay>());
+        }
         if (options.ExecutionV2)
             builder.Services.AddSingleton(sp => new OwnerCommandEndpoint(options.ProcessInstance, options.DataDirectory,
                 panel.Definitions, sp, sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));

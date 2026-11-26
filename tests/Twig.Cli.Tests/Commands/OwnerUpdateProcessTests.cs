@@ -877,9 +877,9 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 await CommandProtocol.WriteAsync(pipe, FrameKind.Invocation, JsonSerializer.Serialize(request, CommandWireJson.Default.CommandInvocation));
                 (await CommandProtocol.ReadAsync(pipe)).Kind.ShouldBe(FrameKind.Bound);
             }
-            await Parallel.ForEachAsync(Enumerable.Range(0, 100), new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (_, _) =>
+            await Parallel.ForEachAsync(Enumerable.Range(0, 100), new ParallelOptions { MaxDegreeOfParallelism = 4 }, async (index, _) =>
             {
-                var duplicate = await Cli(null, "update", NativeProvider.Title, "frozen from stdin", "--id", "1", "--review", review);
+                var duplicate = await Cli(null, "update", NativeProvider.Title, "frozen from stdin", "--id", index % 2 == 0 ? "1" : "01", "--review", review);
                 duplicate.Code.ShouldBe(1, duplicate.Error);
                 Match(duplicate.Output).GetProperty("submission").GetGuid().ShouldBe(saved.GetProperty("submission").GetGuid());
                 Match(duplicate.Output).GetProperty("action").GetGuid().ShouldBe(saved.GetProperty("action").GetGuid());

@@ -28,7 +28,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> routines = new();
     private readonly SemaphoreSlim acquisitions = new(8, 8);
-    private readonly Dictionary<(string Item, Guid Review), ReviewReaders> reviewReads = [];
+    private readonly Dictionary<(int Locator, Guid Review), ReviewReaders> reviewReads = [];
     private sealed class ReviewReaders
     {
         internal readonly SemaphoreSlim Turn = new(1, 1);
@@ -37,7 +37,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
 
     // Concurrent duplicate submitters must each observe the exact item. Overlapping
     // those reads makes the later one supersede the earlier one's authorization.
-    private async Task<Action> EnterReviewRead((string Item, Guid Review) key, CancellationToken ct)
+    private async Task<Action> EnterReviewRead((int Locator, Guid Review) key, CancellationToken ct)
     {
         ReviewReaders readers;
         lock (reviewReads)
@@ -148,8 +148,14 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             }
             if (item.Length is 0 or > 256 || mode is not ("find" or "local" or "refresh") && review == Guid.Empty)
                 throw new InvalidDataException("An exact item and nonempty review UUID are required.");
-            if (!create && mode == "submit")
-                releaseReviewRead = await EnterReviewRead((item, review), ct);
+            var locator = 0;
+            if (!create && mode != "refresh")
+            {
+                if (!int.TryParse(item, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out locator)
+                    || locator <= 0) throw new InvalidDataException("Use a positive provider item number.");
+                if (mode == "submit")
+                    releaseReviewRead = await EnterReviewRead((locator, review), ct);
+            }
             await acquisitions.WaitAsync(ct);
             reading = true;
             var twig = Path.Combine(root, ".twig");
@@ -193,8 +199,6 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             if (create) key = ItemKey.Local(Guid.ParseExact(item, "D"));
             else
             {
-                if (!int.TryParse(item, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var locator)
-                    || locator <= 0) throw new InvalidDataException("Use a positive provider item number.");
                 key = Require(await workspace.ResolveTargetAsync(locator, true, ct));
                 Task<Result<QueryPage>> Observe() => workspace.ObserveItemsAsync([key], ct);
                 var authorized = Require(await (publisher is null ? Observe() : publisher.Observe(root, handle.Source,

@@ -15,6 +15,22 @@ $cli = (Resolve-Path -LiteralPath (Join-Path $package 'unpacked-cli\twig.exe')).
 $check = (Resolve-Path -LiteralPath (Join-Path $checkout 'tools\desktop_smoke.py')).Path
 $stage = (Resolve-Path -LiteralPath (Join-Path $checkout 'tools\stage-developer-panel.ps1')).Path
 $project = (Resolve-Path "$PSScriptRoot\..\tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj").Path
+$python = $null
+$originalPath = $env:Path
+try {
+    # A desktop terminal can inherit an older PATH than the user's current Windows settings.
+    $env:Path = (@($originalPath, [Environment]::GetEnvironmentVariable('Path','Machine'),
+        [Environment]::GetEnvironmentVariable('Path','User')) -join ';')
+    foreach ($name in 'py','python3','python') {
+        $command = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (!$command) { continue }
+        $prefix = @()
+        if ($name -eq 'py') { $prefix = @('-3') }
+        & $command.Source @prefix -I -c 'import sqlite3,sys; sys.exit(sys.version_info.major != 3)' 2>$null
+        if ($LASTEXITCODE -eq 0) { $python = $command.Source; break }
+    }
+} finally { $env:Path = $originalPath }
+if (!$python) { throw 'Desktop smoke needs Python 3 with sqlite3 (py -3, python3, or python). No fixture was started.' }
 $handoff = Join-Path $package ("twig-desktop-" + [guid]::NewGuid() + '.txt')
 $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
 $start.UseShellExecute = $false
@@ -54,7 +70,7 @@ try {
     $boot = [IO.File]::ReadAllLines((Join-Path $env:TWIG_USER_HOME 'owner.run'))[0]
     $plugin = & $stage -FixtureId $id -Boot $boot -Origin $record.origin -Thumbprint $Certificate `
         -SelectionId $record.selectionId -Cli $cli -CanvasRoot $canvas
-    python -B $check
+    & $python @prefix -I -B $check
     if ($LASTEXITCODE) { throw 'The native fixture is not ready.' }
     if (!$PreflightOnly) {
         Write-Host "Register this local developer plugin in Copilot: $plugin"
@@ -62,7 +78,7 @@ try {
         & $cli workspace --bench 'Unrelated pin' --refresh -o json | Out-Null
         if ($LASTEXITCODE) { throw 'Cannot refresh the pinned native test item.' }
         $null = Read-Host 'Select Unrelated pin / item 1, edit its title, save private input once, then press Enter'
-        python -B $check
+        & $python @prefix -I -B $check
         if ($LASTEXITCODE) { throw 'Private save did not leave the publication ledger untouched.' }
         $original = [guid]::ParseExact((Read-Host 'Close/reopen, confirm your edit, prepare once, then enter its Queued submission UUID before publishing'), 'D')
         $null = Read-Host 'Publish once, close/reopen, verify the provider title, then press Enter (do not publish again)'
@@ -72,7 +88,7 @@ try {
             if ($LASTEXITCODE -eq 0 -and ($found | ConvertFrom-Json).matches[0].state -eq 'Complete') { break }
             Start-Sleep -Milliseconds 300
         } while ($clock.Elapsed.TotalSeconds -lt 15)
-        $found | python -B $check --submission $original.ToString('D')
+        $found | & $python @prefix -I -B $check --submission $original.ToString('D')
         if ($LASTEXITCODE) { throw 'The original single effect was not verified; do not retry publication.' }
     }
 } finally {

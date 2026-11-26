@@ -116,7 +116,8 @@ create a certificate, change trust, or use the installed server root.
 For the guided smoke, build `tests\Twig.Cli.Tests` first. Extract the matched
 Windows CLI and server archives to `unpacked-cli` and `unpacked-server` under
 one package directory, and extract the Canvas archive to a directory containing
-`current.json`. From PowerShell 7, run:
+`current.json`. The runner checks for Python 3 with SQLite support (`py -3`,
+`python3`, or `python`) before starting the fixture. From PowerShell 7, run:
 
 ```powershell
 .\eng\Start-DesktopSmoke.ps1 -PackageRoot $package -CanvasRoot $canvas `

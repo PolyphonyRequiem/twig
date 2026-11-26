@@ -40,11 +40,13 @@ public static partial class NativeBenchHost
         var updates = changes ?? new CatalogChanges();
         if (options.ExecutionV2 && options.ProcessInstance == Guid.Empty)
             throw new ArgumentException("Execution negotiation requires a process identity.");
+        if (options.NativeDesktop && !(options.ExecutionV2 && options.WindowsSignIn))
+            throw new ArgumentException("Developer desktop requires an authenticated execution owner.");
         var executionSession = options.ExecutionV2 ? $"local-execution-v2/{options.ProcessInstance:D}" : null;
         string[] capabilities = ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1", "bench-seed-members-v1"];
         var status = new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.ServerId,
             CanvasAssets.ServerVersion, options.ExecutionV2 ? [.. capabilities, "local-execution-v2"] : capabilities,
-            executionSession);
+            executionSession, options.NativeDesktop ? Twig.OwnerFixtureSelection.DesktopMode : null);
         var statusBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(status, TransportJson.Default.ServiceStatus);
         if (statusBytes.Length > 4096) throw new InvalidDataException("The owner status exceeds the client discovery bound.");
         Task WriteStatus(HttpContext context)
@@ -63,7 +65,7 @@ public static partial class NativeBenchHost
         }
         if (options.ExecutionV2)
             builder.Services.AddSingleton(sp => new OwnerCommandEndpoint(options.ProcessInstance, options.DataDirectory,
-                panel.Definitions, sp, sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping));
+                panel.Definitions, sp, sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, options.NativeDesktop));
         if (options.ExecutionV2)
             builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = TimeSpan.FromSeconds(10));
         builder.Logging.ClearProviders();
@@ -119,6 +121,8 @@ public static partial class NativeBenchHost
             { await Write(context, new Failure("InvalidTransport", "Use capability headers and bounded JSON."), 403); return; }
             if (options.ExecutionV2 && context.Request.Path.StartsWithSegments("/api") && !QualifiedOwnerRoute(context.Request))
             { await Write(context, new Failure("PolicyViolation", "This route is not qualified for the isolated execution owner."), 403); return; }
+            if (options.NativeDesktop && context.Request.Path.Value?.Split('/') is ["", "api", "v1", "views", _, "benches"])
+            { await Write(context, new Failure("PolicyViolation", "Use released Bench pages in native developer mode."), 403); return; }
             try { await next(context); }
             catch (HttpFailure error) when (!context.Response.HasStarted)
             {

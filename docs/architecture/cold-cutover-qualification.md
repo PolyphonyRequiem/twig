@@ -106,6 +106,39 @@ code. Raw TRX files retain both failed and passing runs.
 
 ## Release owner's unblock path
 
+### Local developer desktop smoke (not release qualification)
+
+On Windows the desktop test can attach to an explicitly selected, already-running
+fixture, without enabling installed writes or using ADO/GitHub. Start with the
+existing trusted localhost certificate used for owner qualification. Do not
+create a certificate, change trust, or use the installed server root.
+
+```powershell
+$env:TWIG_TEST_OWNER_CERT = '<existing trusted localhost certificate thumbprint>'
+$env:TWIG_DESKTOP_HANDOFF = Join-Path $env:TEMP ("twig-desktop-" + [guid]::NewGuid() + ".txt")
+dotnet test tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj --filter FullyQualifiedName~NativeDesktopOwnerAdmitsOnlyTheSelectedLocalWorkspace
+```
+
+The handoff file is created exclusively after the native seed and pinned Bench
+are ready. Its single line is the fixture root. This test owns the server and
+keeps it alive for at most 20 minutes; it does not register or open a plugin.
+Use the companion Canvas developer picker procedure against that root and
+the matched CLI. In another shell, after checking the original submission
+against the native journal, create the empty `desktop.finished` file inside
+that specific root. The test stops the server and removes its own fixture.
+The handoff file records a now-expired path and can be removed.
+
+Only the four-line `owner.fixture` selection ending in `native-only-v1` opts
+in. The owner requires a fresh boot, pins `work\.twig\core-workspace.json`
+for its lifetime, and checks the native provider again before each workspace
+operation. Plan commands and legacy Bench acquisition are unavailable. The
+pinned TLS status returns `desktopDeveloperMode: "native-only-v1"` and the
+existing boot-specific `executionSession`; neither a fixture UUID nor this
+string in a local file is evidence of a live owner. Close/reopen the panel
+against the same boot; start a new fixture for another test run.
+
+### Signed installation
+
 Supply trusted historic and new exact-source matched artifacts and signer
 policy/attestation for the **whole set**, including server managed payload and
 operators, Canvas host/assets/extension and the selection manifest. Twig

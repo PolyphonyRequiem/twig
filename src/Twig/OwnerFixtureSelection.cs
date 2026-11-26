@@ -8,8 +8,9 @@ namespace Twig;
 
 // No installed selection enables this path. Each fixture gets one physical metadata home,
 // independent of the launcher's data/port arguments and of its legacy discovery mirror.
-internal sealed record OwnerFixtureSelection(string Root, string Home, int Port, string Certificate, string Runtime)
+internal sealed record OwnerFixtureSelection(string Root, string Home, int Port, string Certificate, string Runtime, bool NativeDesktop = false)
 {
+    internal const string DesktopMode = "native-only-v1";
     internal const string Protocol = "local-execution-v2";
     internal const string CutoverHeld = "This candidate requires a qualified cold cutover. No command was dispatched. Keep using the original matched installation.";
     private static string Fixtures => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -35,12 +36,13 @@ internal sealed record OwnerFixtureSelection(string Root, string Home, int Port,
         using var mirror = JsonDocument.Parse(CommandEndpoint.ReadSmall(Path.Combine(root, "current.json"), 16384));
         if (!Same(home, mirror.RootElement.GetProperty("privateDataDir").GetString()))
             throw new InvalidDataException("Conflicting owner fixture discovery selection.");
-        if (fields.Length != 3 || !int.TryParse(fields[0], NumberStyles.None, CultureInfo.InvariantCulture, out var port)
+        if (!(fields.Length == 3 || fields.Length == 4 && fields[3] == DesktopMode)
+            || !int.TryParse(fields[0], NumberStyles.None, CultureInfo.InvariantCulture, out var port)
             || port is < 1 or > 65535 or 443 || fields[1].Length != 40 || !fields[1].All(char.IsAsciiHexDigit)
             || !Path.IsPathFullyQualified(fields[2]) || fields[2].StartsWith('\\') || fields[2].AsSpan(2).Contains(':')
             || !Same(Path.GetFileName(fields[2]), "Twig.Server.exe") || Path.GetFullPath(fields[2]) != fields[2])
             throw new InvalidDataException("Invalid owner fixture selection record.");
-        return new(root, home, port, fields[1], fields[2]);
+        return new(root, home, port, fields[1], fields[2], fields.Length == 4);
     }
 
     internal FileStream HoldSelection()
@@ -51,8 +53,27 @@ internal sealed record OwnerFixtureSelection(string Root, string Home, int Port,
             if (Read() != this) throw new InvalidDataException("Owner selection changed before startup.");
             return lease;
         }
-        catch { lease.Dispose(); throw; }
-    }
+            catch { lease.Dispose(); throw; }
+        }
+
+        internal FileStream HoldNativeWorkspace()
+        {
+            var work = Path.Combine(Root, "work");
+            var twig = Path.Combine(work, ".twig");
+            var marker = Path.Combine(twig, Infrastructure.Services.CoreWorkspaceFactory.FileName);
+            if (new[] { work, twig, marker }.Any(p => File.GetAttributes(p).HasFlag(FileAttributes.ReparsePoint)))
+                throw new InvalidDataException("Developer desktop requires a physical fixture workspace.");
+            var lease = File.Open(marker, FileMode.Open, FileAccess.Read, FileShare.Read);
+            try
+            {
+                var document = JsonSerializer.Deserialize(lease, Infrastructure.Services.CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument);
+                if (document?.Connection?.Provider.Value != "twig" || document.DatabaseInstance == Guid.Empty
+                    || !Same(document.DatabasePath, Path.Combine(twig, "core.db")))
+                    throw new InvalidDataException("Developer desktop requires its own local native Twig workspace.");
+                return lease;
+            }
+            catch { lease.Dispose(); throw; }
+        }
 
     internal void VerifyLaunch(string data, int port, string? certificate)
     {

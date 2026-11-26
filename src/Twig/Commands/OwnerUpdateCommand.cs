@@ -24,7 +24,7 @@ internal sealed record CanvasUpdateGuard(NativeSourceStamp Source, string? Basel
 internal sealed partial class UpdateReplyJson : JsonSerializerContext;
 
 internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore actions, IServiceProvider? hostServices = null,
-    CancellationToken stopping = default)
+    CancellationToken stopping = default, bool nativeDesktop = false)
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> routines = new();
     private readonly SemaphoreSlim acquisitions = new(8, 8);
@@ -168,6 +168,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                 throw new InvalidDataException("The fixture workspace cannot redirect its authority.");
             using var pinned = File.Open(marker, FileMode.Open, FileAccess.Read, FileShare.Read);
             var document = await JsonSerializer.DeserializeAsync(pinned, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument, ct);
+            if (nativeDesktop && (document?.Connection?.Provider.Value != "twig" || config.ResolveWorkItemProviderKind() != "twig"))
+                throw new InvalidDataException("Developer desktop accepts only a local native Twig workspace.");
             if (!OwnerFixtureSelection.Same(document?.DatabasePath, Path.Combine(twig, "core.db"))
                 || new FileInfo(document!.DatabasePath).Attributes.HasFlag(FileAttributes.ReparsePoint))
                 throw new InvalidDataException("The fixture requires its own physical Core store.");

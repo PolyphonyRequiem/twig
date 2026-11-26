@@ -31,6 +31,29 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     [QualificationFact, SupportedOSPlatform("windows")]
     public Task MatchedCliFreezesInputAndFindsOnlyTheOriginalSubmissionAfterRestart() => RunOwnerScenario(false);
 
+    [QualificationFact, SupportedOSPlatform("windows")]
+    public Task NativeDesktopOwnerAdmitsOnlyTheSelectedLocalWorkspace() => RunOwnerScenario(false, desktop: true);
+
+    [Theory]
+    [InlineData("ado")]
+    [InlineData("github")]
+    public void NativeDesktopRejectsRemoteWorkspaceBeforeOpeningProvider(string provider)
+    {
+        var root = Directory.CreateTempSubdirectory("twig-desktop-admission-");
+        try
+        {
+            var twig = Directory.CreateDirectory(Path.Combine(root.FullName, "work", ".twig"));
+            var marker = new CoreWorkspaceDocument(1, Path.Combine(twig.FullName, "core.db"), Guid.NewGuid(),
+                new(new(provider), "scope", "destination", "actor"), "actor");
+            File.WriteAllBytes(Path.Combine(twig.FullName, CoreWorkspaceFactory.FileName),
+                JsonSerializer.SerializeToUtf8Bytes(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument));
+            var selection = new OwnerFixtureSelection(root.FullName, Path.Combine(root.FullName, "home"), 0, "", "", true);
+            Should.Throw<InvalidDataException>(() => selection.HoldNativeWorkspace()).Message.ShouldContain("local native");
+            File.Exists(marker.DatabasePath).ShouldBeFalse();
+        }
+        finally { root.Delete(true); }
+    }
+
     private sealed class CanvasQualificationFact : FactAttribute
     {
         public CanvasQualificationFact()
@@ -133,7 +156,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
     private async Task RunOwnerScenario(bool concurrent, bool deliveryConflict = false, string? remote = null, bool casLosses = false,
         bool begin = false, bool reboot = false, bool editPending = false, bool sameBootReceipt = false, bool create = false,
         bool interruptedPlan = false, bool admittedPlan = false, bool canvas = false, bool verifiedPlan = false,
-        bool membership = false, string? late = null, bool drain = false, bool missingClaim = false)
+        bool membership = false, string? late = null, bool drain = false, bool missingClaim = false, bool desktop = false)
     {
         var id = Guid.NewGuid().ToString("D");
         var root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Twig.OwnerFixtures", id);
@@ -188,7 +211,8 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             socket.Start();
             var port = ((IPEndPoint)socket.LocalEndpoint).Port.ToString();
             socket.Stop();
-            await File.WriteAllLinesAsync(Path.Combine(root, "owner.fixture"), [port, certificate, server]);
+            await File.WriteAllLinesAsync(Path.Combine(root, "owner.fixture"), desktop
+                ? [port, certificate, server, OwnerFixtureSelection.DesktopMode] : [port, certificate, server]);
             await File.WriteAllTextAsync(Path.Combine(root, "current.json"),
                 $$"""{"privateDataDir":{{JsonSerializer.Serialize(home)}}}""");
             var review = Guid.NewGuid().ToString("D");
@@ -320,7 +344,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             }
             var displayBench = Guid.NewGuid();
             CoreWorkspaceDocument? projection = null;
-            if (remote == "ado" || canvas)
+            if (remote == "ado" || canvas || desktop)
             {
                 var marker = await File.ReadAllBytesAsync(Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName));
                 projection = JsonSerializer.Deserialize(marker, CoreWorkspaceJsonContext.Default.CoreWorkspaceDocument)!;
@@ -337,7 +361,7 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                     if (remote == "ado")
                         (await defs.SaveViewRulesAsync(work, c, 0, [new(SelectorKind.Pin, Key("43"), connection: c)])).IsSuccess.ShouldBeTrue();
                 }
-                var pin = ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, canvas ? "1" : "44");
+                var pin = ItemKey.Remote(projection.Connection.Provider, projection.Connection.ResourceScope, canvas || desktop ? "1" : "44");
                 var pinned = await new UserBenchStore(Path.Combine(home, "benches.db")).SaveAsync(new(displayBench, "Unrelated pin",
                     [new(SelectorKind.Pin, pin, connection: projection.Connection)]), 0);
                 pinned.IsSuccess.ShouldBeTrue();
@@ -379,6 +403,35 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 }
             }
             await StartOwner();
+            if (desktop)
+            {
+                using var http = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false });
+                using var status = JsonDocument.Parse(await http.GetStringAsync($"https://localhost:{port}/api/v1/status"));
+                status.RootElement.GetProperty("desktopDeveloperMode").GetString().ShouldBe("native-only-v1");
+                var desktopRun = await File.ReadAllLinesAsync(Path.Combine(home, "owner.run"));
+                status.RootElement.GetProperty("executionSession").GetString().ShouldBe($"local-execution-v2/{desktopRun[0]}");
+                (await Cli(null, "plan", "continue", "foreign", "--bench", displayBench.ToString("D"), "-o", "json")).Code.ShouldBe(2);
+                var refresh = await Cli(null, "workspace", "--bench", "Unrelated pin", "--refresh", "-o", "json");
+                refresh.Code.ShouldBe(0, refresh.Error);
+                var marker = Path.Combine(work, ".twig", CoreWorkspaceFactory.FileName);
+                Should.Throw<IOException>(() => { using var rewrite = File.OpenWrite(marker); });
+                if (Environment.GetEnvironmentVariable("TWIG_DESKTOP_HANDOFF") is { } handoff)
+                {
+                    if (!Path.IsPathFullyQualified(handoff)) throw new ArgumentException("Supply an absolute path to a new handoff file.");
+                    await using (var ready = new FileStream(handoff, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+                    await using (var writer = new StreamWriter(ready)) await writer.WriteLineAsync(root);
+                    var clock = Stopwatch.StartNew();
+                    while (!File.Exists(Path.Combine(root, "desktop.finished")) && clock.Elapsed < TimeSpan.FromMinutes(20))
+                    {
+                        if (owner!.HasExited) throw new InvalidOperationException("The selected desktop owner exited.");
+                        await Task.Delay(500);
+                    }
+                    if (!File.Exists(Path.Combine(root, "desktop.finished"))) throw new TimeoutException("Desktop handoff expired.");
+                }
+                (await Cli(null, "server", "stop", "-o", "json")).Code.ShouldBe(0);
+                await owner!.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(15));
+                return;
+            }
             if (late is not null)
             {
                 await File.WriteAllTextAsync(Path.Combine(root, "park-read"), "");

@@ -7,9 +7,9 @@ using Twig.Rendering;
 namespace Twig.Server;
 
 internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStore benches,
-    IServiceProvider? hostServices = null, CancellationToken stopping = default)
+    IServiceProvider? hostServices = null, CancellationToken stopping = default, bool nativeDesktop = false)
 {
-    private readonly OwnerUpdateCommand updates = new(boot, home, benches, hostServices, stopping);
+    private readonly OwnerUpdateCommand updates = new(boot, home, benches, hostServices, stopping, nativeDesktop);
     internal Task DrainAsync() => updates.DrainAsync();
     internal async Task<UpdateReply> CanvasUpdate(string[] args, NativeSourceStamp source, string? baseline,
         Func<bool> stillAuthorized, string? frozenText, CancellationToken ct)
@@ -82,7 +82,7 @@ internal sealed class OwnerCommandEndpoint(Guid boot, string home, UserBenchStor
         }
         var result = request.Arguments switch
         {
-            ["plan", ..] => await OwnerPlanCommand.ExecuteAsync(home, benches, request.Directory, request.Arguments,
+            ["plan", ..] when !nativeDesktop => await OwnerPlanCommand.ExecuteAsync(home, benches, request.Directory, request.Arguments,
                 output, errors, hostServices, token),
             ["workspace" or "ws", "--bench", var name, "-o", "json"] => await Workspace(name),
             ["workspace" or "ws", "--bench", _, "--refresh", "-o", "json"] or ["update" or "note" or "seed", ..] => await updates.ExecuteAsync(request.Arguments, request.Directory, async () =>

@@ -162,6 +162,24 @@ catch (IOException error) when (fixture is not null)
 }
 using var instance = lease;
 using var pinnedSelection = fixture?.HoldSelection();
+var nativeDesktop = fixture?.NativeDesktop == true;
+// A developer boot must not inherit pages, grants or recovery work from a general provider fixture.
+if (nativeDesktop && (!instance.Created || File.Exists(Path.Combine(data, "released-benches.db"))
+    || Directory.Exists(Path.Combine(data, "presentation-v2"))))
+{
+    Console.Error.WriteLine("Developer desktop requires a fresh native fixture.");
+    Environment.ExitCode = 2;
+    return;
+}
+FileStream? desktopWorkspace;
+try { desktopWorkspace = nativeDesktop ? fixture!.HoldNativeWorkspace() : null; }
+catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException)
+{
+    Console.Error.WriteLine("Developer workspace admission failed: " + error.Message);
+    Environment.ExitCode = 2;
+    return;
+}
+using var pinnedWorkspace = desktopWorkspace;
 NativeConnectionSetupGateway? setup;
 try { setup = fixture is null ? new(new NativeConnectionSetup(NativeConnectionSetup.ResolveUserHome())) : null; }
 catch (Exception error) when (error is ArgumentException or InvalidOperationException)
@@ -183,7 +201,8 @@ using var stopSignal = ServerLauncher.CreateStopSignal(processInstance, fixture 
 // Exit this owner with the OS lease still held rather than releasing a nonquiescent claim.
 using var drainDeadline = fixture is null ? null : new Timer(_ => Environment.Exit(1));
 await using var app = NativeBenchHost.Build(new(port, data, Certificate: certificate, WindowsSignIn: true,
-    CanvasInstallRoot: canvasRoot, ServerId: serverId, ProcessInstance: processInstance, ExecutionV2: fixture is not null), panel, sessions, changes, setup);
+    CanvasInstallRoot: canvasRoot, ServerId: serverId, ProcessInstance: processInstance, ExecutionV2: fixture is not null,
+    NativeDesktop: nativeDesktop), panel, sessions, changes, setup);
 using var armDeadline = app.Lifetime.ApplicationStopping.Register(() =>
     drainDeadline?.Change(TimeSpan.FromSeconds(10), Timeout.InfiniteTimeSpan));
 var stopWait = ThreadPool.RegisterWaitForSingleObject(stopSignal, (_, _) => app.Lifetime.StopApplication(),
@@ -209,7 +228,7 @@ if (fixture is not null)
     var display = app.Services.GetRequiredService<ReleasedBenchDisplay>();
     var root = Path.Combine(fixture.Root, "work");
     display.RecoverWorkspace(Path.Combine(root, ".twig", "core.db"));
-    await display.RecoverPlans(root, definitions, stopping);
+    if (!nativeDesktop) await display.RecoverPlans(root, definitions, stopping);
     fixture.RecordRun(processInstance, buildId);
 }
 var execution = fixture is null ? null : app.Services.GetRequiredService<OwnerCommandEndpoint>();

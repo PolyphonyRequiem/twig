@@ -236,7 +236,7 @@ public sealed class NativePlanReview
     internal async Task<Result<bool>> ObserveVerifiedTargetAsync(NativePlanScope scope, StoreSnapshot state,
         JournalEntry row, ItemKey target, CancellationToken ct)
     {
-        using var runtime = await Runtime(scope.OriginRoot, configure, ct).ConfigureAwait(false);
+        using var runtime = await Runtime(scope.OriginRoot, configure, ct, executionOwner: true).ConfigureAwait(false);
         var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
         using var registry = new SqliteSystemWorktreeRegistry(factory.ExecutionRegistryPath, TimeProvider.System);
         var refs = await registry.CoreAttemptReferencesAsync(scope.StoreInstance, ct);
@@ -257,6 +257,66 @@ public sealed class NativePlanReview
             ? await factory.RevalidateSourceAsync(origin, ct) : Result<bool>.Fail(ErrorCode.Partial, "No exact original target readback.");
     }
 
+    internal async Task<Result<bool>> VerifyAcknowledgementsAsync(NativePlanReviewReference original,
+        NativePlanReviewScope entry, CancellationToken ct, int? operation = null)
+    {
+        var scope = entry.Scope;
+        var index = original.Document.Scopes.IndexOf(entry);
+        if (original.Digest != Digest || index < 0 || index >= original.Admitted)
+            return Result<bool>.Fail(ErrorCode.Conflict, "Only an originally admitted Plan scope can be verified.");
+        if (entry.Plan is null || index < original.Delivered) return Result<bool>.Ok(true);
+        var plan = Parse(entry.Plan);
+        var captures = entry.Captures.Where((_, ordinal) => entry.Previews[ordinal].Length != 0).ToArray();
+        if (plan.Connection != scope.Source.Connection || plan.Review is not { } binding
+            || binding.Revision != original.Document.Id || binding.Store != scope.StoreInstance
+            || binding.Actor != scope.Source.PrincipalId || binding.Capture != CaptureBinding(entry.Captures, entry.CaptureVersions)
+            || captures.Length != plan.Operations.Length)
+            return Result<bool>.Fail(ErrorCode.Conflict, "The retained Plan does not bind this exact scope and its reviewed captures.");
+
+        IEnumerable<JournalEntry> Pending(StoreSnapshot state) => state.Journal.Where(row =>
+            row.Digest == plan.Digest && (operation is null || row.Operation == operation)
+            && row.Operation >= 0 && row.Operation < captures.Length && original.Units.Contains(captures[row.Operation].Id)
+            && !original.DeliveredUnits.Contains(captures[row.Operation].Id)
+            && (row.Status == OpStatus.Applied || row.CanRecheckAcknowledgedCreate && plan.Operations[row.Operation].Kind == OpKind.Create));
+
+        var snapshot = await Snapshot(scope, ct).ConfigureAwait(false);
+        if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
+        if (!Pending(snapshot.Value).Any()) return Result<bool>.Ok(true);
+        try
+        {
+            using var runtime = await Runtime(scope.OriginRoot, configure, ct, executionOwner: true).ConfigureAwait(false);
+            var factory = runtime.GetRequiredService<CoreWorkspaceFactory>();
+            var opened = await factory.OpenScopedAsync(scope, scope.Source, ct).ConfigureAwait(false);
+            if (!opened.IsSuccess) return Result<bool>.Fail(opened.Error);
+            using var handle = opened.Value;
+            snapshot = await handle.Workspace.SnapshotAsync(ct).ConfigureAwait(false);
+            if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
+            using var registry = new SqliteSystemWorktreeRegistry(factory.ExecutionRegistryPath, TimeProvider.System);
+            var refs = await registry.CoreAttemptReferencesAsync(scope.StoreInstance, ct).ConfigureAwait(false);
+            if (!refs.IsSuccess) return Result<bool>.Fail(refs.Error);
+            Error? error = null;
+            foreach (var row in Pending(snapshot.Value))
+            {
+                var op = plan.Operations[row.Operation];
+                var exact = refs.Value.Where(r => r.Digest == row.Digest && r.Operation == row.Operation).ToArray();
+                if (op.Item != Parse(captures[row.Operation].IntentJson).Operations.Single().Item
+                    || row.Attempt == Guid.Empty || exact.Length == 0 || exact.Any(r => r.Attempt != row.Attempt)
+                    || !NativeCoreExecution.ReferencesMatch(snapshot.Value, exact))
+                {
+                    error ??= new(ErrorCode.Indeterminate, "Original scope and registry attempt evidence disagree.");
+                    continue;
+                }
+                var verified = await handle.Workspace.VerifyPlanAcknowledgementAsync(plan, row.Receipts[0], ct).ConfigureAwait(false);
+                if (!verified.IsSuccess) error ??= verified.Error;
+                else if (verified.Value.Status != OpStatus.Verified)
+                    error ??= verified.Value.Error ?? new(ErrorCode.Indeterminate, "The original acknowledgement is not yet Verified.");
+            }
+            return error is null ? Result<bool>.Ok(true) : Result<bool>.Fail(error);
+        }
+        catch (ConnectionBindingResolutionException)
+        { return Result<bool>.Fail(ErrorCode.Conflict, "An active native operation protects the original Plan attempt."); }
+    }
+
     internal async Task<Result<NativePlanOutcome>> AbandonUnadmittedAsync(CancellationToken ct = default)
     {
         var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);
@@ -267,11 +327,22 @@ public sealed class NativePlanReview
             var changed = await user.AdvancePlanReviewAsync(current, true, current.Delivered, current.Admitted, ct, abandon: true).ConfigureAwait(false);
             if (!changed.IsSuccess) return Result<NativePlanOutcome>.Fail(changed.Error);
         }
-        return await ObserveAsync(ct).ConfigureAwait(false);
+        return await ObserveDeliveryAsync(null, ct).ConfigureAwait(false);
     }
 
     public async Task<Result<NativePlanOutcome>> ObserveAsync(CancellationToken ct = default)
-        => await ObserveDeliveryAsync(null, ct);
+    {
+        var retained = await user.ReadPlanReviewAsync(Digest, ct).ConfigureAwait(false);
+        if (!retained.IsSuccess) return Result<NativePlanOutcome>.Fail(retained.Error);
+        reference = retained.Value;
+        Error? error = null;
+        foreach (var scope in retained.Value.Document.Scopes.Skip(retained.Value.Delivered).Take(retained.Value.Admitted - retained.Value.Delivered))
+        {
+            var verified = await VerifyAcknowledgementsAsync(retained.Value, scope, ct).ConfigureAwait(false);
+            if (!verified.IsSuccess) error ??= verified.Error;
+        }
+        return await ObserveDeliveryAsync(error, ct).ConfigureAwait(false);
+    }
 
     internal async Task<Result<NativePlanOutcome>> ObserveDeliveryAsync(Error? reason, CancellationToken ct)
     {
@@ -366,10 +437,13 @@ public sealed class NativePlanReview
                             return Result<NativePlanOutcome>.Ok(await Outcome(saved.IsSuccess ? saved.Value.Error
                                 ?? new(ErrorCode.Indeterminate, "Core effects or draft settlement remain unconfirmed.") : saved.Error, ct).ConfigureAwait(false));
                     }
+                    var verified = deliveryOnly ? await VerifyAcknowledgementsAsync(reference, scope, ct).ConfigureAwait(false)
+                        : Result<bool>.Ok(true);
                     var delivered = await Deliver(scope, handle.Workspace, factory, ct).ConfigureAwait(false);
-                    if (!delivered.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(delivered.Error, ct).ConfigureAwait(false));
+                    var verificationError = verified.IsSuccess ? null : verified.Error;
+                    if (!delivered.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(verificationError ?? delivered.Error, ct).ConfigureAwait(false));
                     if (!delivered.Value)
-                        return Result<NativePlanOutcome>.Ok(await Outcome(new(ErrorCode.Indeterminate,
+                        return Result<NativePlanOutcome>.Ok(await Outcome(verificationError ?? new(ErrorCode.Indeterminate,
                             "Verified original effects were delivered. Review only the remaining proven no-effect or untouched intent; uncertain effects remain protected."), ct).ConfigureAwait(false));
                     var advanced = await user.AdvancePlanReviewAsync(reference, true, index + 1, reference.Admitted, ct).ConfigureAwait(false);
                     if (!advanced.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(advanced.Error, ct).ConfigureAwait(false));
@@ -377,6 +451,7 @@ public sealed class NativePlanReview
                     library = await user.ReadAsync(ct).ConfigureAwait(false);
                     if (!library.IsSuccess) return Result<NativePlanOutcome>.Ok(await Outcome(library.Error, ct).ConfigureAwait(false));
                 }
+
                 return Result<NativePlanOutcome>.Ok(await Outcome(null, ct).ConfigureAwait(false));
             }
             finally { foreach (var lease in leases.AsEnumerable().Reverse()) lease.Dispose(); }
@@ -504,7 +579,8 @@ public sealed class NativePlanReview
     }
     private static Plan Parse(string json) => UserBenchStore.ParseIntent(json);
     private static string Bytes(Plan plan) => Encoding.UTF8.GetString(Model.PlanBytes(plan));
-    private static async Task<ServiceProvider> Runtime(string root, Action<IServiceCollection>? configure, CancellationToken ct)
+    private static async Task<ServiceProvider> Runtime(string root, Action<IServiceCollection>? configure, CancellationToken ct,
+        bool executionOwner = false)
     {
         if (!Path.IsPathFullyQualified(root) || Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) != root)
             throw new ArgumentException("An exact canonical native origin is required.", nameof(root));
@@ -512,7 +588,16 @@ public sealed class NativePlanReview
         var configuration = await TwigConfiguration.LoadSplitAsync(paths, ct).ConfigureAwait(false);
         var services = new ServiceCollection();
         configure?.Invoke(services);
-        services.AddCoreWorkspaceServices(configuration, paths);
+        services.AddCoreWorkspaceServices(configuration, paths, executionOwner);
         return services.BuildServiceProvider();
     }
+}
+
+internal sealed partial class CoreWorkspace
+{
+    // Qualified readback preserves Applied on transient failures and never enters the dispatch path.
+    internal Task<Result<Receipt>> VerifyPlanAcknowledgementAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => provider is IOriginalUpdateProvider original
+            ? original.VerifyOriginalAsync(plan, acknowledgement, ct)
+            : Task.FromResult(Result<Receipt>.Fail(ErrorCode.Unsupported, "This Plan provider cannot verify an original acknowledgement."));
 }

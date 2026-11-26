@@ -143,7 +143,7 @@ internal sealed partial class ReleasedBenchDisplay
         {
             if (entry.Scope.Source != origin || !NativePathComparer.Instance.Equals(root, entry.Scope.OriginRoot))
                 return Result<NativePlanOutcome>.Fail(ErrorCode.Conflict, "The selected owner is not the reviewed Plan origin.");
-            var result = await DeliverUnit(root, origin, definitions, review, doc, entry, index, capture, ordinal, ct);
+            var result = await DeliverUnit(root, origin, definitions, review, original, entry, index, capture, ordinal, ct);
             if (!result.IsSuccess)
             {
                 lock (release) if (planPending.ContainsKey(review.Digest)) return Result<NativePlanOutcome>.Fail(result.Error);
@@ -156,10 +156,11 @@ internal sealed partial class ReleasedBenchDisplay
     }
 
     private async Task<Result<bool>> DeliverUnit(string root, NativeSourceStamp origin, UserBenchStore definitions,
-        NativePlanReview review, NativePlanReviewDocument doc, NativePlanReviewScope entry, int index,
+        NativePlanReview review, NativePlanReviewReference original, NativePlanReviewScope entry, int index,
         NativeEditorCapture capture, int ordinal, CancellationToken ct)
     {
         static Result<bool> Refuse(string reason) => Result<bool>.Fail(ErrorCode.Conflict, reason);
+        var doc = original.Document;
         PlanPublication? group;
         lock (release) planPending.TryGetValue(review.Digest, out group);
         var scope = entry.Scope;
@@ -180,15 +181,20 @@ internal sealed partial class ReleasedBenchDisplay
         ItemKey? pin = null;
         if (group is null)
         {
+            bool MatchesDraft(RetainedItem? draft)
+            {
+                if (draft is null) return true;
+                var fingerprint = CoreWorkspace.Fingerprint(origin.Connection, draft);
+                var version = draft is LocalEdits { CaptureRevision: { } revision } ? $"{revision:D}:{fingerprint}" : fingerprint;
+                return fingerprint == capture.DraftFingerprint && version == entry.CaptureVersions[ordinal];
+            }
             var draft = state.RetainedItems.SingleOrDefault(d => d.Key == key);
-            var fingerprint = CoreWorkspace.Fingerprint(origin.Connection, draft);
-            var version = draft is LocalEdits { CaptureRevision: { } revision } ? $"{revision:D}:{fingerprint}" : fingerprint;
-            if (draft is not null && (fingerprint != capture.DraftFingerprint || version != entry.CaptureVersions[ordinal]))
+            if (!MatchesDraft(draft))
                 return Refuse("The reviewed draft changed; newer intent is protected.");
             if (entry.Previews[ordinal].Length == 0)
             {
                 if (draft is not LocalEdits edit) return Refuse("No original converged draft is available.");
-                var observed = await review.ObserveConvergenceAsync(scope, edit, version, ct);
+                var observed = await review.ObserveConvergenceAsync(scope, edit, entry.CaptureVersions[ordinal], ct);
                 if (!observed.IsSuccess) return observed;
             }
             else
@@ -199,8 +205,21 @@ internal sealed partial class ReleasedBenchDisplay
                     || binding.Revision != doc.Id || binding.Store != scope.StoreInstance || binding.Actor != origin.PrincipalId
                     || binding.Capture != NativePlanReview.CaptureBinding(entry.Captures, entry.CaptureVersions)
                     || operation >= plan.Operations.Length || plan.Operations[operation].Item != key
-                    || !state.Plans.Any(p => p.Digest == plan.Digest)
-                    || state.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == operation) is not { Status: OpStatus.Verified } row)
+                    || !state.Plans.Any(p => p.Digest == plan.Digest))
+                    return Refuse("No original Plan receipt for this admitted operation.");
+                var row = state.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == operation);
+                if (row is { Status: OpStatus.Applied } || row?.CanRecheckAcknowledgedCreate == true && key.IsLocal)
+                {
+                    var verified = await review.VerifyAcknowledgementsAsync(original, entry, ct, operation);
+                    if (!verified.IsSuccess) return verified;
+                    snapshot = await opened.Value.ReadAsync(origin.Connection, ct);
+                    if (!snapshot.IsSuccess) return Result<bool>.Fail(snapshot.Error);
+                    state = snapshot.Value;
+                    if (!MatchesDraft(state.RetainedItems.SingleOrDefault(d => d.Key == key)))
+                        return Refuse("The reviewed draft changed; newer intent is protected.");
+                    row = state.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == operation);
+                }
+                if (row is not { Status: OpStatus.Verified })
                     return Refuse("No original Verified receipt for this admitted operation; uncertain or failed work is inspect-only.");
                 if (key.IsLocal)
                 {

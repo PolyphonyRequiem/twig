@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.Data.Sqlite;
 using Twig.Core;
 using Twig.Infrastructure.Services;
+using Twig.Store.Sqlite;
 
 namespace Twig.Server;
 
@@ -44,7 +45,8 @@ internal sealed partial class ReleasedBenchDisplay
             commit = apply => definitions.PublishIfCurrent(root, source.Connection, catalog.Value, exclusions.Value.Revision, apply, ct);
             var owners = sessions.StandaloneDisplayOwners(catalog.Value.InstanceId);
             var partition = new Guid(Convert.FromHexString(Fingerprint(source.Connection, key)).AsSpan(0, 16));
-            if (exclusions.Value.Exclusions.IsEmpty)
+            if (exclusions.Value.Exclusions.All(s => s.Kind == SelectorKind.Pin)
+                && !exclusions.Value.Exclusions.Any(s => s.Item == key))
                 foreach (var bench in catalog.Value.Benches.Where(b => b.Selectors.Any(s => s.Connection == source.Connection
                     && s.Kind == SelectorKind.Pin && s.Item == key)))
                 {
@@ -54,7 +56,12 @@ internal sealed partial class ReleasedBenchDisplay
                 }
         }
         var observed = await ObserveExact(source.Connection, key, scopes, read, commit, source, revisions);
-        if (publish && observed.IsSuccess) await ProjectWorkspace(root, source, definitions);
+        if (observed.IsSuccess)
+        {
+            if (publish) await ProjectWorkspace(root, source, definitions);
+            else if (WorkspacePublication.Current is Producer producer)
+                await producer.ExpectMirror(root, source, observed.Value, ct);
+        }
         return observed;
     }
 
@@ -69,7 +76,6 @@ internal sealed partial class ReleasedBenchDisplay
         {
             RequireOpen();
             if (scopes.Any(Dirty)) return Result<QueryPage>.Fail(ErrorCode.Conflict, "The selected Bench has unsettled inputs.");
-            ChangeObservations(origin);
             latest[item] = checked(++sequence);
             foreach (var scope in scopes) partitionRequests[scope] = sequence;
             witness = new(connection, item, Withdrawal(connection, item), sequence, clock.GetTimestamp());
@@ -90,11 +96,27 @@ internal sealed partial class ReleasedBenchDisplay
             Withdraw(origin, key);
             return Result<QueryPage>.Fail(ErrorCode.Partial, "The exact item was not observed; no grant was issued.");
         }
-        if (scopes.Count > 0)
+        var publish = new List<DisplayPartition>();
+        lock (release)
+        {
+            if (!Current(witness))
+                return Result<QueryPage>.Fail(ErrorCode.Conflict, "Observation superseded or expired.");
+            foreach (var (slot, scan) in scans.Where(p => p.Key.Connection == origin
+                && p.Value.Observed.TryGetValue(key, out var revision) && revision != observed.Revision).ToArray())
+                RemoveScan(slot);
+            foreach (var entry in entries.Values.Where(e => e.Grant is { ScanRequest: null } grant && grant.Item == item
+                && grant.Revision != observed.Revision?.Token && !scopes.Contains(e.Scope)).ToArray())
+                Withhold(entry.Scope);
+            foreach (var scope in scopes)
+                if (!scans.TryGetValue((scope.Store, scope.Bench, origin), out var scan)
+                    || !ScanEligible(scan) || scan.Catalog != revisions?.GetValueOrDefault(scope.Bench))
+                    publish.Add(scope);
+        }
+        if (publish.Count > 0)
         {
             witness = witness with { Revision = observed.Revision?.Token, Source = source };
             var pages = Pages(Rows("provider", key.NativeId!, observed.Type, observed.Fields));
-            foreach (var scope in scopes)
+            foreach (var scope in publish)
             {
                 bool Apply() => Publish(scope, pages, witness.Request, witness, ruleRevision: revisions?.GetValueOrDefault(scope.Bench) ?? 0);
                 if (!(commit is null ? Apply() : await commit(Apply)))
@@ -126,7 +148,13 @@ internal sealed partial class ReleasedBenchDisplay
         long stamp;
         lock (release)
         {
-            ChangeObservations(connection);
+            if (key is null) ChangeObservations(connection);
+            else
+                foreach (var (slot, scan) in scans.Where(p => p.Key.Connection == connection && p.Value.Observed.ContainsKey(key)).ToArray())
+                {
+                    scans[slot] = scan with { State = "Denied" };
+                    generations[(Guid.Empty, slot.Store, slot.Bench)] = Guid.NewGuid();
+                }
             withdrawals[scope] = stamp = checked(++watermark);
             NotifyAuthorization();
         }

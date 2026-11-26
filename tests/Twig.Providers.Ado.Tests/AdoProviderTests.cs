@@ -129,20 +129,49 @@ public sealed partial class AdoProviderTests
     public async Task PlanningDiscoveryUsesExactTeamCalendarWithoutReadingOrMutatingWorkItems()
     {
         using var f = await Fixture.Create();
+        f.Http.ProjectIterationDates = new() { ["startDate"] = "2026-11-01T02:00:00+02:00", ["finishDate"] = null };
+        f.Http.TeamIterationDates["startDate"] = "2026-10-31T20:00:00-04:00";
         var result = await f.Provider.DiscoverPlanningAsync(f.Connection, "Selected team", default);
         result.IsSuccess.ShouldBeTrue(result.IsSuccess ? "" : result.Error.Message);
         result.Value.Team.ShouldBe(Fixture.Process);
         result.Value.Areas.ShouldContain("Native Project\\Area");
-        result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Sprint").SelectedTeam.ShouldBeTrue();
+        var selected = result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Sprint");
+        selected.SelectedTeam.ShouldBeTrue();
+        selected.Start.ShouldBe(new DateTimeOffset(2026, 11, 1, 0, 0, 0, TimeSpan.Zero));
+        selected.Start!.Value.Offset.ShouldBe(TimeSpan.FromHours(-4));
+        selected.Finish.ShouldBe(new DateTimeOffset(2026, 11, 7, 23, 59, 59, TimeSpan.Zero));
         result.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Other team's sprint").SelectedTeam.ShouldBeFalse();
         var absent = await f.Provider.DiscoverPlanningAsync(f.Connection, null, default);
         absent.IsSuccess.ShouldBeTrue();
         absent.Value.Team.ShouldBeNull();
         absent.Value.Iterations.ShouldAllBe(iteration => !iteration.SelectedTeam);
+        var project = absent.Value.Iterations.Single(iteration => iteration.Path == "Native Project\\Sprint");
+        project.Start.ShouldBe(selected.Start);
+        project.Start!.Value.Offset.ShouldBe(TimeSpan.FromHours(2));
+        project.Finish.ShouldBeNull();
         absent.Value.Gaps.ShouldNotBeEmpty();
         f.Http.WorkItemReads.ShouldBe(0);
         f.Http.Writes.ShouldBe(0);
         (await f.Stored()).Version.ShouldBe(0);
+    }
+
+    [Theory]
+    [InlineData(false, "startDate", "2026-11-01T00:00:00")]
+    [InlineData(false, "finishDate", "2026-11-07")]
+    [InlineData(true, "startDate", "2026-11-01")]
+    [InlineData(true, "finishDate", "2026-11-07T23:59:59")]
+    public async Task PlanningDiscoveryRefusesDatesWithoutExplicitOffsets(bool selectedTeam, string field, string value)
+    {
+        using var f = await Fixture.Create();
+        if (selectedTeam)
+            f.Http.TeamIterationDates[field] = value;
+        else
+            f.Http.ProjectIterationDates = new() { [field] = value };
+
+        var result = await f.Provider.DiscoverPlanningAsync(f.Connection, selectedTeam ? "Selected team" : null, default);
+        result.IsSuccess.ShouldBeFalse();
+        result.Error.Code.ShouldBe(ErrorCode.Unavailable);
+        result.Error.Message.ShouldContain("explicit UTC offset");
     }
 
     [Theory]
@@ -1588,6 +1617,12 @@ public sealed partial class AdoProviderTests
         internal List<int> QueryAfterIds = [];
         internal int WorkItemReads;
         internal string? PlanningDefect;
+        internal JsonObject? ProjectIterationDates;
+        internal JsonObject TeamIterationDates = new()
+        {
+            ["startDate"] = "2026-11-01T00:00:00Z",
+            ["finishDate"] = "2026-11-07T23:59:59Z",
+        };
         internal string? TeamRosterDefect;
         internal int TeamRosterCount = 101;
         internal List<int> TeamRosterSkips = [];
@@ -1763,7 +1798,10 @@ public sealed partial class AdoProviderTests
                 var children = new JsonArray();
                 if (PlanningDefect != "truncated")
                 {
-                    children.Add(new JsonObject { ["path"] = $"\\Native Project\\{structure}\\{child}", ["hasChildren"] = false });
+                    var childNode = new JsonObject { ["path"] = $"\\Native Project\\{structure}\\{child}", ["hasChildren"] = false };
+                    if (!area && ProjectIterationDates is not null)
+                        childNode["attributes"] = ProjectIterationDates.DeepClone();
+                    children.Add(childNode);
                     children.Add(new JsonObject { ["path"] = $"\\Native Project\\{structure}\\Other team's sprint", ["hasChildren"] = false });
                 }
                 return Json(new JsonObject { ["path"] = $"\\Native Project\\{structure}",
@@ -1790,7 +1828,7 @@ public sealed partial class AdoProviderTests
             if (path.Contains("/teams/"))
                 return Json($$"""{"id":"{{Fixture.Process}}","name":"{{(PlanningDefect == "foreign-team" ? "Different team" : "Selected team")}}"}""");
             if (path.EndsWith("/teamsettings/iterations"))
-                return Json("""{"count":1,"value":[{"path":"Native Project\\Sprint","attributes":{"startDate":"2026-11-01T00:00:00Z","finishDate":"2026-11-07T23:59:59Z"}}]}""");
+                return Json($$"""{"count":1,"value":[{"path":"Native Project\\Sprint","attributes":{{TeamIterationDates.ToJsonString()}}}]}""");
             if (path.Contains("/_apis/projects/"))
                 return Json($$"""{"id":"{{(Defect == "wrong-project" ? Fixture.Process : Fixture.Project)}}","name":"Native Project","capabilities":{"processTemplate":{"templateTypeId":"{{Fixture.Process}}"} } }""");
             if (path.Contains("/workitemicons/"))

@@ -8,6 +8,7 @@ namespace Twig.Infrastructure.Services;
 internal sealed record UpdateOrigin(Guid Store, Connection Connection, string Actor, string Item, bool IsSeed = false);
 internal sealed record UpdateIdentity(Guid Action, Guid Submission, Guid Review, string State);
 internal sealed record OriginalUpdate(UpdateIdentity Identity, string InputHash, Plan Plan, Guid Attempt, Guid? Owner, OriginalDispatch? Dispatch);
+internal sealed class PrivateInputChangedException() : IOException("The reviewed private input changed before dispatch.");
 
 public sealed partial class UserBenchStore
 {
@@ -31,7 +32,7 @@ public sealed partial class UserBenchStore
             attempt TEXT PRIMARY KEY REFERENCES update_actions(attempt), response_hash TEXT NOT NULL) STRICT;
         CREATE TABLE IF NOT EXISTS create_reservations(
             attempt TEXT PRIMARY KEY REFERENCES update_actions(attempt), item TEXT NOT NULL) STRICT;
-        """;
+        """ + InputSchema;
 
     private static string OriginKey(UpdateOrigin origin) => JsonSerializer.Serialize<string[]>([
         origin.Store.ToString("D"), origin.Connection.Provider.Value, origin.Connection.ResourceScope,
@@ -69,7 +70,13 @@ public sealed partial class UserBenchStore
                 command.CommandText = """
                     SELECT count(*) FROM update_actions a WHERE origin=$origin AND input_hash=$hash AND review<>$review
                       AND state IN ('NotStarted','ReviewRequired','RejectedNoEffect','DeliveryConflict','ObservationNeeded','Partial')
-                      AND NOT EXISTS(SELECT 1 FROM update_replacements r WHERE r.predecessor=a.attempt);
+                      AND NOT EXISTS(SELECT 1 FROM update_replacements r WHERE r.predecessor=a.attempt)
+                      AND NOT (a.state='ReviewRequired' AND a.dispatch IS NULL AND EXISTS (
+                          SELECT 1 FROM private_input_receipts old
+                          JOIN private_input_receipts next USING(scope,item,field)
+                          JOIN private_inputs i USING(scope,item,field)
+                          WHERE old.review=a.review AND next.review=$review AND next.version>old.version
+                            AND i.version=next.version AND i.write=next.write AND i.text IS NOT NULL));
                     """;
                 if (Convert.ToInt64(await command.ExecuteScalarAsync(token)) != 0)
                     return Result<UpdateIdentity>.Fail(ErrorCode.Conflict, "Inspect the original attempt. Replacement requires explicit no-effect re-review.");
@@ -232,6 +239,17 @@ public sealed partial class UserBenchStore
                 throw new InvalidDataException("Original dispatch correlation changed.");
             var result = await store.UpdateTransaction(async (command, token) =>
             {
+                // Private input replacement and dispatch use the same SQLite write lock.
+                // Compare the receipt, not the text: discard/recreate cannot revive a review.
+                command.CommandText = """
+                    SELECT 1 FROM private_input_receipts r
+                    WHERE r.review=$review AND NOT EXISTS (
+                        SELECT 1 FROM private_inputs i
+                        WHERE i.scope=r.scope AND i.item=r.item AND i.field=r.field
+                          AND i.version=r.version AND i.write=r.write AND i.text IS NOT NULL);
+                    """;
+                command.Parameters.AddWithValue("$review", original.Identity.Review.ToString("D"));
+                if (await command.ExecuteScalarAsync(token) is not null) return Result<bool>.Ok(false);
                 command.CommandText = """
                     UPDATE update_actions SET state='Running',dispatch=$request WHERE submission=$submission
                     AND digest=$digest AND attempt=$attempt AND owner=$owner AND state='Claimed' AND dispatch IS NULL;
@@ -241,9 +259,11 @@ public sealed partial class UserBenchStore
                 command.Parameters.AddWithValue("$attempt", original.Attempt.ToString("D"));
                 command.Parameters.AddWithValue("$owner", boot.ToString("D"));
                 command.Parameters.AddWithValue("$request", JsonSerializer.Serialize(request, UpdateJson.Default.OriginalDispatch));
-                return Result<bool>.Ok(await command.ExecuteNonQueryAsync(token) == 1);
+                return await command.ExecuteNonQueryAsync(token) == 1 ? Result<bool>.Ok(true)
+                    : Result<bool>.Fail(ErrorCode.Unavailable, "Original dispatch evidence could not be committed.");
             }, ct);
-            if (!result.IsSuccess || !result.Value) throw new IOException("Original dispatch evidence could not be committed.");
+            if (!result.IsSuccess) throw new IOException(result.Error.Message);
+            if (!result.Value) throw new PrivateInputChangedException();
         }
     }
 

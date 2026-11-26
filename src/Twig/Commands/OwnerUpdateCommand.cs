@@ -448,9 +448,14 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                     CaptureChanged = true;
                     throw new IOException("The reviewed local capture changed before dispatch.");
                 }
+                try { await inner.OpenAsync(plan, attempt, request, ct); }
+                catch (PrivateInputChangedException)
+                {
+                    CaptureChanged = true;
+                    throw;
+                }
                 if (plan.Operations.Single().Item is { IsLocal: false } remote)
                     publisher?.InvalidateItem(plan.Connection, remote);
-                await inner.OpenAsync(plan, attempt, request, ct);
             }
             if (Guid.TryParseExact(Environment.GetEnvironmentVariable("TWIG_TEST_PARK_ORIGINAL_REVIEW"), "D", out var parked)
                 && parked == review) await Task.Delay(TimeSpan.FromSeconds(30), ct);

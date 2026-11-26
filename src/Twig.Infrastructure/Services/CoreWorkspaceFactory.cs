@@ -136,7 +136,7 @@ internal sealed class CoreWorkspaceFactory(TwigConfiguration configuration, Twig
         if (source != expectedOrigin)
             return Result<CoreWorkspaceHandle>.Fail(ErrorCode.Conflict, "Native authoring authority changed while opening the Plan store.");
         var access = new CleanCoreAdoAccess(authentication, bindings, configuration, paths, authority,
-            document.Connection, document.PrincipalId, opened.Value);
+            document.Connection, document.PrincipalId, opened.Value, executionOwner);
         var registered = await NativeCoreExecution.RegisterAsync(bindings.RegistryPath,
             new(scope.StoreInstance, scope.DatabasePath, paths.RepoRoot, document.Connection), ct).ConfigureAwait(false);
         if (!registered.IsSuccess) return Result<CoreWorkspaceHandle>.Fail(registered.Error);

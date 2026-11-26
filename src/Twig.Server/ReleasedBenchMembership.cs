@@ -6,8 +6,8 @@ namespace Twig.Server;
 
 internal sealed partial class ReleasedBenchDisplay
 {
-    private sealed record Scan(long Request, long Catalog, long Started, DateTimeOffset Until, Guid[] Owners,
-        ItemKey[] Keys, string State);
+    private sealed record Scan(long Request, long Catalog, long Rules, NativeSourceStamp Source,
+        long Started, DateTimeOffset Until, Dictionary<ItemKey, Revision?> Observed, ItemKey[] Keys, string State);
     private readonly Dictionary<(Guid Store, Guid Bench, Connection Connection), Scan> scans = [];
     private readonly Dictionary<Connection, long> connectionRequests = [];
 
@@ -15,11 +15,14 @@ internal sealed partial class ReleasedBenchDisplay
     {
         connectionRequests[connection] = checked(++sequence);
         foreach (var key in scans.Keys.Where(k => k.Connection == connection).ToArray())
-        {
-            foreach (var owner in scans[key].Owners) generations[(owner, key.Store, key.Bench)] = Guid.NewGuid();
-            scans.Remove(key);
-            NotifyAuthorization();
-        }
+            RemoveScan(key);
+    }
+
+    private void RemoveScan((Guid Store, Guid Bench, Connection Connection) slot)
+    {
+        scans.Remove(slot);
+        generations[(Guid.Empty, slot.Store, slot.Bench)] = Guid.NewGuid();
+        NotifyAuthorization();
     }
 
     private bool ScanEligible(Scan scan) => clock.GetElapsedTime(scan.Started) < TimeSpan.FromSeconds(60)
@@ -36,18 +39,20 @@ internal sealed partial class ReleasedBenchDisplay
         if (matches is not [var bench]) throw new InvalidDataException("Select one existing Bench by exact name or ID.");
         if (!bench.Connections.Contains(connection)) throw new InvalidDataException("No selector uses this exact connection.");
         var rules = Require(await definitions.ReadViewRulesAsync(workspace.WorktreeRoot, connection, ct));
-        var audiences = sessions!.StandaloneDisplayOwners(catalog.InstanceId).Append(Guid.Empty).ToArray();
         var slot = (catalog.InstanceId, bench.Id, connection);
         long request, started, mark;
         lock (release)
         {
             RequireOpen();
-            ChangeObservations(connection);
-            request = connectionRequests[connection]; started = clock.GetTimestamp(); mark = watermark;
+            request = checked(++sequence);
+            connectionRequests[connection] = request;
+            if (scans.ContainsKey(slot)) RemoveScan(slot);
+            started = clock.GetTimestamp(); mark = watermark;
             NotifyAuthorization();
         }
         var until = clock.GetUtcNow().AddSeconds(60);
         var members = new Dictionary<ItemKey, WorkItem>();
+        var observedRevisions = new Dictionary<ItemKey, Revision?>();
         var excluded = new HashSet<ItemKey>();
         var absent = new HashSet<ItemKey>();
         var state = "Known";
@@ -60,6 +65,7 @@ internal sealed partial class ReleasedBenchDisplay
                 excluded.Add(selector.Item!);
                 continue;
             }
+            if (selector is { Kind: SelectorKind.Pin, Item.IsLocal: true }) continue;
             bool exhausted = true;
             string? cursor = null;
             var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -125,8 +131,9 @@ internal sealed partial class ReleasedBenchDisplay
                 { exhausted = false; break; }
                 foreach (var item in observed.Items)
                 {
-                    if (members.TryGetValue(item.Key, out var prior) && prior.Revision != item.Revision)
+                    if (observedRevisions.TryGetValue(item.Key, out var prior) && prior != item.Revision)
                         throw new InvalidDataException("Selectors observed different revisions; refresh the Bench again.");
+                    observedRevisions[item.Key] = item.Revision;
                     if (excluding) { excluded.Add(item.Key); continue; }
                     members[item.Key] = item;
                     if (members.Count > 1024) throw new InvalidDataException("Membership exceeds the bounded release.");
@@ -140,7 +147,9 @@ internal sealed partial class ReleasedBenchDisplay
                 if (excluding) { members.Clear(); break; }
             }
         }
-        if (absent.Overlaps(members.Keys)) throw new InvalidDataException("Selectors disagree on authoritative item presence.");
+        if (absent.Overlaps(observedRevisions.Keys)) throw new InvalidDataException("Selectors disagree on authoritative item presence.");
+        foreach (var key in absent) observedRevisions[key] = null;
+        var observedIds = observedRevisions.Keys.ToDictionary(key => key, key => Fingerprint(connection, key));
         foreach (var key in excluded) members.Remove(key);
         if (state != "Denied")
         {
@@ -150,47 +159,51 @@ internal sealed partial class ReleasedBenchDisplay
                 {
                     lock (release)
                     {
-                        if (connectionRequests[connection] != request || mark != watermark
-                            || pending.Values.Any(d => d.Benches.Contains(bench.Id))) return false;
+                        if (!StillCurrent()
+                            || pending.Values.Any(d => d.Benches.Contains(bench.Id))
+                            || planPending.Values.Any(p => p.User == catalog.InstanceId && p.Bench == bench.Id)) return false;
                         foreach (var key in absent)
                         {
-                            var id = Fingerprint(connection, key);
-                            latest[id] = request;
+                            var id = observedIds[key];
                             foreach (var entry in entries.Values.Where(e => e.Grant?.Item == id).ToArray()) Withhold(entry.Scope);
                         }
-                        foreach (var key in members.Keys) latest[Fingerprint(connection, key)] = request;
+                        foreach (var id in observedIds.Values) latest[id] = request;
+                        foreach (var (other, scan) in scans.Where(p => p.Key.Connection == connection
+                            && observedRevisions.Any(r => p.Value.Observed.TryGetValue(r.Key, out var prior) && prior != r.Value)).ToArray())
+                            RemoveScan(other);
                     }
                     foreach (var item in members.Values)
                     {
-                        var id = Fingerprint(connection, item.Key);
+                        var id = observedIds[item.Key];
                         var grant = new GrantWitness(Fingerprint(connection, null), id, WithdrawalAtStart(id), request,
                             started, item.Revision!.Token, source, request);
                         var pages = Pages(Rows("provider", item.Key.NativeId!, item.Type, item.Fields));
-                        foreach (var owner in audiences)
+                        var scope = new DisplayPartition(Guid.Empty, catalog.InstanceId, bench.Id,
+                            new Guid(Convert.FromHexString(id).AsSpan(0, 16)), null, connection);
+                        lock (release)
                         {
-                            var scope = new DisplayPartition(owner, catalog.InstanceId, bench.Id,
-                                new Guid(Convert.FromHexString(id).AsSpan(0, 16)), null, connection);
-                            lock (release)
-                            {
-                                if (connectionRequests[connection] != request || watermark != mark) return false;
-                                partitionRequests[scope] = request;
-                            }
-                            if (!Publish(scope, pages, request, grant, ruleRevision: catalog.Revision)) return false;
+                            if (connectionRequests[connection] != request || watermark != mark) return false;
+                            partitionRequests[scope] = request;
                         }
+                        if (!Publish(scope, pages, request, grant, ruleRevision: catalog.Revision)) return false;
                     }
                     lock (release)
                     {
-                        if (connectionRequests[connection] != request || watermark != mark) return false;
-                        scans[slot] = new(request, catalog.Revision, started, until, audiences, [.. members.Keys], state);
-                        foreach (var owner in audiences) generations[(owner, catalog.InstanceId, bench.Id)] = Guid.NewGuid();
+                        if (!StillCurrent()) return false;
+                        scans[slot] = new(request, catalog.Revision, rules.Revision, source, started, until,
+                            observedRevisions, [.. members.Keys], state);
+                        generations[(Guid.Empty, catalog.InstanceId, bench.Id)] = Guid.NewGuid();
                         NotifyAuthorization();
                         return true;
                     }
                 }
             }
+            bool StillCurrent() => connectionRequests[connection] == request && watermark == mark
+                && observedIds.Values.All(id => latest.GetValueOrDefault(id) <= request);
             long WithdrawalAtStart(string id) { lock (release) return Withdrawal(Fingerprint(connection, null), id); }
             if (!await definitions.PublishIfCurrent(workspace.WorktreeRoot, connection, catalog, rules.Revision, Commit, ct))
                 throw new InvalidDataException("Membership acquisition was superseded.");
+            await ProjectWorkspace(workspace.WorktreeRoot, source, definitions, [bench.Id]);
         }
         var inventory = CliInventory(catalog, bench);
         output.WriteLine(JsonSerializer.Serialize(inventory, DisplayJson.Default.ReleasedPartitions));

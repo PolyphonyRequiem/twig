@@ -64,6 +64,59 @@ public sealed class UserBenchStoreTests : IDisposable
         Required(await Claim(earlier)).ShouldBeTrue();
     }
 
+    [Theory]
+    [InlineData("replaced", false)]
+    [InlineData(null, false)]
+    [InlineData("original", true)]
+    public async Task QueuedPrivateInputRequiresItsExactAcknowledgedWriteAtDispatch(string? replacement, bool restoreOriginal)
+    {
+        var store = Store;
+        Required(await store.ReadAsync());
+        var boot = Guid.NewGuid();
+        var origin = new UpdateOrigin(Guid.NewGuid(), ado, "actor", "42");
+        var key = Key(ado, origin.Item);
+        const string scope = "exact-editor", field = "title", baseline = "provider-revision";
+        async Task<InputReview> Save(long expected, string? text)
+        {
+            var write = Guid.NewGuid();
+            Required(await store.AccessInputAsync(scope, origin.Item, field, write, expected, text, baseline, default));
+            return Required(await store.InputReviewsAsync(scope, origin, field, write, default)).Single();
+        }
+        async Task<OriginalUpdate> Bind(Guid review, string text)
+        {
+            var plan = new Plan(ado, "schema", 0, [new(review.ToString(), OpKind.Batch, key, new(key, "v1"),
+                FieldValues.Empty.Set(field, FieldValue.String(text)))], review: new(review, origin.Store, origin.Actor, "none"));
+            Required(await store.BindUpdateAsync(origin, review, text, plan, boot, default));
+            return Required(await store.OriginalUpdateAsync(origin, review, default));
+        }
+        async Task<bool> Claim(OriginalUpdate update) => Required(await store.MoveUpdateAsync(update, "Claimed", boot, default));
+        Task Dispatch(OriginalUpdate update) => store.Barrier(update, boot).OpenAsync(update.Plan, update.Attempt,
+            new("PATCH", "target", new string('a', 64), origin.Actor, "project"), default);
+
+        var blocking = await Bind(Guid.NewGuid(), "another action");
+        (await Claim(blocking)).ShouldBeTrue();
+        var saved = await Save(0, "original");
+        var stale = await Bind(saved.Review, "original");
+        (await Claim(stale)).ShouldBeFalse();
+        var current = await Save(1, restoreOriginal ? "intermediate" : replacement);
+        if (restoreOriginal) current = await Save(2, replacement);
+        Required(await store.MoveUpdateAsync(blocking with { Identity = blocking.Identity with { State = "Claimed" } },
+            "NotStarted", boot, default)).ShouldBeTrue();
+        (await Claim(stale)).ShouldBeTrue();
+
+        await Should.ThrowAsync<PrivateInputChangedException>(() => Dispatch(stale));
+        var closed = Required(await store.OriginalUpdateAsync(origin, saved.Review, default));
+        closed.Dispatch.ShouldBeNull();
+        Required(await store.MoveUpdateAsync(closed, "ReviewRequired", boot, default)).ShouldBeTrue();
+        if (replacement is not null)
+        {
+            var fresh = await Bind(current.Review, replacement);
+            (await Claim(fresh)).ShouldBeTrue();
+            await Dispatch(fresh);
+            Required(await store.OriginalUpdateAsync(origin, current.Review, default)).Dispatch.ShouldNotBeNull();
+        }
+    }
+
     [Fact]
     public async Task PostDispatchLocalContentionKeepsOriginalIdentityAndClaimsButNotProviderCapacity()
     {

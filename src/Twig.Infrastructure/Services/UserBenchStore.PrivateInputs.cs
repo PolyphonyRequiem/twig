@@ -11,7 +11,7 @@ public sealed partial class UserBenchStore
     internal Task<Result<PrivateInput>> AccessInputAsync(string scope, string item, string field, Guid? write, long? expected,
         string? text, string? baseline, CancellationToken ct, bool rereview = false, UpdateOrigin? origin = null) => UpdateTransaction(async (command, token) =>
     {
-        command.CommandText = InputSchema + """
+        command.CommandText = """
             SELECT version,write,text,baseline FROM private_inputs WHERE scope=$s AND item=$i AND field=$f;
             """;
         command.Parameters.AddWithValue("$s", scope);
@@ -80,7 +80,7 @@ public sealed partial class UserBenchStore
     internal Task<Result<InputReview[]>> InputReviewsAsync(string scope, UpdateOrigin origin, string field, Guid? write, CancellationToken ct)
         => UpdateTransaction(async (cmd, token) =>
         {
-            cmd.CommandText = InputSchema + """
+            cmd.CommandText = """
                 SELECT r.write,r.review,a.action,a.submission,a.state,r.predecessor FROM private_input_receipts r
                 LEFT JOIN update_actions a ON a.review=r.review AND a.origin=$o
                 WHERE r.scope=$s AND r.item=$i AND r.field=$f AND (($w IS NULL AND a.action IS NOT NULL) OR r.write=$w)

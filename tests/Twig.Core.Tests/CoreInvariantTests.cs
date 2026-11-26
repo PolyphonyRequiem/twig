@@ -122,6 +122,7 @@ public sealed class CoreInvariantTests
         var reordered = Batch(Fields(("gate", FieldValue.String("x")), ("count", FieldValue.Integer(2))), schema);
         one.Digest.ShouldBe(reordered.Digest);
         new Plan(Connection, one.SchemaFingerprint, 1, one.Operations).Digest.ShouldBe(one.Digest);
+        new Plan(Connection, one.SchemaFingerprint, -1, one.Operations).Digest.ShouldBe(one.Digest);
         var variants = new[]
         {
             new Plan(new(Provider, "scope", "other-destination", "principal"), one.SchemaFingerprint, 0, one.Operations),

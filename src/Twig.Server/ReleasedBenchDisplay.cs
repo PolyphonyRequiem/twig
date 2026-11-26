@@ -37,7 +37,8 @@ internal sealed partial class ReleasedBenchDisplay
     private readonly SemaphoreSlim responses = new(16, 16);
     internal Func<CancellationToken, Task>? BeforeEnqueue { get; set; }
     internal Action? AfterStage { get; set; }
-    private sealed record Entry(DisplayPartition Scope, Guid Generation, int Pages, GrantWitness? Grant, long RuleRevision);
+    private sealed record Entry(DisplayPartition Scope, Guid Generation, int Pages, GrantWitness? Grant, long RuleRevision,
+        long? MembershipRequest);
 
     internal ReleasedBenchDisplay(string path, TimeProvider? clock = null, ViewSessions? sessions = null, UserBenchStore? definitions = null)
     {
@@ -61,7 +62,7 @@ internal sealed partial class ReleasedBenchDisplay
         => PrepareLocal(scope, observation, admitted)();
 
     private Func<bool> PrepareLocal(DisplayPartition scope, NativeSourceObservation observation, ImmutableArray<ItemKey> admitted, string? hash = null,
-        long ruleRevision = 0)
+        long ruleRevision = 0, long? membershipRequest = null)
     {
         if (scope.Origin != observation.Source || scope.Connection != observation.Source.Connection)
             throw new InvalidDataException("The local observation is not from the authorized origin.");
@@ -84,7 +85,7 @@ internal sealed partial class ReleasedBenchDisplay
             _ => throw new InvalidDataException("Local intent does not belong to the released partition.")
         });
         var pages = Pages(rows);
-        return () => Publish(scope, pages, request, input: input, ruleRevision: ruleRevision);
+        return () => Publish(scope, pages, request, input: input, ruleRevision: ruleRevision, membershipRequest: membershipRequest);
     }
 
     private static IEnumerable<DisplayRow> Rows(string kind, string item, string? type, FieldValues fields)
@@ -140,10 +141,11 @@ internal sealed partial class ReleasedBenchDisplay
     }
 
     private bool Publish(DisplayPartition scope, List<byte[]> pages, long request, GrantWitness? grant = null,
-        (long Version, string Hash)? input = null, long ruleRevision = 0)
+        (long Version, string Hash)? input = null, long ruleRevision = 0, long? membershipRequest = null)
     {
         var key = (scope.Owner, scope.Store, scope.Bench, scope.Id);
         bool Eligible() => !Dirty(scope) && partitionRequests[scope] == request && (grant is null || Current(grant))
+            && (membershipRequest is not { } scanRequest || MatchingScan(scope, scanRequest) is not null)
             && (scope.Origin is null || !heads.TryGetValue(scope.Origin.StoreInstance, out var head) || head == input);
         lock (publication)
         {
@@ -156,7 +158,7 @@ internal sealed partial class ReleasedBenchDisplay
                 if (old is not null && (old.Scope != scope || old.Grant?.Item != grant?.Item))
                     throw new InvalidDataException("A partition cannot change origin, grant scope or content kind.");
             }
-            var entry = new Entry(scope, Guid.NewGuid(), pages.Count, grant, ruleRevision);
+            var entry = new Entry(scope, Guid.NewGuid(), pages.Count, grant, ruleRevision, membershipRequest);
             if (!store.Stage($"{scope.Owner:N}/{scope.Store:N}/{scope.Bench:N}/{scope.Id:N}",
                     old?.Generation, entry.Generation, pages, grant)) return false;
             AfterStage?.Invoke();
@@ -222,6 +224,9 @@ internal sealed partial class ReleasedBenchDisplay
                 var now = clock.GetUtcNow();
                 var remaining = owner.Expires - now;
                 if (current.Entry.Grant is { } grant) remaining = TimeSpan.FromTicks(Math.Min(remaining.Ticks, Remaining(grant).Ticks));
+                if ((current.Entry.Grant?.ScanRequest ?? current.Entry.MembershipRequest) is { } request
+                    && MatchingScan(current.Entry.Scope, request) is { } scan)
+                    remaining = TimeSpan.FromTicks(Math.Min(remaining.Ticks, (scan.Until - now).Ticks));
                 if (remaining <= TimeSpan.Zero) throw Denied();
                 return Enqueue(outbox, new(body, start.Generation, start.Entry.Scope, next,
                     owner.ProfileGeneration, now + remaining, (long)remaining.TotalMilliseconds, watermark, authCursor,
@@ -235,14 +240,36 @@ internal sealed partial class ReleasedBenchDisplay
     private (Entry Entry, Guid Generation) Select(ViewSession owner, Guid bench, Guid partition, (Guid Instance, long Revision)? catalog)
     {
         RequireOpen();
-        var entry = entries.GetValueOrDefault((owner.ProfileId, owner.CatalogId, bench, partition))
+        var shared = entries.GetValueOrDefault((Guid.Empty, owner.CatalogId, bench, partition));
+        var entry = shared?.Grant?.ScanRequest is { } scanRequest && MatchingScan(shared.Scope, scanRequest) is not null
+            ? shared with { Scope = shared.Scope with { Owner = owner.ProfileId } }
+            : entries.GetValueOrDefault((owner.ProfileId, owner.CatalogId, bench, partition))
             ?? throw new HttpFailure(409, "RefreshRequired", "No eligible release.");
         if (entry.RuleRevision > 0 && catalog != (entry.Scope.Store, entry.RuleRevision)) throw Changed();
+        if (entry.Grant is { ScanRequest: null } && entry.RuleRevision > 0
+            && scans.TryGetValue((owner.CatalogId, bench, entry.Scope.Connection), out var currentScan)
+            && currentScan.Catalog == entry.RuleRevision && ScanEligible(currentScan)) throw Changed();
         if (Dirty(entry.Scope)) throw new HttpFailure(409, "RefreshRequired", "The Bench has unsettled changes.");
         if (entry.Grant is { } grant && (Withdrawn(grant) || Remaining(grant) <= TimeSpan.Zero)) throw Denied();
-        if (entry.Grant?.ScanRequest is { } request && (!scans.TryGetValue((owner.CatalogId, bench, entry.Scope.Connection), out var scan)
-            || scan.Request != request || !ScanEligible(scan))) throw Changed();
-        return (entry, generations[(owner.ProfileId, owner.CatalogId, bench)]);
+        if ((entry.Grant?.ScanRequest ?? entry.MembershipRequest) is { } request
+            && MatchingScan(entry.Scope, request) is null) throw Changed();
+        return (entry, Generation(owner.ProfileId, owner.CatalogId, bench));
+    }
+
+    private Scan? MatchingScan(DisplayPartition scope, long request) =>
+        scans.TryGetValue((scope.Store, scope.Bench, scope.Connection), out var scan)
+        && scan.Request == request && ScanEligible(scan)
+        && (scope.Origin is null || scan.Source == scope.Origin && scan.State == "Known") ? scan : null;
+
+    private Guid Generation(Guid owner, Guid store, Guid bench)
+    {
+        var own = generations.GetValueOrDefault((owner, store, bench));
+        var shared = generations.GetValueOrDefault((Guid.Empty, store, bench));
+        if (owner == Guid.Empty || shared == Guid.Empty) return own;
+        Span<byte> parts = stackalloc byte[32];
+        own.TryWriteBytes(parts[..16]);
+        shared.TryWriteBytes(parts[16..]);
+        return new Guid(SHA256.HashData(parts).AsSpan(0, 16));
     }
 
     private bool Enqueue<T>(Channel<T> outbox, T value)
@@ -264,15 +291,17 @@ internal sealed partial class ReleasedBenchDisplay
             .ToDictionary(s => Fingerprint(s.Connection!, s.Item));
         var covered = new HashSet<Connection>();
         var incomplete = false;
+        var denied = false;
         var now = clock.GetUtcNow();
         var remaining = Math.Min(60_000d, ((ownerExpiry ?? now.AddMinutes(1)) - now).TotalMilliseconds);
         var candidate = pins.ToDictionary(p => p.Key, p => (Connection: p.Value.Connection!, Item: p.Value.Item!));
         foreach (var c in bench.Connections)
         {
-            if (!scans.TryGetValue((storeId, bench.Id, c), out var scan) || !scan.Owners.Contains(owner)
+            if (!scans.TryGetValue((storeId, bench.Id, c), out var scan)
                 || scan.Catalog != catalog.Revision || !ScanEligible(scan)) continue;
             foreach (var pin in pins.Where(p => p.Value.Connection == c)) candidate.Remove(pin.Key);
             if (scan.State == "Known") covered.Add(c);
+            else if (scan.State == "Denied") denied = true;
             else incomplete = true;
             remaining = Math.Min(remaining, Math.Min((scan.Until - now).TotalMilliseconds,
                 (TimeSpan.FromSeconds(60) - clock.GetElapsedTime(scan.Started)).TotalMilliseconds));
@@ -280,12 +309,15 @@ internal sealed partial class ReleasedBenchDisplay
         }
         var items = new List<QualifiedMember>();
         var partitions = new List<Guid>();
-        var denied = bench.Connections.Any(c => withdrawals.ContainsKey(Fingerprint(c, null)) && !covered.Contains(c)
+        denied |= bench.Connections.Any(c => withdrawals.ContainsKey(Fingerprint(c, null)) && !covered.Contains(c)
             && bench.Selectors.Any(s => s.Connection == c && s.Kind != SelectorKind.Pin));
         foreach (var (fingerprint, selector) in candidate.OrderBy(p => p.Key, StringComparer.Ordinal))
         {
             var connection = Fingerprint(selector.Connection!, null);
-            var entry = scoped.SingleOrDefault(e => e.Grant?.Item == fingerprint && e.RuleRevision == catalog.Revision);
+            var id = new Guid(Convert.FromHexString(fingerprint).AsSpan(0, 16));
+            var shared = entries.GetValueOrDefault((Guid.Empty, storeId, bench.Id, id));
+            var entry = shared?.Grant?.ScanRequest is { } request && MatchingScan(shared.Scope, request) is not null
+                && !Dirty(shared.Scope) ? shared : scoped.SingleOrDefault(e => e.Grant?.Item == fingerprint && e.RuleRevision == catalog.Revision);
             if (entry?.Grant is { } grant && !Withdrawn(grant) && Remaining(grant) > TimeSpan.Zero
                 && (grant.ScanRequest is null || scans.TryGetValue((storeId, bench.Id, selector.Connection), out var scan)
                     && scan.Request == grant.ScanRequest && scan.Catalog == catalog.Revision && ScanEligible(scan)))
@@ -297,7 +329,8 @@ internal sealed partial class ReleasedBenchDisplay
             else if (Withdrawal(connection, fingerprint) != 0 && (entry?.Grant is not { } prior || Withdrawn(prior)))
                 denied = true;
         }
-        var origins = scoped.Where(e => e.Scope.Origin is not null && e.RuleRevision == catalog.Revision && !denied)
+        var origins = scoped.Where(e => e.Scope.Origin is not null && e.RuleRevision == catalog.Revision && !denied
+            && (e.MembershipRequest is not { } request || MatchingScan(e.Scope, request) is not null))
             .Select(e => e.Scope.Id).ToArray();
         partitions.AddRange(origins);
         if (partitions.Count > 1024) throw new HttpFailure(409, "RefreshRequired", "The partition inventory exceeds the bound.");
@@ -306,7 +339,7 @@ internal sealed partial class ReleasedBenchDisplay
                 || s.Kind == SelectorKind.Pin && s.Item is { IsLocal: false }));
         var state = denied ? "Denied" : complete ? "Known" : items.Count > 0 ? "Partial" : "Unknown";
         return new([.. partitions], origins, new(state, complete ? items.Count : null, [.. items]),
-            generations.GetValueOrDefault((owner, storeId, bench.Id)), (long)Math.Max(0, remaining), now.AddMilliseconds(remaining));
+            Generation(owner, storeId, bench.Id), (long)Math.Max(0, remaining), now.AddMilliseconds(remaining));
     }
 
     internal ReleasedPartitions CliInventory(UserBenchSnapshot catalog, Twig.Core.Bench bench)

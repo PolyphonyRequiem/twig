@@ -40,7 +40,7 @@ public sealed partial class AdoProvider
             await WalkClassification(bound, "iterations", node =>
             {
                 DateTimeOffset? Date(string name) => node.TryGetProperty("attributes", out var attributes)
-                    && attributes.TryGetProperty(name, out var value) && value.ValueKind != JsonValueKind.Null ? value.GetDateTimeOffset() : null;
+                    ? ReadIterationDate(attributes, name) : null;
                 var start = Date("startDate");
                 var finish = Date("finishDate");
                 if (start > finish) throw Wire.Invalid("The native iteration calendar contains an inverted date range.");
@@ -60,10 +60,8 @@ public sealed partial class AdoProvider
                     var index = iterations.FindIndex(iteration => iteration.Path.Equals(path, StringComparison.OrdinalIgnoreCase));
                     if (index < 0) throw Wire.Refuse(ErrorCode.Conflict, "The selected team iteration is outside the acquired project classification.");
                     var attributes = row.GetProperty("attributes");
-                    DateTimeOffset? Date(string name) => attributes.TryGetProperty(name, out var value)
-                        && value.ValueKind != JsonValueKind.Null ? value.GetDateTimeOffset() : null;
-                    var start = Date("startDate");
-                    var finish = Date("finishDate");
+                    var start = ReadIterationDate(attributes, "startDate");
+                    var finish = ReadIterationDate(attributes, "finishDate");
                     if (start > finish) throw Wire.Invalid("The selected team iteration has an inverted date range.");
                     iterations[index] = new(path, start, finish, SelectedTeam: true);
                 }
@@ -72,6 +70,19 @@ public sealed partial class AdoProvider
             return new PlanningMetadata(DateTimeOffset.UtcNow, areas.Distinct(StringComparer.OrdinalIgnoreCase).ToImmutableArray(),
                 iterations.ToImmutableArray(), gaps, canonicalTeam);
         }, ct));
+
+    private static DateTimeOffset? ReadIterationDate(JsonElement attributes, string name)
+    {
+        if (!attributes.TryGetProperty(name, out var value) || value.ValueKind == JsonValueKind.Null)
+            return null;
+
+        var text = value.GetString()!;
+        var timeSeparator = text.IndexOf('T');
+        if (timeSeparator < 0 || (!text.EndsWith('Z') && text.AsSpan(timeSeparator + 1).IndexOfAny('+', '-') < 0))
+            throw Wire.Invalid($"The native iteration {name} requires an explicit UTC offset.");
+
+        return value.GetDateTimeOffset();
+    }
 
     private static string ClassificationPath(Bound bound, JsonElement node, string? exactStructure = null)
     {

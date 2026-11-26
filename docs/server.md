@@ -170,12 +170,20 @@ network delivery and cannot be recalled. Clients must still check their
 revocation stream before rendering. No HTTP route can mint a grant or supply
 release rows; membership and settlement producers belong to the owner.
 
+A prepared private input Action binds its exact acknowledged input write.
+Replacing or discarding that input before the owner's durable dispatch check
+requires a fresh review, even if a later write restores the original text.
+Once dispatch has been admitted, inspect the original Submission rather than
+trying to retract or repeat its effect.
+
 For an enrolled standalone owner, `GET /api/v2/views/{view}/benches/{bench}/partitions`
-lists eligible partition IDs without opening a workspace. The fixture's update
-and note paths publish origin-owned intent for exact-pin rules. `update --find
---id <item>` also acquires a separate provider partition for the pinned item
-using a fresh exact read. Unsupported local membership or unevaluated workspace
-exclusions do not produce a known-empty partition.
+lists eligible partition IDs without opening a workspace. Provider membership
+from a completed owner scan is available to eligible standalone views of the
+same catalog, including views attached after refresh. View authorization and
+grant freshness still apply. Origin-owned edits and seeds stay separate: exact
+pins can select local intent, while query and subtree contributions require a
+current scan of the same origin and workspace rules. Exact input observation
+does not invalidate an unchanged membership scan or renew its grants.
 
 Before a qualified workspace CAS, the owner records its predecessor and result
 hashes and affected Benches in `released-benches.db`. The matching step ID and

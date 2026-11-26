@@ -17,6 +17,9 @@ public sealed class ReleasedGrantTests
     {
         internal readonly DirectoryInfo Root = Directory.CreateTempSubdirectory("twig-grants-");
         private WebApplication? app;
+        private Guid boot;
+        internal ViewSessions Sessions = null!;
+        internal UserBenchStore Definitions = null!;
         internal HttpClient Client = null!;
         internal DisplayPartition Scope = null!;
         internal ItemKey Key => ItemKey.Remote(Scope.Connection.Provider, Scope.Connection.ResourceScope, "7");
@@ -26,23 +29,29 @@ public sealed class ReleasedGrantTests
 
         internal async Task Start()
         {
-            var store = new UserBenchStore(Path.Combine(Root.FullName, "benches.db"));
+            var store = Definitions = new UserBenchStore(Path.Combine(Root.FullName, "benches.db"));
             var id = (await store.ReadAsync()).Value.InstanceId;
             var gateway = new NativeSourceGateway();
             var panel = new NativePanel(store, gateway, new NativeSourceAdapter(Root.FullName, gateway, new CatalogChanges()));
-            var sessions = new ViewSessions(Path.Combine(Root.FullName, "views"));
+            var sessions = Sessions = new ViewSessions(Path.Combine(Root.FullName, "views"));
             Scope ??= new(Guid.NewGuid(), id, Guid.NewGuid(), Guid.NewGuid(), null,
                 new(new("ado"), "project", "org", "actor"));
             var paired = sessions.ConnectOwner(id, null, Scope.Owner);
             View = paired.ViewId;
-            var boot = Guid.NewGuid();
+            boot = Guid.NewGuid();
             app = NativeBenchHost.Build(new(0, Root.FullName, ServerId: Guid.NewGuid(), ProcessInstance: boot,
                 ExecutionV2: true), panel, sessions);
             await app.StartAsync();
-            Client = new() { BaseAddress = new(app.Urls.Single()) };
-            Client.DefaultRequestHeaders.Add("X-Twig-Execution", $"local-execution-v2/{boot:D}");
-            Client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", paired.ContentCapability);
+            Client = Connect(paired);
             PathToPage = $"/api/v2/views/{paired.ViewId:D}/benches/{Scope.Bench:D}/partitions/{Scope.Id:D}/page";
+        }
+
+        internal HttpClient Connect(PairResult paired)
+        {
+            var client = new HttpClient { BaseAddress = new(app!.Urls.Single()) };
+            client.DefaultRequestHeaders.Add("X-Twig-Execution", $"local-execution-v2/{boot:D}");
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", paired.ContentCapability);
+            return client;
         }
 
         internal async Task Stop()
@@ -62,12 +71,15 @@ public sealed class ReleasedGrantTests
     private sealed class Provider : IProvider
     {
         internal Func<Connection, ItemKey, Task<Result<QueryPage>>> Read = (_, _) => throw new NotImplementedException();
+        internal Func<Connection, Query, string?, Task<Result<QueryPage>>> Query = (_, _, _) => throw new NotImplementedException();
+        internal Func<Connection, ProcessSchema> Schema = _ => throw new NotImplementedException();
         public Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false)
             => captureOnly ? Read(connection, Assert.Single(keys)) : throw new InvalidOperationException("Must not update provider mirrors.");
         public Task<Result<bool>> ValidateReadAccessAsync(Connection connection, CancellationToken ct) => Task.FromResult(Result<bool>.Ok(true));
-        public ProviderCapabilities Capabilities => throw new NotImplementedException();
+        public ProviderCapabilities Capabilities { get; init; } = new([], [], [], true, true);
         public Task<Result<QueryPage>> QueryAsync(Connection c, Query q, string? cursor, CancellationToken ct) => throw new NotImplementedException();
-        public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection c, CancellationToken ct) => throw new NotImplementedException();
+        public Task<Result<QueryPage>> ObserveQueryAsync(Connection c, Query q, string? cursor, CancellationToken ct) => Query(c, q, cursor);
+        public Task<Result<ProcessSchema>> DiscoverSchemaAsync(Connection c, CancellationToken ct) => Task.FromResult(Result<ProcessSchema>.Ok(Schema(c)));
         public Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<Result<Receipt>> ApplyAsync(Plan p, int op, Guid id, CancellationToken ct) => throw new NotImplementedException();
         public Task<Result<Receipt>> VerifyAsync(Plan p, Receipt r, CancellationToken ct) => throw new NotImplementedException();
@@ -76,6 +88,152 @@ public sealed class ReleasedGrantTests
 
     private static Result<QueryPage> Observed(ItemKey key, string value) => Result<QueryPage>.Ok(new(
         [new(key, "provider-type", FieldValues.Empty.Set("field", FieldValue.String(value)), new(key, "opaque"))], [], null, true));
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RefreshedRulesServeLateOwnerWithoutOpeningAnotherOriginAndKeepExactDenials(bool subtree, bool excludeEdit)
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var c = f.Scope.Connection;
+        var root = Path.Combine(f.Root.FullName, "work");
+        var db = Path.Combine(Directory.CreateDirectory(Path.Combine(root, ".twig")).FullName, "core.db");
+        var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(db)).Value;
+        Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+        var origin = new NativeSourceStamp(c, native.InstanceId, "principal", "authority");
+        var item = new WorkItem(f.Key, "type", FieldValues.Empty.Set("title", FieldValue.String("provider title")),
+            new(f.Key, "v1"), relationshipsComplete: true);
+        var excluded = ItemKey.Remote(c.Provider, c.ResourceScope, "99");
+        var edit = new LocalEdits(f.Key, item.Type, item, FieldValues.Empty.Set("title", FieldValue.String("origin edit")));
+        var seed = new Seed(ItemKey.Local(Guid.NewGuid()), "seed", FieldValues.Empty.Set("title", FieldValue.String("origin seed")));
+        var hidden = new Seed(ItemKey.Local(Guid.NewGuid()), "unselected", FieldValues.Empty);
+        Assert.True((await native.CommitAsync(c, 0, new(1, retainedItems: [edit, seed, hidden]), default)).IsSuccess);
+        Assert.True((await f.Definitions.SaveAsync(new(f.Scope.Bench, "Released", [
+            subtree ? new(SelectorKind.Subtree, f.Key, hierarchyRelation: "parent", connection: c)
+                : new(SelectorKind.Query, query: new(QueryKind.All), connection: c),
+            new(SelectorKind.Pin, seed.Key, connection: c)]), 0)).IsSuccess);
+        Assert.True((await f.Definitions.SaveViewRulesAsync(root, c, 0,
+            [new(SelectorKind.Pin, excludeEdit ? f.Key : excluded, connection: c)])).IsSuccess);
+        var reads = 0;
+        var page = Result<QueryPage>.Ok(new([item], [], null, true));
+        var provider = new Provider
+        {
+            Capabilities = new([], ["parent"], [], true, true),
+            Schema = connection => new(connection, [], [new("parent", RelationShape.Hierarchy, true)]),
+            Read = (_, _) => { reads++; return Task.FromResult(page); },
+            Query = (_, _, _) => { reads++; return Task.FromResult(page); },
+        };
+        var workspace = new CoreWorkspace(c, provider, native, null!, origin.PrincipalId, root);
+        using var output = new StringWriter();
+        Assert.Equal(0, await f.Display.RefreshAsync(workspace, origin, f.Definitions, "Released", output, default));
+        Assert.Equal(1, reads);
+        var cli = System.Text.Json.JsonSerializer.Deserialize(output.ToString(), DisplayJson.Default.ReleasedPartitions)!;
+        var existing = $"/api/v2/views/{f.View:D}/benches/{f.Scope.Bench:D}/partitions";
+        var local = await f.Client.GetStringAsync($"{existing}/{native.InstanceId:D}/page");
+        Assert.Contains("origin seed", local);
+        Assert.DoesNotContain("unselected", local);
+        Assert.DoesNotContain("provider title", local);
+        Assert.Equal(!excludeEdit, local.Contains("origin edit", StringComparison.Ordinal));
+        var otherRoot = Path.Combine(f.Root.FullName, "other");
+        var otherDb = Path.Combine(Directory.CreateDirectory(Path.Combine(otherRoot, ".twig")).FullName, "core.db");
+        var other = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(otherDb)).Value;
+        Assert.True((await other.PinWorkspaceAsync(c)).IsSuccess);
+        Assert.True((await other.CommitAsync(c, 0, new(1, retainedItems: [edit]), default)).IsSuccess);
+        await f.Display.ProjectWorkspace(otherRoot, origin with { StoreInstance = other.InstanceId }, f.Definitions);
+        using var unknownOrigin = await f.Client.GetAsync($"{existing}/{other.InstanceId:D}/page");
+        Assert.Equal(HttpStatusCode.Conflict, unknownOrigin.StatusCode);
+        var late = f.Sessions.ConnectOwner(f.Scope.Store, null, Guid.NewGuid());
+        using var canvas = f.Connect(late);
+        var directory = $"/api/v2/views/{late.ViewId:D}/benches/{f.Scope.Bench:D}/partitions";
+        async Task<ReleasedPartitions> Inventory() => System.Text.Json.JsonSerializer.Deserialize(
+            await canvas.GetStringAsync(directory), DisplayJson.Default.ReleasedPartitions)!;
+        var inventory = await Inventory();
+        Assert.Equal("Known", inventory.Membership.State);
+        Assert.Equal(cli.Membership.ExactTotal, inventory.Membership.ExactTotal);
+        Assert.Equal(cli.Membership.Items, inventory.Membership.Items);
+        Assert.Empty(inventory.LocalOrigins);
+        using var forbiddenOrigin = await canvas.GetAsync($"{directory}/{native.InstanceId:D}/page");
+        Assert.Equal(HttpStatusCode.Conflict, forbiddenOrigin.StatusCode);
+        if (!excludeEdit)
+        {
+            var providerPage = $"{directory}/{Assert.Single(inventory.Partitions):D}/page";
+            Assert.Contains("provider title", await canvas.GetStringAsync(providerPage));
+            Assert.Equal(1, reads);
+            Assert.True((await f.Display.AcquireAsync(f.Scope, f.Key, provider, default)).IsSuccess);
+            using var privateGrant = await canvas.GetAsync($"{directory}/{f.Scope.Id:D}/page");
+            Assert.Equal(HttpStatusCode.Conflict, privateGrant.StatusCode);
+            using (f.Display.TrackWorkspace(root, origin, f.Definitions))
+            {
+                Assert.True((await f.Display.Observe(root, origin, f.Definitions, f.Key,
+                    () => workspace.ObserveItemsAsync([f.Key], default), false, default)).IsSuccess);
+                Assert.Empty((await workspace.SnapshotAsync(default)).Value.Items);
+                Assert.True((await workspace.ReadAsync(f.Key, default, skipUnchanged: true)).IsSuccess);
+                Assert.Single((await workspace.SnapshotAsync(default)).Value.Items);
+            }
+            Assert.Equal(inventory.Generation, (await Inventory()).Generation);
+            Assert.False((await f.Display.Observe(root, origin, f.Definitions, f.Key,
+                () => Task.FromResult(Result<QueryPage>.Fail(ErrorCode.PolicyViolation, "Exact denial")), false, default)).IsSuccess);
+            Assert.Equal("Denied", (await Inventory()).Membership.State);
+            using var denied = await canvas.GetAsync(providerPage);
+            Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+            Assert.DoesNotContain("provider title", await denied.Content.ReadAsStringAsync());
+        }
+        Assert.True((await f.Definitions.SaveViewRulesAsync(root, c, 1,
+            [new(SelectorKind.Pin, seed.Key, connection: c)])).IsSuccess);
+        using var stale = await f.Client.GetAsync($"{existing}/{native.InstanceId:D}/page");
+        Assert.Equal(HttpStatusCode.Conflict, stale.StatusCode);
+    }
+
+    [Fact]
+    public async Task PendingMembershipSurvivesUnrelatedExactReadButCannotOverwriteNewerExactRevision()
+    {
+        await using var f = new Fixture();
+        await f.Start();
+        var c = f.Scope.Connection;
+        var root = Path.Combine(f.Root.FullName, "work");
+        var db = Path.Combine(Directory.CreateDirectory(Path.Combine(root, ".twig")).FullName, "core.db");
+        var native = (await Twig.Store.Sqlite.SqliteStore.CreateAsync(db)).Value;
+        Assert.True((await native.PinWorkspaceAsync(c)).IsSuccess);
+        var origin = new NativeSourceStamp(c, native.InstanceId, "principal", "authority");
+        Assert.True((await f.Definitions.SaveAsync(new(f.Scope.Bench, "Query", [
+            new(SelectorKind.Query, query: new(QueryKind.All), connection: c)]), 0)).IsSuccess);
+        var unrelated = ItemKey.Remote(c.Provider, c.ResourceScope, "8");
+        var fresh = Result<QueryPage>.Ok(new([new(f.Key, "type", FieldValues.Empty, new(f.Key, "newer"))], [], null, true));
+        var old = Observed(f.Key, "old");
+        var provider = new Provider();
+        var workspace = new CoreWorkspace(c, provider, native, null!, origin.PrincipalId, root);
+
+        async Task<int> Race(ItemKey key, Result<QueryPage> observation)
+        {
+            var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var resume = new TaskCompletionSource<Result<QueryPage>>(TaskCreationOptions.RunContinuationsAsynchronously);
+            provider.Query = (_, _, _) => { entered.SetResult(); return resume.Task; };
+            using var output = new StringWriter();
+            var refresh = f.Display.RefreshAsync(workspace, origin, f.Definitions, "Query", output, default);
+            try
+            {
+                await entered.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                Assert.True((await f.Display.Observe(root, origin, f.Definitions, key,
+                    () => Task.FromResult(observation), false, default)).IsSuccess);
+            }
+            finally { resume.TrySetResult(old); }
+            return await refresh;
+        }
+
+        Assert.Equal(0, await Race(unrelated, Observed(unrelated, "unrelated")));
+        Assert.Contains("superseded", (await Assert.ThrowsAsync<InvalidDataException>(() => Race(f.Key, fresh))).Message);
+        provider.Query = (_, _, _) => Task.FromResult(old);
+        Assert.Equal(0, await f.Display.RefreshAsync(workspace, origin, f.Definitions, "Query", TextWriter.Null, default));
+        Assert.True((await f.Display.Observe(root, origin, f.Definitions, f.Key,
+            () => Task.FromResult(fresh), false, default)).IsSuccess);
+        var catalog = (await f.Definitions.ReadAsync()).Value;
+        var inventory = f.Display.CliInventory(catalog, Assert.Single(catalog.Benches));
+        Assert.Equal("Unknown", inventory.Membership.State);
+        Assert.Empty(inventory.Partitions);
+    }
 
     [Fact]
     public async Task OwnerWorkspaceCommitPublishesOnlyPinnedLocalIntentAndInvalidatesAnInFlightPage()

@@ -65,7 +65,7 @@ public sealed record Plan
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         SchemaFingerprint = Contract.Text(schemaFingerprint, nameof(schemaFingerprint));
-        if (expectedStoreVersion < 0) throw new ArgumentOutOfRangeException(nameof(expectedStoreVersion));
+        // Kept for existing callers; only local store transactions use a version predicate.
         if (review is not null && (review.Revision == Guid.Empty || review.Store == Guid.Empty
             || string.IsNullOrWhiteSpace(review.Actor) || string.IsNullOrWhiteSpace(review.Capture)))
             throw new ArgumentException("Incomplete original review binding.", nameof(review));

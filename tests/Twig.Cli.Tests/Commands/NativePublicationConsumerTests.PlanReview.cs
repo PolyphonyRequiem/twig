@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Core;
@@ -310,6 +311,62 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(1);
         (await reopened.ContinueDeliveryAsync()).Value.Status.ShouldBe(uncertain ? "Protected" : "Complete");
         HumanPatchAttempts.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task NativePlanObservesOriginalAdoAcknowledgementWithoutHoldingRootLeaseOrResending()
+    {
+        var host = await CreateHumanHostAsync();
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            var item = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "42");
+            var form = (await editor.SelectAsync(item)).Value;
+            (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Acknowledged ADO Plan effect"))))
+                .IsSuccess.ShouldBeTrue();
+        }
+        status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = review.Document.Scopes.Single().Scope.DatabasePath,
+            Pooling = false
+        }.ToString());
+        await db.OpenAsync();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = $"""
+            CREATE TRIGGER park_verification BEFORE UPDATE OF document ON core_snapshots
+            WHEN json_extract(NEW.document,'$.Journal[0].Status')={(int)OpStatus.Verified}
+            BEGIN SELECT RAISE(ABORT,'park original readback'); END;
+            """;
+        await cmd.ExecuteNonQueryAsync();
+        var applied = (await review.ApplyAsync()).Value.Units.Single();
+        applied.State.ShouldBe("Applied");
+        cmd.CommandText = "DROP TRIGGER park_verification";
+        await cmd.ExecuteNonQueryAsync();
+
+        var reopened = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
+        _transport.FailReadbackAfterCommit = true;
+        var failedRead = (await reopened.ObserveAsync()).Value;
+        failedRead.Error.ShouldNotBeNull();
+        failedRead.Units.Single().ShouldBe(applied);
+        _transport.FailReadbackAfterCommit = false;
+        var readbackRan = false;
+        _transport.BeforeReadback = () =>
+        {
+            using var lease = File.Open(Path.Combine(host.Root, ".twig", "binding-operation.lock"),
+                FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            readbackRan = true;
+            return Task.CompletedTask;
+        };
+        var verified = (await reopened.ObserveAsync()).Value;
+        readbackRan.ShouldBeTrue(verified.Error?.Message);
+        verified.Status.ShouldBe("VerifiedDeliveryPending", verified.Error?.Message);
+        verified.Units.Single().ShouldBe(applied with { State = "Verified" });
+        HumanPatchAttempts.ShouldBe(1);
+        _transport.CommittedWrites.ShouldBe(1);
     }
 
     [Fact]

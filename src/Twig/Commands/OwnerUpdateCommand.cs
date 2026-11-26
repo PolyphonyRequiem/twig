@@ -28,6 +28,40 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
 {
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, byte> routines = new();
     private readonly SemaphoreSlim acquisitions = new(8, 8);
+    private readonly Dictionary<(string Item, Guid Review), ReviewReaders> reviewReads = [];
+    private sealed class ReviewReaders
+    {
+        internal readonly SemaphoreSlim Turn = new(1, 1);
+        internal int Users;
+    }
+
+    // Concurrent duplicate submitters must each observe the exact item. Overlapping
+    // those reads makes the later one supersede the earlier one's authorization.
+    private async Task<Action> EnterReviewRead((string Item, Guid Review) key, CancellationToken ct)
+    {
+        ReviewReaders readers;
+        lock (reviewReads)
+        {
+            if (!reviewReads.TryGetValue(key, out var prior)) reviewReads.Add(key, readers = new());
+            else readers = prior;
+            readers.Users++;
+        }
+        void Leave(bool acquired)
+        {
+            lock (reviewReads)
+            {
+                if (acquired) readers.Turn.Release();
+                if (--readers.Users == 0)
+                {
+                    reviewReads.Remove(key);
+                    readers.Turn.Dispose();
+                }
+            }
+        }
+        try { await readers.Turn.WaitAsync(ct); }
+        catch (OperationCanceledException) { Leave(false); throw; }
+        return () => Leave(true);
+    }
     private readonly SemaphoreSlim localBatches = new(1, 1);
     private sealed class BatchLease(SemaphoreSlim gate) : IDisposable
     {
@@ -74,6 +108,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
     {
         UpdateIdentity? bound = null;
         var reading = false;
+        Action? releaseReviewRead = null;
         try
         {
             // The qualification runtime selects its own workspace; neither a pipe frame nor
@@ -113,6 +148,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             }
             if (item.Length is 0 or > 256 || mode is not ("find" or "local" or "refresh") && review == Guid.Empty)
                 throw new InvalidDataException("An exact item and nonempty review UUID are required.");
+            if (!create && mode == "submit")
+                releaseReviewRead = await EnterReviewRead((item, review), ct);
             await acquisitions.WaitAsync(ct);
             reading = true;
             var twig = Path.Combine(root, ".twig");
@@ -166,6 +203,8 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
                     throw new InvalidDataException("The selected actor could not observe the exact item.");
                 permitted = observed;
             }
+            releaseReviewRead?.Invoke();
+            releaseReviewRead = null;
             var origin = new UpdateOrigin(handle.Source.StoreInstance, workspace.Connection, handle.Source.PrincipalId,
                 create ? key.LocalId.ToString("D") : key.NativeId!, IsSeed: create);
             OriginalUpdate? replaced = null;
@@ -415,7 +454,7 @@ internal sealed class OwnerUpdateCommand(Guid boot, string home, UserBenchStore 
             errors.WriteLine(error.Message);
             return bound is null ? 2 : Reply(new("ObservationNeeded", [bound]));
         }
-        finally { if (reading) acquisitions.Release(); }
+        finally { releaseReviewRead?.Invoke(); if (reading) acquisitions.Release(); }
 
         int Reply(UpdateReply reply)
         {

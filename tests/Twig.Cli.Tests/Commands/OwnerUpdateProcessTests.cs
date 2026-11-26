@@ -852,6 +852,20 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
                 return;
             }
             // Lose the submitter's final reply immediately after the owner proves its binding.
+            var definitionsPath = Path.Combine(home, "benches.db");
+            await using (var db = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = definitionsPath, Pooling = false }.ToString()))
+            {
+                await db.OpenAsync();
+                using var command = db.CreateCommand();
+                command.CommandText = """
+                    CREATE TABLE fixture_dispatches(attempt TEXT NOT NULL);
+                    CREATE TRIGGER fixture_count_dispatch AFTER UPDATE OF dispatch ON update_actions
+                    WHEN NEW.dispatch IS NOT NULL
+                    BEGIN INSERT INTO fixture_dispatches VALUES(NEW.attempt); END;
+                    """;
+                await command.ExecuteNonQueryAsync();
+            }
             var run = await File.ReadAllLinesAsync(Path.Combine(home, "owner.run"));
             using (var pipe = new System.IO.Pipes.NamedPipeClientStream(".", CommandEndpoint.ExecutionPipe(Guid.Parse(id), Guid.Parse(run[0])),
                 System.IO.Pipes.PipeDirection.InOut, System.IO.Pipes.PipeOptions.Asynchronous | System.IO.Pipes.PipeOptions.CurrentUserOnly))
@@ -887,6 +901,33 @@ public sealed class OwnerUpdateProcessTests(Xunit.Abstractions.ITestOutputHelper
             var snapshot = (await handle!.Workspace.SnapshotAsync(default)).Value;
             snapshot.Items.Single().Fields[NativeProvider.Title].Text.ShouldBe("frozen from stdin");
             snapshot.Journal.Count(j => j.Status == OpStatus.Verified).ShouldBe(2); // Seed plus the single update.
+            var digest = snapshot.Plans.Single(p => p.Review?.Revision.ToString("D") == review).Digest;
+            var attempt = snapshot.Journal.Single(j => j.Digest == digest).Attempt;
+            await using (var db = new Microsoft.Data.Sqlite.SqliteConnection(
+                new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder { DataSource = definitionsPath, Pooling = false }.ToString()))
+            {
+                await db.OpenAsync();
+                using var command = db.CreateCommand();
+                command.CommandText = "SELECT attempt FROM fixture_dispatches";
+                using var reader = await command.ExecuteReaderAsync();
+                (await reader.ReadAsync()).ShouldBeTrue();
+                reader.GetString(0).ShouldBe(attempt.ToString("D"));
+                (await reader.ReadAsync()).ShouldBeFalse();
+            }
+            await using (var authority = new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder
+                { DataSource = Path.Combine(home, "native-databases", "database-qualification.db"), Mode = Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly,
+                    Pooling = false }.ToString()))
+            {
+                await authority.OpenAsync();
+                using var command = authority.CreateCommand();
+                command.CommandText = "SELECT attempt,digest FROM native_effects WHERE seed IS NULL";
+                using var reader = await command.ExecuteReaderAsync();
+                (await reader.ReadAsync()).ShouldBeTrue();
+                reader.GetString(0).ShouldBe(attempt.ToString("D"));
+                reader.GetString(1).ShouldBe(digest);
+                (await reader.ReadAsync()).ShouldBeFalse();
+            }
+            log.WriteLine("100 duplicates: one action, one submission, one native dispatch, one matching non-seed authority effect, two verified journal rows (seed + update).");
             var cancelled = Guid.NewGuid().ToString("D");
             await Cli(null, "update", NativeProvider.Title, "never sent", "--id", "1", "--review", cancelled, "--prepare");
             await Restart();

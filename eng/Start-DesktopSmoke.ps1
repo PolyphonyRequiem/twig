@@ -97,7 +97,9 @@ try {
         $null = Read-DesktopStep 'Open Twig (native developer) in the picker, then press Enter here'
         & $cli workspace --bench 'Unrelated pin' --refresh -o json | Out-Null
         if ($LASTEXITCODE) { throw 'Cannot refresh the pinned native test item.' }
-        $original = [guid]::ParseExact((Read-DesktopStep 'Edit the title of existing item 1 in Unrelated pin. Choose Save once. After confirmed success, enter the original submission UUID. If failed or uncertain, stop here with Ctrl+C; do not resend.'), 'D')
+        Write-Host 'In Unrelated pin, edit the title of item 1 in Field value and click Save once.'
+        Write-Host 'If confirmation is lost, check the connection and use Check original save. Do not click Save again.'
+        $original = [guid]::ParseExact((Read-DesktopStep 'Enter the UUID from Saved: <UUID>. If the panel reports failure or cannot confirm the original, stop with Ctrl+C.'), 'D')
         $null = Read-DesktopStep 'Reopen the item and confirm its provider title matches the saved edit, then press Enter (do not save again)'
         $clock.Restart()
         do {

@@ -113,6 +113,25 @@ fixture, without enabling installed writes or using ADO/GitHub. Start with the
 existing trusted localhost certificate used for owner qualification. Do not
 create a certificate, change trust, or use the installed server root.
 
+For the guided smoke, build `tests\Twig.Cli.Tests` first. Extract the matched
+Windows CLI and server archives to `unpacked-cli` and `unpacked-server` under
+one package directory, and extract the Canvas archive to a directory containing
+`current.json`. From PowerShell 7, run:
+
+```powershell
+.\eng\Start-DesktopSmoke.ps1 -PackageRoot $package -CanvasRoot $canvas `
+  -CanvasCheckout $canvasSource -Certificate $thumbprint
+```
+
+`$canvasSource` must be the checkout matching the Canvas package. Use
+`-PreflightOnly` to verify staging, the seeded ledger, and teardown without
+registering anything. Otherwise follow the prompts in the terminal and the
+actual Copilot picker. The helper never installs or opens a plugin or publishes
+an edit for you. Remove the temporary developer plugin registration from the
+app after the run. A green preflight alone is not desktop acceptance.
+
+The underlying fixture runner is also directly callable:
+
 ```powershell
 $env:TWIG_TEST_OWNER_CERT = '<existing trusted localhost certificate thumbprint>'
 $env:TWIG_DESKTOP_HANDOFF = Join-Path $env:TEMP ("twig-desktop-" + [guid]::NewGuid() + ".txt")

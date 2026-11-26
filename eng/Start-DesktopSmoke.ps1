@@ -1,0 +1,87 @@
+#requires -Version 7
+[CmdletBinding()]
+param(
+    [Parameter(Mandatory)][string] $PackageRoot,
+    [Parameter(Mandatory)][string] $CanvasRoot,
+    [Parameter(Mandatory)][string] $CanvasCheckout,
+    [Parameter(Mandatory)][ValidatePattern('^[0-9a-fA-F]{40}$')][string] $Certificate,
+    [switch] $PreflightOnly
+)
+$ErrorActionPreference = 'Stop'
+$package = (Resolve-Path -LiteralPath $PackageRoot).Path
+$canvas = (Resolve-Path -LiteralPath $CanvasRoot).Path
+$checkout = (Resolve-Path -LiteralPath $CanvasCheckout).Path
+$cli = (Resolve-Path -LiteralPath (Join-Path $package 'unpacked-cli\twig.exe')).Path
+$check = (Resolve-Path -LiteralPath (Join-Path $checkout 'tools\desktop_smoke.py')).Path
+$stage = (Resolve-Path -LiteralPath (Join-Path $checkout 'tools\stage-developer-panel.ps1')).Path
+$project = (Resolve-Path "$PSScriptRoot\..\tests\Twig.Cli.Tests\Twig.Cli.Tests.csproj").Path
+$handoff = Join-Path $package ("twig-desktop-" + [guid]::NewGuid() + '.txt')
+$start = [Diagnostics.ProcessStartInfo]::new('dotnet')
+$start.UseShellExecute = $false
+foreach ($arg in @('test', $project, '--no-build', '--filter', 'FullyQualifiedName~NativeDesktopOwnerAdmitsOnlyTheSelectedLocalWorkspace')) {
+    $start.ArgumentList.Add($arg)
+}
+$start.Environment['TWIG_TEST_OWNER_CERT'] = $Certificate
+$start.Environment['TWIG_TEST_PACKAGE_ROOT'] = $package
+$start.Environment['TWIG_DESKTOP_HANDOFF'] = $handoff
+$previous = @{}
+foreach ($key in 'TWIG_OWNER_FIXTURE_ID','TWIG_USER_HOME','TWIG_SERVER_INSTALL_ROOT') {
+    $previous[$key] = [Environment]::GetEnvironmentVariable($key)
+}
+$root = $null
+$pushed = $false
+$runner = [Diagnostics.Process]::Start($start)
+try {
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    while (!(Test-Path -LiteralPath $handoff)) {
+        if ($runner.HasExited -or $clock.Elapsed.TotalSeconds -gt 75) { throw 'Native fixture did not become ready.' }
+        Start-Sleep -Milliseconds 300
+    }
+    $candidate = [IO.File]::ReadAllText($handoff).Trim()
+    $id = [guid]::ParseExact((Split-Path $candidate -Leaf), 'D')
+    $expected = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) "Twig.OwnerFixtures\$id"
+    if ($candidate -cne $expected) { throw 'Unexpected fixture handoff location.' }
+    $root = $expected
+    $env:TWIG_OWNER_FIXTURE_ID = $id.ToString('D')
+    $env:TWIG_USER_HOME = Join-Path $root 'home'
+    $env:TWIG_SERVER_INSTALL_ROOT = $root
+    Push-Location -LiteralPath (Join-Path $root 'work')
+    $pushed = $true
+    $record = & $cli server endpoint -o json
+    if ($LASTEXITCODE) { throw 'Matched CLI could not inspect its selected endpoint.' }
+    $record = $record | ConvertFrom-Json
+    if ($record.serverId -ne $id -or $record.certificateThumbprint -ne $Certificate) { throw 'Wrong fixture endpoint.' }
+    $boot = [IO.File]::ReadAllLines((Join-Path $env:TWIG_USER_HOME 'owner.run'))[0]
+    $plugin = & $stage -FixtureId $id -Boot $boot -Origin $record.origin -Thumbprint $Certificate `
+        -SelectionId $record.selectionId -Cli $cli -CanvasRoot $canvas
+    python -B $check
+    if ($LASTEXITCODE) { throw 'The native fixture is not ready.' }
+    if (!$PreflightOnly) {
+        Write-Host "Register this local developer plugin in Copilot: $plugin"
+        $null = Read-Host 'Open Twig (native developer) in the picker, then press Enter here'
+        & $cli workspace --bench 'Unrelated pin' --refresh -o json | Out-Null
+        if ($LASTEXITCODE) { throw 'Cannot refresh the pinned native test item.' }
+        $null = Read-Host 'Select Unrelated pin / item 1, edit its title, save private input once, then press Enter'
+        python -B $check
+        if ($LASTEXITCODE) { throw 'Private save did not leave the publication ledger untouched.' }
+        $original = [guid]::ParseExact((Read-Host 'Close/reopen, confirm your edit, prepare once, then enter its Queued submission UUID before publishing'), 'D')
+        $null = Read-Host 'Publish once, close/reopen, verify the provider title, then press Enter (do not publish again)'
+        $clock.Restart()
+        do {
+            $found = & $cli update --find --id 1
+            if ($LASTEXITCODE -eq 0 -and ($found | ConvertFrom-Json).matches[0].state -eq 'Complete') { break }
+            Start-Sleep -Milliseconds 300
+        } while ($clock.Elapsed.TotalSeconds -lt 15)
+        $found | python -B $check --submission $original.ToString('D')
+        if ($LASTEXITCODE) { throw 'The original single effect was not verified; do not retry publication.' }
+    }
+} finally {
+    if ($pushed) { Pop-Location }
+    foreach ($key in $previous.Keys) { [Environment]::SetEnvironmentVariable($key, $previous[$key]) }
+    if ($root -and (Test-Path -LiteralPath $root)) { [IO.File]::WriteAllText((Join-Path $root 'desktop.finished'), '') }
+    if (!$runner.WaitForExit(20000)) { $runner.Kill($true); $runner.WaitForExit() }
+    $exitCode = $runner.ExitCode
+    $runner.Dispose()
+    if (Test-Path -LiteralPath $handoff) { Remove-Item -LiteralPath $handoff }
+}
+if ($exitCode) { throw "Fixture runner exited with code $exitCode." }

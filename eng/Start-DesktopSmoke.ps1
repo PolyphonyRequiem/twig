@@ -34,8 +34,13 @@ if (!$python) { throw 'Desktop smoke needs Python 3 with sqlite3 (py -3, python3
 $handoff = Join-Path $package ("twig-desktop-" + [guid]::NewGuid() + '.txt')
 $start = [Diagnostics.ProcessStartInfo]::new('dotnet')
 $start.UseShellExecute = $false
-foreach ($arg in @('test', $project, '--no-build', '--filter', 'FullyQualifiedName~NativeDesktopOwnerAdmitsOnlyTheSelectedLocalWorkspace')) {
+foreach ($arg in @('test', $project, '--no-build', '--tl:off', '--filter', 'FullyQualifiedName~NativeDesktopOwnerAdmitsOnlyTheSelectedLocalWorkspace')) {
     $start.ArgumentList.Add($arg)
+}
+if (!$PreflightOnly) {
+    # Give the fixture's 20-minute operator window time to expire and tear down normally.
+    $start.ArgumentList.Add('--')
+    $start.ArgumentList.Add('RunConfiguration.TestSessionTimeout=1500000')
 }
 $start.Environment['TWIG_TEST_OWNER_CERT'] = $Certificate
 $start.Environment['TWIG_TEST_PACKAGE_ROOT'] = $package
@@ -47,6 +52,21 @@ foreach ($key in 'TWIG_OWNER_FIXTURE_ID','TWIG_USER_HOME','TWIG_SERVER_INSTALL_R
 $root = $null
 $pushed = $false
 $runner = [Diagnostics.Process]::Start($start)
+function Read-DesktopStep([string] $Prompt) {
+    Write-Host $Prompt
+    if ([Console]::IsInputRedirected) {
+        $answer = [Console]::ReadLine()
+        if ($null -eq $answer) { throw 'Desktop input closed; stopping the fixture.' }
+    } else {
+        while (![Console]::KeyAvailable) {
+            if ($runner.HasExited) { throw 'Desktop fixture ended. Do not use its plugin folder.' }
+            Start-Sleep -Milliseconds 200
+        }
+        $answer = Read-Host
+    }
+    if ($runner.HasExited) { throw 'Desktop fixture ended. Do not use its plugin folder.' }
+    return $answer
+}
 try {
     $clock = [Diagnostics.Stopwatch]::StartNew()
     while (!(Test-Path -LiteralPath $handoff)) {
@@ -73,15 +93,15 @@ try {
     & $python @prefix -I -B $check
     if ($LASTEXITCODE) { throw 'The native fixture is not ready.' }
     if (!$PreflightOnly) {
-        Write-Host "Register this local developer plugin in Copilot: $plugin"
-        $null = Read-Host 'Open Twig (native developer) in the picker, then press Enter here'
+        Write-Host "Register this local developer plugin in Copilot (20-minute session):`n$plugin"
+        $null = Read-DesktopStep 'Open Twig (native developer) in the picker, then press Enter here'
         & $cli workspace --bench 'Unrelated pin' --refresh -o json | Out-Null
         if ($LASTEXITCODE) { throw 'Cannot refresh the pinned native test item.' }
-        $null = Read-Host 'Select Unrelated pin / item 1, edit its title, save private input once, then press Enter'
+        $null = Read-DesktopStep 'Select Unrelated pin / item 1, edit its title, save private input once, then press Enter'
         & $python @prefix -I -B $check
         if ($LASTEXITCODE) { throw 'Private save did not leave the publication ledger untouched.' }
-        $original = [guid]::ParseExact((Read-Host 'Close/reopen, confirm your edit, prepare once, then enter its Queued submission UUID before publishing'), 'D')
-        $null = Read-Host 'Publish once, close/reopen, verify the provider title, then press Enter (do not publish again)'
+        $original = [guid]::ParseExact((Read-DesktopStep 'Close/reopen, confirm your edit, prepare once, then enter its Queued submission UUID before publishing'), 'D')
+        $null = Read-DesktopStep 'Publish once, close/reopen, verify the provider title, then press Enter (do not publish again)'
         $clock.Restart()
         do {
             $found = & $cli update --find --id 1

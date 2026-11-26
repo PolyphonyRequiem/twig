@@ -97,11 +97,8 @@ try {
         $null = Read-DesktopStep 'Open Twig (native developer) in the picker, then press Enter here'
         & $cli workspace --bench 'Unrelated pin' --refresh -o json | Out-Null
         if ($LASTEXITCODE) { throw 'Cannot refresh the pinned native test item.' }
-        $null = Read-DesktopStep 'Select Unrelated pin / item 1, edit its title, save private input once, then press Enter'
-        & $python @prefix -I -B $check
-        if ($LASTEXITCODE) { throw 'Private save did not leave the publication ledger untouched.' }
-        $original = [guid]::ParseExact((Read-DesktopStep 'Close/reopen, confirm your edit, prepare once, then enter its Queued submission UUID before publishing'), 'D')
-        $null = Read-DesktopStep 'Publish once, close/reopen, verify the provider title, then press Enter (do not publish again)'
+        $original = [guid]::ParseExact((Read-DesktopStep 'Edit the title of existing item 1 in Unrelated pin. Choose Save once. After confirmed success, enter the original submission UUID. If failed or uncertain, stop here with Ctrl+C; do not resend.'), 'D')
+        $null = Read-DesktopStep 'Reopen the item and confirm its provider title matches the saved edit, then press Enter (do not save again)'
         $clock.Restart()
         do {
             $found = & $cli update --find --id 1

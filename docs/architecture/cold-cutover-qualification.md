@@ -127,7 +127,13 @@ one package directory, and extract the Canvas archive to a directory containing
 `$canvasSource` must be the checkout matching the Canvas package. Use
 `-PreflightOnly` to verify staging, the seeded ledger, and teardown without
 registering anything. Otherwise follow the prompts in the terminal and the
-actual Copilot picker. The helper never installs or opens a plugin or publishes
+actual Copilot picker using a Canvas candidate that supports one-step Save.
+Item 1 already exists: one Save submits its edit to the daemon. Queued is
+not success. Confirm completion, reopen to verify the provider title, and
+correlate the same submission with exactly one native effect. If confirmation
+is lost, check the connection and inspect the original rather than sending a
+second edit. Unpublished seeds and agent staging are separate workflows.
+The helper never installs or opens a plugin or publishes
 an edit for you. Remove the temporary developer plugin registration from the
 app after the run. A green preflight alone is not desktop acceptance.
 

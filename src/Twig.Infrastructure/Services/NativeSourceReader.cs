@@ -105,7 +105,7 @@ public static class NativeSourceReader
 
     internal static Task<Result<NativeSourceObservation>> ReadPlanningSourcesAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, string? selectedTeam, Action<IServiceCollection>? configure, CancellationToken ct)
-        => ExplicitPlanningAsync(workspaceRoot, expectedSource, selectedTeam, configure, ct);
+        => ExplicitPlanningAsync(workspaceRoot, expectedSource, selectedTeam, configure, ct, readCatalogue: true);
 
     /// <summary>Refreshes only the selected canonical team (or explicit project scope), preserving every other calendar and workspace selection.</summary>
     public static Task<Result<NativeSourceObservation>> RefreshPlanningAsync(string workspaceRoot,
@@ -177,12 +177,13 @@ public static class NativeSourceReader
 
     private static Task<Result<NativeSourceObservation>> ExplicitPlanningAsync(string workspaceRoot,
         NativeSourceStamp expectedSource, string? selectedTeam, Action<IServiceCollection>? configure, CancellationToken ct,
-        bool readPlanning = false, bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null)
+        bool readPlanning = false, bool refreshPlanning = false, bool discoverSources = false, BrowseRequest? browse = null,
+        bool readCatalogue = false)
         => expectedSource is null || selectedTeam is not null
             && (!Guid.TryParseExact(selectedTeam, "D", out var id) || id == Guid.Empty || id.ToString("D") != selectedTeam)
             ? Task.FromResult(Result<NativeSourceObservation>.Fail(ErrorCode.InvalidInput, "Captured native authority and a canonical team ID (or explicit project scope) are required."))
             : ReadCoreAsync(workspaceRoot, expectedSource, refreshPlanning, configure, ct, refreshPlanning, discoverSources, browse,
-                validateReadAccess: readPlanning, explicitTeam: new(selectedTeam), readPlanning: readPlanning);
+                validateReadAccess: readPlanning || readCatalogue, explicitTeam: new(selectedTeam), readPlanning: readPlanning);
 
     private sealed record TeamSelection(string? Team);
     private sealed record BrowseRequest(PlanningSourceKind Kind, string Id, string? Team, ProcessSchema? MappingSchema = null);

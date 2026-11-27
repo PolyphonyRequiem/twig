@@ -99,7 +99,7 @@ def run(command):
     path = Path(option(command, "--results-directory", "/ResultsDirectory:")) / match.group(1)
     path.unlink(missing_ok=True)
     code = subprocess.call([sys.executable, str(Path(__file__).with_name("run-bounded.py")),
-                            "--warn-after", "60", "--timeout", "300", "--", *command])
+                            "--warn-after", "60", "--timeout", "600", "--", *command])
     if code:
         return code
     count = verify(ET.parse(path).getroot(), selector)

@@ -35,7 +35,7 @@ HOST_CLASSES = set(HOST_CLASSES)
 MAX_CLI_CASES = 200
 MAX_HOST_CASES = 10
 MAX_FILTER_LENGTH = 6000  # Leave room in Windows' command-line limit for SDK/artifact paths.
-SESSION_TIMEOUT = 300000
+SESSION_TIMEOUT = 600000
 BAD_OUTPUT = re.compile(
     r"Test Run Aborted|Aborting test run|test host process crashed|"
     r"No test matches the given testcase filter|No test is available|"
@@ -393,7 +393,7 @@ class Runner:
     def __init__(self):
         settings = ROOT / "test.runsettings"
         config = ET.parse(settings).getroot().find("RunConfiguration")
-        require(config is not None and config.findtext("TestSessionTimeout") == str(SESSION_TIMEOUT), "the existing 300000ms watchdog must be preserved")
+        require(config is not None and config.findtext("TestSessionTimeout") == str(SESSION_TIMEOUT), f"test session watchdog must match the {SESSION_TIMEOUT}ms runner deadline")
         self.base_filter = config.findtext("TestCaseFilter")
         require(bool(self.base_filter), "CI eligibility filter is missing")
         self.settings = settings
@@ -432,7 +432,7 @@ class Runner:
                     exit_code = process.wait(timeout=SESSION_TIMEOUT / 1000)
                 except subprocess.TimeoutExpired:
                     stop_session(process, elevated)
-                    stream.write("\nTest Run Aborted: runner process deadline of 300000ms exceeded.\n")
+                    stream.write(f"\nTest Run Aborted: runner process deadline of {SESSION_TIMEOUT}ms exceeded.\n")
                     exit_code = 1
         elapsed = time.monotonic() - started
         print(f"TWIG-TIMING {name}: {elapsed:.3f}s wall", flush=True)

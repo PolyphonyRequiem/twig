@@ -259,7 +259,9 @@ jobs:
 
       - name: Local layout and binding status diagnostics
         id: connection_status
-        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConnectionStatusProductionCliTests" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
+        env:
+          STATUS_SUITE: ${{ inputs.held_candidate && 'ConnectionStatusCommandTests' || 'ConnectionStatusProductionCliTests' }}
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~${{ env.STATUS_SUITE }}" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
       - name: Preserve connection status results
         if: always() && steps.connection_status.outcome != 'skipped' && steps.connection_status.outcome != ''
         uses: actions/upload-artifact@v4
@@ -309,7 +311,7 @@ jobs:
 
       - name: Fundamental build validation (60-second warning target, 300-second safety timeout)
         id: smoke
-        run: python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --warn-after 60 --timeout 300 --trace artifacts/smoke/boundaries.jsonl
+        run: python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --warn-after 60 --timeout 300 --trace artifacts/smoke/boundaries.jsonl ${{ inputs.held_candidate && '--held-candidate' || '' }}
       - name: Preserve smoke boundaries
         if: always() && steps.smoke.outcome != 'skipped' && steps.smoke.outcome != ''
         uses: actions/upload-artifact@v4

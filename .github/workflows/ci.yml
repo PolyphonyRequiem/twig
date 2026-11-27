@@ -32,6 +32,8 @@ jobs:
         with:
           fetch-depth: 0
           filter: tree:0
+      - name: Check ADO qualification method names against source
+        run: python eng/ci-checks.py ado-root-preflight
       - name: Bounded-wrapper cleanup selftest (synthetic processes only)
         run: python eng/run-bounded.py --selftest
       - name: TRX selector coverage selftest (offline)

@@ -1406,6 +1406,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var commands = new TwigCommands(root);
             (await commands.SeedNew(title: "Parented rooted seed", type: "Task", parent: 42, output: "json"))
                 .ShouldBe(0, stderr.ToString());
+            using var created = JsonDocument.Parse(stdout.ToString());
+            var seedAlias = created.RootElement.GetProperty("id").GetInt32();
             _transport.CommittedWrites.ShouldBe(0);
             async Task<(CoreModel.StoreSnapshot State, string Digest)> PreviewAsync()
             {
@@ -1425,6 +1427,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             repeated.Journal.ShouldHaveSingleItem().Digest.ShouldBe(firstDigest);
 
             _transport.SetItem(42, "Updated parent observation", _transport.RevisionOf(42) + 1, Actor);
+            var (refreshed, refreshedDigest) = await PreviewAsync();
+            refreshed.Version.ShouldBeGreaterThan(repeated.Version);
+            refreshedDigest.ShouldBe(firstDigest, "the create refers to the parent but does not edit its title");
+            (await commands.Update("System.Title", "Revised rooted seed", id: seedAlias, output: "human"))
+                .ShouldBe(0, stderr.ToString());
             var (changed, changedDigest) = await PreviewAsync();
             changedDigest.ShouldNotBe(firstDigest);
             var (unchanged, unchangedDigest) = await PreviewAsync();

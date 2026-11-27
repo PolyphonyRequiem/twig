@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Shouldly;
 using Twig.Core;
@@ -16,7 +17,8 @@ public sealed partial class NativePublicationConsumerTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task NativeWholePlanConvergedNoEffectSettlesAfterRestartWithoutInventingRemoteReceipt(bool coreSettledBeforeLoss)
+    [InlineData(false, false)]
+    public async Task NativeWholePlanConvergedNoEffectSettlesAfterRestartWithoutInventingRemoteReceipt(bool coreSettledBeforeLoss, bool admitted = true)
     {
         var host = await CreateHumanHostAsync();
         var user = UserBenchStore.ForRegistry(host.Registry);
@@ -32,7 +34,11 @@ public sealed partial class NativePublicationConsumerTests
         review.Operations.ShouldBeEmpty();
         review.CoreDigests.ShouldBeEmpty();
         var reference = (await user.RetainPlanReviewAsync(review.Document, default)).Value;
-        (await user.AdvancePlanReviewAsync(reference, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
+        if (admitted)
+        {
+            (await user.AdvancePlanReviewAsync(reference, true, 0, 1, default)).IsSuccess.ShouldBeTrue();
+            (await user.AdmitPlanCaptureAsync(reference, 0, review.Document.Scopes[0].Captures.Single().Id, default)).IsSuccess.ShouldBeTrue();
+        }
         if (coreSettledBeforeLoss)
         {
             using var services = EditorServices(host.Root);
@@ -43,6 +49,15 @@ public sealed partial class NativePublicationConsumerTests
         var restarted = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
         var delivered = await restarted.ContinueDeliveryAsync();
         delivered.IsSuccess.ShouldBeTrue(delivered.IsSuccess ? "" : delivered.Error.Message);
+        if (!admitted)
+        {
+            delivered.Value.Status.ShouldBe("Protected");
+            (await restarted.AbandonUnadmittedAsync()).Value.Status.ShouldBe("AbandonedUnadmitted");
+            (await restarted.ObserveAsync()).Value.Status.ShouldBe("AbandonedUnadmitted");
+            (await restarted.ContinueDeliveryAsync()).Value.Status.ShouldBe("AbandonedUnadmitted");
+            (await user.ReadEditorCapturesAsync(default)).Value.Single().Settled.ShouldBeFalse();
+            return;
+        }
         delivered.Value.Status.ShouldBe("Complete", delivered.Value.Error?.Message);
         delivered.Value.VerifiedScopes.ShouldBe(0);
         delivered.Value.VerifiedOperations.ShouldBe(0);
@@ -80,6 +95,34 @@ public sealed partial class NativePublicationConsumerTests
     }
 
     [Fact]
+    public async Task RejectedFirstOperationCannotAdmitOrConsumeItsSiblingInTheSameScope()
+    {
+        var host = await CreateHumanHostAsync();
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+            foreach (var id in new[] { "42", "43" })
+            {
+                var form = (await editor.SelectAsync(ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, id))).Value;
+                (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Unit " + id)))).IsSuccess.ShouldBeTrue();
+            }
+        status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
+        _transport.RejectNextPatchStatus = System.Net.HttpStatusCode.Forbidden;
+        var original = (await review.ApplyAsync()).Value;
+        original.Units[0].State.ShouldBe("Failed");
+        original.Units[1].State.ShouldBe("Unadmitted");
+        var reopened = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
+        var abandoned = (await reopened.AbandonUnadmittedAsync()).Value;
+        abandoned.Units[0].ShouldBe(original.Units[0]);
+        abandoned.Units[1].State.ShouldBe("Abandoned");
+        (await reopened.ContinueDeliveryAsync()).Value.Units.ShouldBe(abandoned.Units);
+        HumanPatchAttempts.ShouldBe(1);
+        (await user.ReadEditorCapturesAsync(default)).Value.ShouldAllBe(c => !c.Settled);
+    }
+
+    [Fact]
     public async Task NativeWholePlanCompletedScopeCanPublishNewIntentToSameItemWithoutReplayingOldEffect()
     {
         var host = await CreateHumanHostAsync();
@@ -96,6 +139,11 @@ public sealed partial class NativePublicationConsumerTests
                 (await user.ReadPlanStatusAsync(host.Bench)).Value.Sources, ConfigureHumanEditor, default);
             reviewed.IsSuccess.ShouldBeTrue(reviewed.IsSuccess ? "" : reviewed.Error.Message);
             digests.Add(reviewed.Value.Digest).ShouldBeTrue();
+            using var services = EditorServices(host.Root);
+            using var scoped = (await NativeEditor.OpenAsync(services.GetRequiredService<CoreWorkspaceFactory>(), user,
+                host.Bench, host.Stamp, default)).Value;
+            var unrelated = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "43");
+            (await scoped.Workspace.ReadAsync(unrelated, default)).IsSuccess.ShouldBeTrue();
             (await reviewed.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         }
         HumanPatchAttempts.ShouldBe(2);
@@ -263,6 +311,62 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(1);
         (await reopened.ContinueDeliveryAsync()).Value.Status.ShouldBe(uncertain ? "Protected" : "Complete");
         HumanPatchAttempts.ShouldBe(1);
+    }
+
+    [Fact]
+    public async Task NativePlanObservesOriginalAdoAcknowledgementWithoutHoldingRootLeaseOrResending()
+    {
+        var host = await CreateHumanHostAsync();
+        var user = UserBenchStore.ForRegistry(host.Registry);
+        var status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        (await user.ChangePlanModeAsync(status.UserInstance, host.Bench, status.BenchRevision, status.Revision, true)).IsSuccess.ShouldBeTrue();
+        using (var editor = (await OpenHumanHostAsync(host.Root, host.Bench, host.Stamp, default)).Value)
+        {
+            var item = ItemKey.Remote(host.Stamp.Connection.Provider, host.Stamp.Connection.ResourceScope, "42");
+            var form = (await editor.SelectAsync(item)).Value;
+            (await editor.StageAsync(form.Ticket, FieldValues.Empty.Set("System.Title", FieldValue.String("Acknowledged ADO Plan effect"))))
+                .IsSuccess.ShouldBeTrue();
+        }
+        status = (await user.ReadPlanStatusAsync(host.Bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).Value;
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = review.Document.Scopes.Single().Scope.DatabasePath,
+            Pooling = false
+        }.ToString());
+        await db.OpenAsync();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = $"""
+            CREATE TRIGGER park_verification BEFORE UPDATE OF document ON core_snapshots
+            WHEN json_extract(NEW.document,'$.Journal[0].Status')={(int)OpStatus.Verified}
+            BEGIN SELECT RAISE(ABORT,'park original readback'); END;
+            """;
+        await cmd.ExecuteNonQueryAsync();
+        var applied = (await review.ApplyAsync()).Value.Units.Single();
+        applied.State.ShouldBe("Applied");
+        cmd.CommandText = "DROP TRIGGER park_verification";
+        await cmd.ExecuteNonQueryAsync();
+
+        var reopened = (await NativePlanReview.OpenAsync(host.Root, review.Digest, ConfigureHumanEditor, default)).Value;
+        _transport.FailReadbackAfterCommit = true;
+        var failedRead = (await reopened.ObserveAsync()).Value;
+        failedRead.Error.ShouldNotBeNull();
+        failedRead.Units.Single().ShouldBe(applied);
+        _transport.FailReadbackAfterCommit = false;
+        var readbackRan = false;
+        _transport.BeforeReadback = () =>
+        {
+            using var lease = File.Open(Path.Combine(host.Root, ".twig", "binding-operation.lock"),
+                FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            readbackRan = true;
+            return Task.CompletedTask;
+        };
+        var verified = (await reopened.ObserveAsync()).Value;
+        readbackRan.ShouldBeTrue(verified.Error?.Message);
+        verified.Status.ShouldBe("VerifiedDeliveryPending", verified.Error?.Message);
+        verified.Units.Single().ShouldBe(applied with { State = "Verified" });
+        HumanPatchAttempts.ShouldBe(1);
+        _transport.CommittedWrites.ShouldBe(1);
     }
 
     [Fact]

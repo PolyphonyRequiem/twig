@@ -106,6 +106,7 @@ public sealed class NativeAuthority
         await CheckIdentity(db, transaction, ct);
         if (await Effect(db, transaction, plan, ordinal, attempt, ct) is not null)
             throw new NativeFailure(ErrorCode.Conflict, "This authority effect already exists; recover its original receipt, never replay.");
+        if (await Rejected(db, transaction, plan, ordinal, attempt, ct) is { } rejected) return rejected;
         var op = plan.Operations[ordinal];
         long id;
         var revision = Guid.NewGuid().ToString("D");
@@ -149,7 +150,50 @@ public sealed class NativeAuthority
         await using var db = await Open(ct);
         using var transaction = db.BeginTransaction(deferred: true);
         await CheckIdentity(db, transaction, ct);
-        return await Effect(db, transaction, plan, ordinal, attempt, ct);
+        return await Effect(db, transaction, plan, ordinal, attempt, ct)
+            ?? await Rejected(db, transaction, plan, ordinal, attempt, ct);
+    }
+
+    /// <summary>Used by the isolated execution owner after the original executor has quiesced.
+    /// Reading Applied or permanently excluding the exact update uses the same writer lock as Execute.</summary>
+    internal Task<Result<Receipt>> SettleOriginalUpdateAsync(Plan plan, Guid attempt, CancellationToken ct)
+        => NativeGuard.Run(async () =>
+        {
+            if (plan.Connection != Connection || attempt == Guid.Empty
+                || plan.Operations is not [var op] || !(op.Kind == OpKind.Batch && op.ExpectedRevision?.Item == op.Item
+                    || op.Kind == OpKind.Create && op.Item.IsLocal && op.ExpectedRevision is null))
+                throw new NativeFailure(ErrorCode.InvalidInput, "An exact original single-item update is required.");
+            if (op.Kind != OpKind.Create) _ = Id(op.Item);
+            await using var db = await Open(ct);
+            using var transaction = db.BeginTransaction(deferred: false);
+            await CheckIdentity(db, transaction, ct);
+            if (await Effect(db, transaction, plan, 0, attempt, ct) is { } effect) return effect;
+            await Command(db, transaction, """
+                CREATE TABLE IF NOT EXISTS native_rejected_updates(
+                    attempt TEXT PRIMARY KEY, digest TEXT NOT NULL, ordinal INTEGER NOT NULL) STRICT;
+                INSERT INTO native_rejected_updates VALUES($attempt,$digest,0) ON CONFLICT(attempt) DO NOTHING;
+                """, ct, ("$attempt", attempt.ToString("D")), ("$digest", plan.Digest));
+            var result = await Rejected(db, transaction, plan, 0, attempt, ct)
+                ?? throw new NativeFailure(ErrorCode.Conflict, "Missing original authority decision.");
+            transaction.Commit();
+            return result;
+        });
+
+    private static async Task<Receipt?> Rejected(SqliteConnection db, SqliteTransaction transaction, Plan plan,
+        int ordinal, Guid attempt, CancellationToken ct)
+    {
+        await using var command = db.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "SELECT 1 FROM sqlite_schema WHERE type='table' AND name='native_rejected_updates';";
+        if (await command.ExecuteScalarAsync(ct) is null) return null;
+        command.CommandText = "SELECT digest,ordinal FROM native_rejected_updates WHERE attempt=$attempt;";
+        command.Parameters.AddWithValue("$attempt", attempt.ToString("D"));
+        await using var row = await command.ExecuteReaderAsync(ct);
+        if (!await row.ReadAsync(ct)) return null;
+        if (row.GetString(0) != plan.Digest || row.GetInt32(1) != ordinal)
+            throw new NativeFailure(ErrorCode.Conflict, "The terminal authority decision belongs to different intent.");
+        return new(plan.Digest, ordinal, attempt, OpStatus.Failed, ["authority:RejectedNoEffect"],
+            error: new(ErrorCode.Conflict, "The authority permanently rejected this original update without effect."));
     }
 
     private async Task<Receipt?> Effect(SqliteConnection db, SqliteTransaction transaction, Plan plan, int ordinal,
@@ -157,16 +201,20 @@ public sealed class NativeAuthority
     {
         await using var command = db.CreateCommand();
         command.Transaction = transaction;
-        command.CommandText = "SELECT digest,ordinal,seed,item,revision FROM native_effects WHERE attempt=$attempt;";
+        command.CommandText = "SELECT digest,ordinal,seed,item,revision,attempt FROM native_effects WHERE attempt=$attempt OR (digest=$digest AND ordinal=$ordinal);";
         command.Parameters.AddWithValue("$attempt", attempt.ToString("D"));
+        command.Parameters.AddWithValue("$digest", plan.Digest);
+        command.Parameters.AddWithValue("$ordinal", ordinal);
         await using var rows = await command.ExecuteReaderAsync(ct);
         if (!await rows.ReadAsync(ct)) return null;
         var op = plan.Operations[ordinal];
-        if (rows.GetString(0) != plan.Digest || rows.GetInt32(1) != ordinal
+        if (rows.GetString(0) != plan.Digest || rows.GetInt32(1) != ordinal || rows.GetString(5) != attempt.ToString("D")
             || (op.Kind == OpKind.Create ? rows.IsDBNull(2) || rows.GetString(2) != op.Item.LocalId.ToString("D")
                 : !rows.IsDBNull(2) || rows.GetInt64(3) != Id(op.Item)))
             throw new NativeFailure(ErrorCode.Conflict, "Authority receipt does not bind this exact digest, ordinal and target.");
-        return Acknowledgement(plan, ordinal, attempt, rows.GetInt64(3), rows.GetString(4));
+        var receipt = Acknowledgement(plan, ordinal, attempt, rows.GetInt64(3), rows.GetString(4));
+        if (await rows.ReadAsync(ct)) throw new NativeFailure(ErrorCode.Conflict, "Contradictory native effect attempts.");
+        return receipt;
     }
 
     private Receipt Acknowledgement(Plan plan, int ordinal, Guid attempt, long id, string revision)

@@ -50,17 +50,29 @@ public sealed record Op
     public FieldValues CreateEvidence { get; init; }
 }
 
+public sealed record GraphDependency(ItemKey Endpoint, string Fingerprint);
+public sealed record ReviewBinding(Guid Revision, Guid Store, string Actor, string Capture)
+{
+    public ImmutableArray<GraphDependency> Graph { get; init; } = [];
+}
+
 public sealed record Plan
 {
-    public const int FormatVersion = 3;
+    public const int FormatVersion = 4;
 
     public Plan(Connection connection, string schemaFingerprint, long expectedStoreVersion, IEnumerable<Op> operations,
-        string? policyIdentity = null, string? policyRevision = null)
+        string? policyIdentity = null, string? policyRevision = null, ReviewBinding? review = null)
     {
         Connection = connection ?? throw new ArgumentNullException(nameof(connection));
         SchemaFingerprint = Contract.Text(schemaFingerprint, nameof(schemaFingerprint));
-        if (expectedStoreVersion < 0) throw new ArgumentOutOfRangeException(nameof(expectedStoreVersion));
-        ExpectedStoreVersion = expectedStoreVersion;
+        // Kept for existing callers; only local store transactions use a version predicate.
+        if (review is not null && (review.Revision == Guid.Empty || review.Store == Guid.Empty
+            || string.IsNullOrWhiteSpace(review.Actor) || string.IsNullOrWhiteSpace(review.Capture)))
+            throw new ArgumentException("Incomplete original review binding.", nameof(review));
+        if (review is not null && (review.Graph.IsDefault || review.Graph.Any(d => d is null || d.Endpoint is null || string.IsNullOrWhiteSpace(d.Fingerprint))
+            || review.Graph.Select(d => d.Endpoint).Distinct().Count() != review.Graph.Length))
+            throw new ArgumentException("Invalid graph dependency set.", nameof(review));
+        Review = review;
         Operations = Contract.Unique(operations, o => o.Id);
         if (Operations.IsEmpty) throw new ArgumentException("A plan must declare an effect.", nameof(operations));
         if ((policyIdentity is null) != (policyRevision is null))
@@ -71,7 +83,7 @@ public sealed record Plan
 
     public Connection Connection { get; }
     public string SchemaFingerprint { get; }
-    public long ExpectedStoreVersion { get; }
+    public ReviewBinding? Review { get; }
     public ImmutableArray<Op> Operations { get; }
     public string? PolicyIdentity { get; }
     public string? PolicyRevision { get; }
@@ -127,8 +139,12 @@ public sealed record JournalEntry
         && receipt.Digest == Digest && receipt.Operation == Operation && receipt.Attempt == Attempt;
 
     public bool CanRecheckAcknowledgedCreate => Status == OpStatus.Partial && Receipts.Length == 2
-        && Receipts[0] is { Status: OpStatus.Applied, PublishedKey: not null, Revision: not null } ack
-        && Receipts[1].PublishedKey == ack.PublishedKey && Receipts[1].Revision == ack.Revision;
+        && Receipts[0] is { Status: OpStatus.Applied, PublishedKey: not null } ack
+        && Receipts[1].PublishedKey == ack.PublishedKey;
+
+    internal bool VerifiesAcknowledgedCreate(Receipt receipt) => CanRecheckAcknowledgedCreate
+        && receipt.Status == OpStatus.Verified && receipt.PublishedKey == Receipts[0].PublishedKey
+        && receipt.Revision is not null && (Receipts[0].Revision is null || receipt.Revision == Receipts[0].Revision);
 
     public static JournalEntry Planned(string digest, int operation)
         => operation < 0 ? throw new ArgumentOutOfRangeException(nameof(operation))
@@ -144,8 +160,11 @@ public sealed record JournalEntry
             return Result<JournalEntry>.Fail(ErrorCode.Conflict, "Receipt does not belong to this exact operation attempt.");
         var permitted = Status == OpStatus.Applying && receipt.Status is OpStatus.Applied or OpStatus.Failed or OpStatus.Partial or OpStatus.Indeterminate
             || Status == OpStatus.Applied && receipt.Status is OpStatus.Verified or OpStatus.Partial or OpStatus.Indeterminate
-            || CanRecheckAcknowledgedCreate && receipt.Status == OpStatus.Verified
-                && receipt.PublishedKey == Receipts[0].PublishedKey && receipt.Revision == Receipts[0].Revision;
+                && (receipt.PublishedKey is null || receipt.PublishedKey == Receipts[0].PublishedKey)
+                && (receipt.Status != OpStatus.Verified || Receipts[0].PublishedKey is null
+                    || receipt.PublishedKey == Receipts[0].PublishedKey
+                        && (Receipts[0].Revision is null || receipt.Revision == Receipts[0].Revision))
+            || VerifiesAcknowledgedCreate(receipt);
         return permitted
             ? Result<JournalEntry>.Ok(new(Digest, Operation, Attempt, receipt.Status, Receipts.Add(receipt)))
             : Result<JournalEntry>.Fail(ErrorCode.Conflict, "Illegal journal transition; applied is not verified, and unknown is not retryable.");

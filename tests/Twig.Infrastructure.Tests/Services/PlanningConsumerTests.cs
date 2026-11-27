@@ -148,7 +148,7 @@ public sealed class PlanningConsumerTests : IDisposable
         Required(await owner.SavePlanningAsync(connection, "Selected team",
             new(now, [], [new("Project\\Past", now.AddDays(-4), now.AddDays(-2))], [], "canonical-team")));
         var noCurrent = new Query(QueryKind.Iteration, "System.IterationPath", FieldValue.Strings(["@Current"]), planningTeam: "canonical-team");
-        Required(await workspace.QueryAsync(noCurrent, default)).Items.ShouldBeEmpty();
+        (await workspace.QueryAsync(noCurrent, default)).Error.Code.ShouldBe(ErrorCode.Unavailable);
         await provider.DidNotReceiveWithAnyArgs().QueryAsync(default!, default!, default, default);
         Required(await native.ReadAsync(connection, default)).Version.ShouldBe(0);
     }

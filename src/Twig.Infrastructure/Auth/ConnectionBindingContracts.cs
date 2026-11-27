@@ -66,6 +66,11 @@ internal interface IConnectionOperationGuard
         => Task.FromResult<IDisposable?>(null);
 }
 
+internal interface IFrozenCredentialSource
+{
+    Task<string> GetFrozenTokenAsync(CancellationToken ct);
+}
+
 /// <summary>Fresh origin evidence usable only by the same source during this live operation.</summary>
 internal interface IAdmittedConnectionOperation : IDisposable
 {

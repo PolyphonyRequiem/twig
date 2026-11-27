@@ -13,6 +13,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+throw 'Developer shim promotion and restore are held in this candidate pending signed matched cold cutover qualification.'
 
 $globalDir  = Join-Path $HOME ".twig" "bin"
 $localDir   = Join-Path $PSScriptRoot ".local" "bin"

@@ -16,7 +16,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
 {
     internal async Task<int> ExecuteAsync(string action, string? name, string output, CancellationToken ct,
         string? newName = null, string? confirm = null, string? expectBench = null, string? expectContents = null,
-        bool management = false)
+        bool management = false, TextWriter? stdout = null, TextWriter? stderr = null)
     {
         var started = Stopwatch.GetTimestamp();
         var format = OutputFormats.Normalize(output);
@@ -33,11 +33,11 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
 
         int Error(string message, int code = 1)
         {
-            CommandError.Write(renderers, Console.Error, format ?? OutputFormats.Default, message);
+            CommandError.Write(renderers, stderr ?? Console.Error, format ?? OutputFormats.Default, message);
             return code;
         }
         void Result(string kind, Bench bench, string message)
-            => renderers.GetRenderer(format!).Render(new RenderTree.RenderTree([new RenderNode.Record(kind,
+            => renderers.GetRenderer(format!, stdout ?? Console.Out).Render(new RenderTree.RenderTree([new RenderNode.Record(kind,
                 new Dictionary<string, RenderCell>
                 {
                     ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
@@ -60,7 +60,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
             {
                 if (format == "ids")
                 {
-                    foreach (var bench in read.Value.Benches) Console.WriteLine(bench.Id.ToString("D"));
+                    foreach (var bench in read.Value.Benches) (stdout ?? Console.Out).WriteLine(bench.Id.ToString("D"));
                     return 0;
                 }
                 if (management)
@@ -81,7 +81,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
                         }
                         writer.WriteEndArray(); writer.WriteEndObject();
                     }
-                    Console.WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
+                    (stdout ?? Console.Out).WriteLine(Encoding.UTF8.GetString(buffer.ToArray()));
                     return 0;
                 }
                 var rows = read.Value.Benches.Select(bench => new RenderRow("bench", new Dictionary<string, RenderCell>
@@ -89,7 +89,7 @@ internal sealed class UserBenchCommand(UserBenchStore store, RendererFactory ren
                     ["id"] = RenderCell.String(bench.Id.ToString("D")), ["name"] = RenderCell.String(bench.Name),
                     ["revision"] = RenderCell.Integer(bench.Revision), ["selectorCount"] = RenderCell.Integer(bench.Selectors.Length),
                 })).ToArray();
-                renderers.GetRenderer(format).Render(new RenderTree.RenderTree([new RenderNode.Table("User-wide Benches",
+                renderers.GetRenderer(format, stdout ?? Console.Out).Render(new RenderTree.RenderTree([new RenderNode.Table("User-wide Benches",
                     [new("name", "Bench"), new("id", "ID"), new("revision", "Revision"), new("selectorCount", "Pins")], rows)]));
                 return 0;
             }

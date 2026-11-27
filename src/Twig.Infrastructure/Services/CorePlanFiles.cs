@@ -28,7 +28,7 @@ internal static class CorePlanFiles
 
     internal static Plan Parse(JsonElement json)
     {
-        Object(json, "version", "connection", "schema", "storeVersion", "policyIdentity", "policyRevision", "operations");
+        Object(json, "version", "connection", "schema", "review", "policyIdentity", "policyRevision", "operations");
         if (json.GetProperty("version").GetInt32() != Plan.FormatVersion)
             throw new JsonException("Earlier plan bytes are preserved, never translated into a new digest.");
         var bound = json.GetProperty("connection");
@@ -37,9 +37,19 @@ internal static class CorePlanFiles
             Text(bound.GetProperty("destination")), Text(bound.GetProperty("identity")));
         var operations = json.GetProperty("operations");
         if (operations.ValueKind != JsonValueKind.Array) throw new JsonException("Operations must be an ordered array.");
-        return new(connection, Text(json.GetProperty("schema")), json.GetProperty("storeVersion").GetInt64(),
+        var binding = json.GetProperty("review");
+        ReviewBinding? review = null;
+        if (binding.ValueKind != JsonValueKind.Null)
+        {
+            Object(binding, "revision", "store", "actor", "capture", "graph");
+            review = new(binding.GetProperty("revision").GetGuid(), binding.GetProperty("store").GetGuid(),
+                Text(binding.GetProperty("actor")), Text(binding.GetProperty("capture")))
+                { Graph = [.. binding.GetProperty("graph").EnumerateArray().Select(node =>
+                    { Array(node, 2); return new GraphDependency(Key(node[0]), Text(node[1])); })] };
+        }
+        return new(connection, Text(json.GetProperty("schema")), 0,
             operations.EnumerateArray().Select(Operation), NullableText(json.GetProperty("policyIdentity")),
-            NullableText(json.GetProperty("policyRevision")));
+            NullableText(json.GetProperty("policyRevision")), review);
     }
 
     private static Op Operation(JsonElement json)

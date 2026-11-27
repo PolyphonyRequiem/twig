@@ -200,6 +200,10 @@ function Get-BenchEndpoint([string] $Root) {
 }
 
 if ($MyInvocation.InvocationName -eq '.') { return }
+if (!$Endpoint -and !$Status) {
+    [Console]::Error.WriteLine('Candidate launcher held pending signed matched cold cutover qualification.')
+    exit 2
+}
 try {
     if ($Endpoint) {
         Get-BenchEndpoint $InstallRoot | ConvertTo-Json -Compress

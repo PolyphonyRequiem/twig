@@ -52,6 +52,12 @@ public sealed partial class GitHubProvider
         }, ct));
 
     public Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => QueryAsync(connection, query, continuation, ct, captureOnly: false);
+
+    public Task<Result<QueryPage>> ObserveQueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => QueryAsync(connection, query, continuation, ct, captureOnly: true);
+
+    private Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct, bool captureOnly)
         => Guard(() => WithSession(connection, async (bound, token) =>
         {
             if (continuation is not null) throw Wire.Refuse(ErrorCode.Unsupported, "This bounded query does not accept a continuation.");
@@ -64,7 +70,7 @@ public sealed partial class GitHubProvider
             var issues = Wire.Member(repo, "issues"); NoNext(issues);
             var keys = Wire.Member(issues, "nodes").EnumerateArray().Select(i => Key(Wire.Text(i, "id"))).ToImmutableArray();
             if (keys.Distinct().Count() != keys.Length) throw Wire.Invalid("Duplicate native query candidates.");
-            var all = await Refresh(bound, schema, keys, token);
+            var all = await Refresh(bound, schema, keys, token, captureOnly);
             var matched = new List<WorkItem>();
             foreach (var item in all.Items)
             {

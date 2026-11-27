@@ -189,7 +189,7 @@ internal static class NativeCoreExecution
     }
 
     internal static async Task<Result<IDisposable>> AdmitAsync(string registryPath, NativeCoreStoreReference source,
-        Plan plan, int operation, Guid attempt, CancellationToken ct, bool planned = false)
+        Plan plan, int operation, Guid attempt, CancellationToken ct, bool planned = false, bool ownerClaims = false)
     {
         IDisposable? lease = null;
         try
@@ -205,12 +205,18 @@ internal static class NativeCoreExecution
                 : row.Status != OpStatus.Applying || row.Attempt != attempt))
                 return Result<IDisposable>.Fail(ErrorCode.Conflict, "Native target admission requires the exact durable Applying attempt.");
             var targets = Targets(plan.Operations[operation], own.Value);
-            lease = ConnectionOperationGate.AcquireCoreTargets(registryPath, OperationKeys(plan.Operations[operation], own.Value, source.Connection));
+            lease = ownerClaims ? LogicalAdmission.Instance
+                : ConnectionOperationGate.AcquireCoreTargets(registryPath, OperationKeys(plan.Operations[operation], own.Value, source.Connection));
             ct.ThrowIfCancellationRequested();
             var freshOwn = await Snapshot(source, ct).ConfigureAwait(false);
             if (!freshOwn.IsSuccess) return Result<IDisposable>.Fail(freshOwn.Error);
             if (freshOwn.Value.Version != own.Value.Version)
-                return Result<IDisposable>.Fail(ErrorCode.Conflict, "The authoritative Core source changed before exclusive target admission.");
+            {
+                var freshRow = freshOwn.Value.Journal.SingleOrDefault(value => value.Digest == plan.Digest && value.Operation == operation);
+                if (!ownerClaims || freshRow?.Status != row.Status || freshRow.Attempt != row.Attempt
+                    || !targets.ToHashSet(StringComparer.Ordinal).SetEquals(Targets(plan.Operations[operation], freshOwn.Value)))
+                    return Result<IDisposable>.Fail(ErrorCode.Conflict, "The authoritative target or original operation changed during admission.");
+            }
             using var registry = new SqliteSystemWorktreeRegistry(registryPath, TimeProvider.System);
             var captured = await registry.ReadCoreGateAsync(ct).ConfigureAwait(false);
             if (!captured.IsSuccess) return Result<IDisposable>.Fail(captured.Error);
@@ -260,7 +266,7 @@ internal static class NativeCoreExecution
                 }
             }
             var recorded = await registry.RecordCoreAttemptAsync(source, plan, operation, attempt, targets,
-                own.Value.Version, !planned, captured.Value.Instance, captured.Value.Revision, ct).ConfigureAwait(false);
+                freshOwn.Value.Version, !planned, captured.Value.Instance, captured.Value.Revision, ct).ConfigureAwait(false);
             if (!recorded.IsSuccess) return Result<IDisposable>.Fail(recorded.Error);
             var retained = lease ?? throw new InvalidOperationException("Missing native target lease.");
             lease = null;
@@ -274,6 +280,12 @@ internal static class NativeCoreExecution
     }
 
     internal static bool NoEffect(JournalEntry row) => row.DefinitivelyHadNoEffect;
+
+    private sealed class LogicalAdmission : IDisposable
+    {
+        internal static readonly LogicalAdmission Instance = new();
+        public void Dispose() { }
+    }
 
     internal static bool ReferencesMatch(StoreSnapshot snapshot, IEnumerable<CoreAttemptReference> references)
         => references.All(reference => snapshot.Plans.FirstOrDefault(value => value.Digest == reference.Digest) is { } plan
@@ -304,7 +316,7 @@ internal static class NativeCoreExecution
 
     private static string Key(ItemKey key) => key.IsLocal ? "uuid:" + key.LocalId.ToString("D")
         : JsonSerializer.Serialize(new[] { key.Provider!.Value, key.ResourceScope!, key.NativeId! }, NativeCoreExecutionJson.Default.StringArray);
-    private static string Destination(Connection connection) => "destination:" + JsonSerializer.Serialize(
+    internal static string Destination(Connection connection) => "destination:" + JsonSerializer.Serialize(
         new[] { connection.Provider.Value, connection.ResourceScope, connection.Destination }, NativeCoreExecutionJson.Default.StringArray);
 
     internal static async Task<Result<StoreSnapshot>> Snapshot(NativeCoreStoreReference source, CancellationToken ct)

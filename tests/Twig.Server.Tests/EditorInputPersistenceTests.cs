@@ -172,6 +172,22 @@ public sealed class EditorInputPersistenceTests : IDisposable
     }
 
     [Fact]
+    public void IndependentInitialCapturesAndDeleteRecreateUseOnlyTheirOwnVersion()
+    {
+        var first = Capture();
+        var second = first with { Identity = first.Identity with { ItemId = "second" } };
+        var observed = sessions.ReadInputs(session, second);
+        sessions.WriteInputs(session, first, 0, Guid.NewGuid(), Values("first"));
+        var saved = sessions.WriteInputs(session, second, observed.Revision, Guid.NewGuid(), Values("second"));
+        saved.Revision.ShouldBe(1);
+        var deleted = sessions.WriteInputs(session, second, saved.Revision, Guid.NewGuid(), null);
+        sessions.WriteInputs(session, second, deleted.Revision, Guid.NewGuid(), Values("replacement"));
+        Should.Throw<HttpFailure>(() => sessions.WriteInputs(session, second, saved.Revision, Guid.NewGuid(), Values("late")))
+            .Code.ShouldBe("InputRevisionConflict");
+        sessions.ReadInputs(session, second).Values!.Fields.Single().Value.Value.GetString().ShouldBe("replacement");
+    }
+
+    [Fact]
     public void ExactSubmissionAndRevisionSpecificConsumptionPreserveNewerInputsAndOtherBuffers()
     {
         var capture = Capture();
@@ -201,13 +217,13 @@ public sealed class EditorInputPersistenceTests : IDisposable
         var relationship = scalar with { Identity = scalar.Identity with { Mode = "relationships", EndpointId = "endpoint" }, Pair = pair };
         var links = new EditorInputValues([], pair.Choices);
         sessions.WriteInputs(session, relationship, 0, Guid.NewGuid(), links);
-        Should.Throw<HttpFailure>(() => sessions.WriteInputs(session, scalar, 1, Guid.NewGuid(), links)).Status.ShouldBe(400);
+        Should.Throw<HttpFailure>(() => sessions.WriteInputs(session, scalar, 0, Guid.NewGuid(), links)).Status.ShouldBe(400);
         Should.Throw<HttpFailure>(() => sessions.WriteInputs(session, relationship, 1, Guid.NewGuid(),
             new([], [new("wrong", "association", true, false)]))).Status.ShouldBe(400);
         var local = relationship with { Identity = relationship.Identity with { Mode = "local-relationship" }, Pair = pair with { LocalOnly = true } };
-        sessions.WriteInputs(session, local, 1, Guid.NewGuid(), new([], Adding: null));
-        sessions.WriteInputs(session, local, 2, Guid.NewGuid(), new([], Adding: true));
-        Should.Throw<HttpFailure>(() => sessions.WriteInputs(session, local, 3, Guid.NewGuid(), Values("scalar"))).Status.ShouldBe(400);
+        sessions.WriteInputs(session, local, 0, Guid.NewGuid(), new([], Adding: null));
+        sessions.WriteInputs(session, local, 1, Guid.NewGuid(), new([], Adding: true));
+        Should.Throw<HttpFailure>(() => sessions.WriteInputs(session, local, 2, Guid.NewGuid(), Values("scalar"))).Status.ShouldBe(400);
         sessions.ReadInputs(session, relationship).Values!.Links.ShouldHaveSingleItem();
     }
 

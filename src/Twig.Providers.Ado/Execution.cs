@@ -26,12 +26,18 @@ public sealed partial class AdoProvider
             var next = Copy(acquired, stored.Version + 1,
                 plans: stored.Plans.Add(plan),
                 journal: stored.Journal.AddRange(plan.Operations.Select((_, ordinal) => JournalEntry.Planned(plan.Digest, ordinal))));
-            var result = await _store.CommitAsync(_connection, stored.Version, next, token);
+            var result = LocalCommit.ReviewedScalar(plan)
+                ? await LocalCommit.AdmitScalarAsync(_store, plan, stored, acquired, null,
+                    s => { RefuseChangedActor(s, bound); RefuseUnresolvedTargets(plan, s); }, token)
+                : await _store.CommitAsync(_connection, stored.Version, next, token);
             if (!result.IsSuccess) throw new AdoFailure(result.Error);
             return result.Value;
         }, ct));
 
     public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => ((IOriginalUpdateProvider)this).ApplyOriginalAsync(plan, operation, attempt, null, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.ApplyOriginalAsync(Plan plan, int operation, Guid attempt, IOriginalUpdateBarrier? barrier, CancellationToken ct)
         => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             if (attempt == Guid.Empty || operation < 0 || operation >= plan.Operations.Length)
@@ -54,7 +60,10 @@ public sealed partial class AdoProvider
             var began = row.Begin(attempt);
             if (!began.IsSuccess) throw new AdoFailure(began.Error);
             var begun = Copy(acquired, stored.Version + 1, journal: Replace(stored.Journal, began.Value));
-            var committed = await _store.CommitAsync(_connection, stored.Version, begun, token);
+            var committed = LocalCommit.ReviewedScalar(plan)
+                ? await LocalCommit.AdmitScalarAsync(_store, plan, stored, acquired, attempt,
+                    s => { RefuseChangedActor(s, bound); RefuseUnresolvedTargets(plan, s); }, token)
+                : await _store.CommitAsync(_connection, stored.Version, begun, token);
             if (!committed.IsSuccess) throw new AdoFailure(committed.Error);
 
             var evidence = new List<string>
@@ -78,10 +87,28 @@ public sealed partial class AdoProvider
                 request.Content = new ByteArrayContent(payload);
                 request.Content.Headers.ContentType = new MediaTypeHeaderValue(intent.MediaType);
                 token.ThrowIfCancellationRequested();
+                if (barrier is not null)
+                    await barrier.OpenAsync(plan, attempt, new(method.Method, target.AbsoluteUri,
+                        Convert.ToHexStringLower(SHA256.HashData(payload)), bound.PrincipalId, bound.ProjectName), token);
                 dispatched = true;
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
                 var bytes = await ResponseBytes(response, token);
                 var responseText = Wire.Utf8(bytes);
+                if (barrier is not null)
+                {
+                    await admission.ObserveAsync((int)response.StatusCode, responseText, CancellationToken.None);
+                    var original = DecodeOriginalUpdate(plan, operation, attempt, bound.PrincipalId, bound.ProjectName,
+                        (int)response.StatusCode, bytes);
+                    if (op.Kind == OpKind.Create && original is not null)
+                    {
+                        var retained = admission.RetainedBody(responseText);
+                        if (retained != responseText && !(DecodeOriginalUpdate(plan, operation, attempt, bound.PrincipalId,
+                            bound.ProjectName, (int)response.StatusCode, System.Text.Encoding.UTF8.GetBytes(retained)) is { } proof
+                            && SameReceipt(original, proof))) return Unknown("Redaction changed original create proof.");
+                        await barrier.WitnessCreateAsync(plan, attempt, new((int)response.StatusCode, retained), CancellationToken.None);
+                    }
+                    return original is null ? Unknown("No attributable original update acknowledgement.") : await PersistReceipt(plan, original, null);
+                }
                 evidence.Add($"http:{(int)response.StatusCode}");
                 evidence.Add($"ado-response:{responseText}");
                 // Native acknowledgement durability is independent of the caller canceling after dispatch.
@@ -112,13 +139,19 @@ public sealed partial class AdoProvider
                     : new(plan.Digest, operation, attempt, OpStatus.Failed, evidence,
                         error: ex is AdoFailure failure ? failure.Error : new(ErrorCode.Unavailable, "Admission failed before dispatch."));
             }
-            return await PersistReceipt(plan, receipt, acknowledgedItems);
+            return barrier is not null ? receipt : await PersistReceipt(plan, receipt, acknowledgedItems);
 
             Receipt Unknown(string message) => new(plan.Digest, operation, attempt, OpStatus.Indeterminate, evidence,
                 error: new(ErrorCode.Indeterminate, message));
         }, ct));
 
     public Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, false, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, true, ct);
+
+    private Task<Result<Receipt>> Verify(Plan plan, Receipt acknowledgement, bool original, CancellationToken ct)
         => Guard(async () =>
         {
             var stored = await Snapshot(ct);
@@ -206,9 +239,57 @@ public sealed partial class AdoProvider
                     acknowledgement.Revision, acknowledgement.PublishedKey,
                     new(ErrorCode.Indeterminate, "Applied is retained; readback failure cannot establish no effect."));
             }
+            if (original && receipt.Status == OpStatus.Indeterminate) return receipt;
             return rechecking && receipt.Status != OpStatus.Verified
                 ? row.Receipts[^1] : await PersistReceipt(plan, receipt, observations);
         });
+
+    private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string project, int status, byte[] bytes)
+    {
+        var op = plan.Operations[ordinal];
+        if (op.Kind is not (OpKind.Batch or OpKind.Comment or OpKind.Create)) throw Wire.Invalid("Unsupported original effect.");
+        string[] evidence = [$"actor:{actor}", $"attempt:{attempt:D}", $"http:{status}"];
+        if (status is 400 or 401 or 403 or 404 or 405 or 409 or 412 or 415 or 422 or 429)
+            return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence, error: HttpFailure((System.Net.HttpStatusCode)status).Error);
+        if (status != 200 && !(op.Kind == OpKind.Create && status == 201)) return null;
+        var root = JsonSerializer.Deserialize(bytes, TwigJsonContext.Default.JsonElement);
+        Wire.Unique(root);
+        var rev = Wire.Positive(root, "rev");
+        var key = Key(Wire.Positive(root, "id"));
+        if (Wire.Text(root.GetProperty("fields"), "System.TeamProject") != project) return null;
+        if (op.Kind == OpKind.Create) return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, Revision(key, rev), key);
+        if (key != op.Item || rev <= RevisionNumber(op)) return null;
+        return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, Revision(op.Item, rev));
+    }
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.InspectOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? request, CancellationToken ct)
+        => Guard(async () =>
+        {
+            var row = (await Snapshot(ct)).Journal.Single(j => j.Digest == plan.Digest && j.Operation == 0);
+            if (plan.Connection != _connection || row.Attempt != attempt) throw Wire.Invalid("Original attempt changed.");
+            var create = plan.Operations[0].Kind == OpKind.Create;
+            if (row.Status != OpStatus.Applying && !create) return row.Receipts[^1];
+            if (_access is not IOriginalResponseSource source) throw Wire.Refuse(ErrorCode.Unavailable, "Original ADO evidence reader unavailable.");
+            var observed = await source.ObserveOriginalAsync(plan, attempt, request, ct);
+            if (request is null && !observed.IsSuccess && observed.Error.Code == ErrorCode.NotFound)
+                return await PersistReceipt(plan, new(plan.Digest, 0, attempt, OpStatus.Failed, ["original:Closed"],
+                    error: new(ErrorCode.Conflict, "Original barrier permanently closed before dispatch.")), null);
+            if (request is null || !observed.IsSuccess) throw Wire.Refuse(ErrorCode.Indeterminate, "Original proof unavailable or contradictory; no resend.");
+            if (create && request.ResponseHash != observed.Value.Fingerprint()) throw Wire.Refuse(ErrorCode.Indeterminate, "No matching owner witness for the original ADO response.");
+            var acknowledgement = DecodeOriginalUpdate(plan, 0, attempt, request.Actor, request.Context, observed.Value.Status,
+                System.Text.Encoding.UTF8.GetBytes(observed.Value.Body)) ?? throw Wire.Refuse(ErrorCode.Indeterminate, "No attributable original ADO response.");
+            if (row.Status == OpStatus.Applying) return await PersistReceipt(plan, acknowledgement, null);
+            if (!SameReceipt(row.Receipts[0], acknowledgement)) throw Wire.Invalid("Contradictory original creation proof.");
+            return row.Receipts[^1];
+        });
+
+    async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
+    {
+        if (_access is not IOriginalResponseSource source) return Result<bool>.Fail(ErrorCode.Unavailable, "Original ADO evidence reader unavailable.");
+        var response = await source.ObserveOriginalAsync(plan, attempt, null, ct);
+        return !response.IsSuccess && response.Error.Code != ErrorCode.NotFound
+            ? Result<bool>.Fail(response.Error) : Result<bool>.Ok(!response.IsSuccess);
+    }
 
     // Recovery only continues a durable acknowledgement's readback. Applying/unknown has no positive creation evidence.
     public async Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)
@@ -451,7 +532,7 @@ public sealed partial class AdoProvider
     }
 
     private static ItemKey Resolve(StoreSnapshot stored, ItemKey key)
-        => stored.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        => stored.ResolveVerified(key);
 
     private static StoreSnapshot Mirror(StoreSnapshot stored, QueryPage page)
     {
@@ -483,23 +564,14 @@ public sealed partial class AdoProvider
 
     private async Task<Receipt> PersistReceipt(Plan plan, Receipt receipt, QueryPage? observations)
     {
-        var current = await _store.ReadAsync(_connection, CancellationToken.None);
-        if (!current.IsSuccess) return Undurable(current.Error);
-        var stored = current.Value;
-        var row = stored.Journal.Single(j => j.Digest == receipt.Digest && j.Operation == receipt.Operation);
-        var recorded = row.Record(receipt);
-        if (!recorded.IsSuccess) return Undurable(recorded.Error);
-        var mappings = stored.Mappings;
-        if (plan.Operations[receipt.Operation].Kind == OpKind.Create && receipt.Status == OpStatus.Applied)
-            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, receipt.PublishedKey!, plan.Digest, receipt.Operation));
-        if (observations is not null) stored = Mirror(stored, observations);
-        var next = Copy(stored, stored.Version + 1, journal: Replace(stored.Journal, recorded.Value), mappings: mappings);
-        var result = await _store.CommitAsync(_connection, stored.Version, next, CancellationToken.None);
+        var result = await LocalCommit.ReceiptAsync(_store, plan, receipt,
+            stored => observations is null ? stored : Mirror(stored, observations));
         return result.IsSuccess ? receipt : Undurable(result.Error);
 
         Receipt Undurable(Error error) => new(receipt.Digest, receipt.Operation, receipt.Attempt, OpStatus.Indeterminate,
             receipt.Evidence.Add($"Receipt durability failed: {error.Code}: {error.Message}; original durable fence remains."),
-            receipt.Revision, receipt.PublishedKey, new(ErrorCode.StorageUnavailable, "Outcome could not be committed; no replay is authorized."));
+            receipt.Revision, receipt.PublishedKey, error.StoreVersionChanged ? error
+                : new(ErrorCode.StorageUnavailable, "Outcome could not be committed; no replay is authorized."));
     }
 
     private static ImmutableArray<JournalEntry> Replace(ImmutableArray<JournalEntry> journal, JournalEntry row)

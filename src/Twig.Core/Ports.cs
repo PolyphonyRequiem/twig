@@ -50,6 +50,8 @@ public interface IProvider
         string? expectedTeam, ProcessSchema mappingSchema, CancellationToken ct)
         => Task.FromResult(Result<PlanningBrowsePage>.Fail(ErrorCode.Unsupported, "This provider does not expose native planning reads with recorded mapping metadata."));
     Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct);
+    Task<Result<QueryPage>> ObserveQueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => Task.FromResult(Result<QueryPage>.Fail(ErrorCode.Unsupported, "This provider does not expose capture-only query observations."));
     Task<Result<QueryPage>> ReadAsync(Connection connection, ImmutableArray<ItemKey> keys, CancellationToken ct, bool captureOnly = false);
     Task<Result<long>> ImportAsync(Plan plan, CancellationToken ct = default);
 
@@ -84,6 +86,13 @@ public sealed record StoreSnapshot
     public ImmutableArray<JournalEntry> Journal { get; }
     public ImmutableArray<PublishMapping> Mappings { get; }
     public ImmutableArray<Bench> Benches { get; }
+
+    public ItemKey ResolveVerified(ItemKey key)
+    {
+        if (!key.IsLocal || Mappings.SingleOrDefault(m => m.Local == key) is not { } map
+            || Plans.SingleOrDefault(p => p.Digest == map.PlanDigest) is not { } plan) return key;
+        return VerifiedSeedTarget(plan.Connection, key) ?? key;
+    }
 
     /// <summary>Resolves only a permanent identity proved by this store's original verified create.</summary>
     public ItemKey? VerifiedSeedTarget(Connection connection, ItemKey local, string? digest = null, int? ordinal = null)

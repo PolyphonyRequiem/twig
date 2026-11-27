@@ -51,7 +51,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
     private HttpClient _http = null!;
     private ConnectionBindingService _bindings = null!;
     private SqliteSystemWorktreeRegistry _systemRegistry = null!;
-    private string Home => Path.Combine(_temp, "home");
+    private string? _ownerHome;
+    private string Home => _ownerHome ?? Path.Combine(_temp, "home");
 
     public Task InitializeAsync()
     {
@@ -799,7 +800,7 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             Run("plan", "status", "--file", Path.Combine(_temp, "outside.json"), "-o", "json").ShouldBe(2);
             Run("pending", "-o", "ids").ShouldBe(2);
             var foreign = new CoreModel.Plan(new(connection.Provider, connection.ResourceScope, connection.Destination,
-                "another principal"), plan.SchemaFingerprint, plan.ExpectedStoreVersion, plan.Operations);
+                "another principal"), plan.SchemaFingerprint, 0, plan.Operations);
             var foreignFile = Path.Combine(paths.TwigDir, "foreign-inspection.json");
             await File.WriteAllBytesAsync(foreignFile, CoreModel.Core.PlanBytes(foreign));
             Run("plan", "status", "--file", foreignFile, "-o", "json").ShouldBe(2);
@@ -1405,6 +1406,8 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             var commands = new TwigCommands(root);
             (await commands.SeedNew(title: "Parented rooted seed", type: "Task", parent: 42, output: "json"))
                 .ShouldBe(0, stderr.ToString());
+            using var created = JsonDocument.Parse(stdout.ToString());
+            var seedAlias = created.RootElement.GetProperty("id").GetInt32();
             _transport.CommittedWrites.ShouldBe(0);
             async Task<(CoreModel.StoreSnapshot State, string Digest)> PreviewAsync()
             {
@@ -1424,6 +1427,11 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             repeated.Journal.ShouldHaveSingleItem().Digest.ShouldBe(firstDigest);
 
             _transport.SetItem(42, "Updated parent observation", _transport.RevisionOf(42) + 1, Actor);
+            var (refreshed, refreshedDigest) = await PreviewAsync();
+            refreshed.Version.ShouldBeGreaterThan(repeated.Version);
+            refreshedDigest.ShouldBe(firstDigest, "the create refers to the parent but does not edit its title");
+            (await commands.Update("System.Title", "Revised rooted seed", id: seedAlias, output: "human"))
+                .ShouldBe(0, stderr.ToString());
             var (changed, changedDigest) = await PreviewAsync();
             changedDigest.ShouldNotBe(firstDigest);
             var (unchanged, unchangedDigest) = await PreviewAsync();
@@ -1634,10 +1642,10 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
             _transport.PostCount.ShouldBe(1, "applying the file must not substitute newly discovered classification evidence");
             var refused = (await store.ReadAsync(connection, default)).Value;
             refused.Journal.Single(row => row.Digest == originalReview.Digest).Status.ShouldBe(CoreModel.OpStatus.Planned);
-            var reviewedVersion = refused.Version;
             (await commands.SeedPublish(unknownAlias, dryRun: true)).ShouldBe(0, stderr.ToString());
             var fresh = (await store.ReadAsync(connection, default)).Value;
-            var retained = fresh.Plans.Single(plan => plan.ExpectedStoreVersion == reviewedVersion);
+            var retained = fresh.Plans.Single(plan => plan.Operations.Single().Item == unknownSeed.Key
+                && plan.Digest != originalReview.Digest);
             retained.Digest.ShouldNotBe(originalReview.Digest);
             retained.Operations.Single().CreateEvidence["System.AreaId"].ShouldBe(CoreModel.FieldValue.Integer(72));
             var retainedDigest = retained.Digest;
@@ -2365,9 +2373,9 @@ public sealed partial class NativePublicationConsumerTests : IAsyncLifetime
         (await store.ReadAsync(connection, default)).Value.Version.ShouldBe(0);
     }
 
-    private async Task<ServiceProvider> AttachAsync(bool canonicalRoot = false)
+    private async Task<ServiceProvider> AttachAsync(bool canonicalRoot = false, string? selectedRoot = null)
     {
-        var root = Path.Combine(_temp, "checkout");
+        var root = selectedRoot ?? Path.Combine(_temp, "checkout");
         Directory.CreateDirectory(root);
         InitCommandTestFixture.InitTempWorktree(root).ShouldBeTrue();
         // Native admission tests reopen from Git's reported path; use that spelling from the start.

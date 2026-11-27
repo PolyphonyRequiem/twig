@@ -1,6 +1,11 @@
 name: CI
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      held_candidate:
+        description: Verify installed writers refuse before effects (pre-cutover candidates only)
+        type: boolean
+        default: false
   workflow_call: {}
 
 permissions:
@@ -27,6 +32,8 @@ jobs:
         with:
           fetch-depth: 0
           filter: tree:0
+      - name: Check ADO qualification method names against source
+        run: python eng/ci-checks.py ado-root-preflight
       - name: Bounded-wrapper cleanup selftest (synthetic processes only)
         run: python eng/run-bounded.py --selftest
       - name: TRX selector coverage selftest (offline)
@@ -133,14 +140,28 @@ jobs:
           path: artifacts/test-logs/ci/initial-view-http/*.trx
           if-no-files-found: error
       - name: Standalone server installer orchestration (synthetic only)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !inputs.held_candidate
         shell: powershell
         run: ./eng/test-server-install.ps1
-      - name: Install Linux server archive and exercise real headless lifecycle
+      - name: Package Linux server archive
         if: runner.os == 'Linux'
+        run: bash eng/server-package-linux.sh
+      - name: Install Linux server archive and exercise real headless lifecycle
+        if: runner.os == 'Linux' && !inputs.held_candidate
+        run: python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-server-linux.sh
+      - name: Verify held Linux archive rejects installed writers before effects
+        if: runner.os == 'Linux' && inputs.held_candidate
         run: |
-          bash eng/server-package-linux.sh
-          python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-server-linux.sh
+          (cd artifacts && sha256sum -c twig-server-linux-x64.tar.gz.sha256)
+          dest="$(mktemp -d)"
+          tar -xzf artifacts/twig-server-linux-x64.tar.gz -C "$dest"
+          python3 eng/test-cold-admission.py --operator-dir "$dest" --cli src/Twig/bin/Debug/net11.0/twig --server "$dest/server-linux-x64/Twig.Server"
+      - name: Verify held Windows installer paths and writer refusal before effects
+        if: runner.os == 'Windows' && inputs.held_candidate
+        shell: pwsh
+        run: |
+          ./eng/test-server-paths.ps1
+          python eng/test-cold-admission.py --cli src/Twig/bin/Debug/net11.0/twig.exe --server src/Twig.Server/bin/Debug/net11.0/Twig.Server.exe
 
       - name: Explicit native setup and creation-bound readback
         id: native_setup
@@ -229,7 +250,7 @@ jobs:
         id: native_source
         env:
           TWIG_TEST_TRACE: ${{ format('{0}{1}', github.workspace, runner.os == 'Windows' && '\artifacts\trace-311\native-source' || '/artifacts/trace-311/native-source') }}
-        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeSource|FullyQualifiedName~NativePanelSelection" --logger "trx;LogFileName=native-source.trx" --results-directory artifacts/test-logs/ci/native-source
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~NativeSource|FullyQualifiedName~NativeSourceReadIgnoresLegacyContextAndRejectsReplacedAuthority" --logger "trx;LogFileName=native-source.trx" --results-directory artifacts/test-logs/ci/native-source
       - name: Preserve native source host results
         if: always() && steps.native_source.outcome != 'skipped' && steps.native_source.outcome != ''
         uses: actions/upload-artifact@v4
@@ -240,7 +261,9 @@ jobs:
 
       - name: Local layout and binding status diagnostics
         id: connection_status
-        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~ConnectionStatusProductionCliTests" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
+        env:
+          STATUS_SUITE: ${{ inputs.held_candidate && 'ConnectionStatusCommandTests' || 'ConnectionStatusProductionCliTests' }}
+        run: python eng/verify-trx.py -- dotnet test tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj --no-build --no-restore -f net11.0 --filter "FullyQualifiedName~${{ env.STATUS_SUITE }}" --logger "trx;LogFileName=connection-status.trx" --results-directory artifacts/test-logs/ci/connection-status
       - name: Preserve connection status results
         if: always() && steps.connection_status.outcome != 'skipped' && steps.connection_status.outcome != ''
         uses: actions/upload-artifact@v4
@@ -285,11 +308,12 @@ jobs:
       - name: Supported Core-only platform delivery regression (offline)
         run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-platform-support.py
       - name: Exercise the CLI and server command boundary
+        if: ${{ !inputs.held_candidate }}
         run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-server-commands.py
 
       - name: Fundamental build validation (60-second warning target, 300-second safety timeout)
         id: smoke
-        run: python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --warn-after 60 --timeout 300 --trace artifacts/smoke/boundaries.jsonl
+        run: python eng/verify-build.py --binary src/Twig/bin/Debug/net11.0/twig.dll --warn-after 60 --timeout 300 --trace artifacts/smoke/boundaries.jsonl ${{ inputs.held_candidate && '--held-candidate' || '' }}
       - name: Preserve smoke boundaries
         if: always() && steps.smoke.outcome != 'skipped' && steps.smoke.outcome != ''
         uses: actions/upload-artifact@v4

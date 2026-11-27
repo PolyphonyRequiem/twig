@@ -21,7 +21,8 @@ internal sealed record CoreGitHubNativeAcknowledgement(string RequestHash, int S
 /// <summary>Holds the selected native target generation and records attributed transport intent before dispatch.</summary>
 internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, TwigPaths paths,
     GitHubWorkspaceScope scope, GitHubBoundTargetResolver targets, GitHubBoundReadContext origin,
-    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath) : GitHubAccess
+    IGitHubTokenSource credentials, Connection connection, string actor, SqliteStore store, string registryPath,
+    bool executionOwner = false) : GitHubAccess, IOriginalResponseSource
 {
     private readonly TwigConfiguration _configuration = configuration;
     private readonly TwigPaths _paths = paths;
@@ -30,6 +31,45 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
     private readonly string _actor = actor;
     private readonly SqliteStore _store = store;
     private readonly string _registryPath = registryPath;
+    private readonly bool _executionOwner = executionOwner;
+
+    public async Task<Result<OriginalResponse>> ObserveOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? dispatch, CancellationToken ct)
+    {
+        if (plan.Connection != _connection || attempt == Guid.Empty || plan.Operations is not [{ Kind: OpKind.Batch or OpKind.Comment or OpKind.Create }])
+            return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original GitHub update binding differs.");
+        var projection = GitHubWriteIntent.Project(plan, 0, attempt);
+        if (!projection.IsSuccess) return Result<OriginalResponse>.Fail(projection.Error);
+        var hash = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(projection.Value.Payload)));
+        var expected = new CoreGitHubNativeIntent(_store.InstanceId, _connection, _actor, _connection.IdentityRef,
+            plan.Digest, 0, attempt, "POST", _scope.GraphQlEndpoint.AbsoluteUri, "application/json", hash, projection.Value.Payload);
+        if (dispatch is not null && (dispatch.Actor != _actor || dispatch.Method != expected.Method
+            || dispatch.Target != expected.Target || dispatch.PayloadHash != hash))
+            return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Original GitHub dispatch correlation differs.");
+        var path = Path.Combine(_paths.TwigDir, "core-github-intents", attempt.ToString("D") + ".json");
+        try
+        {
+            var intent = await Read(path, CoreGitHubNativeJsonContext.Default.CoreGitHubNativeIntent);
+            var ack = await Read(path + ".ack", CoreGitHubNativeJsonContext.Default.CoreGitHubNativeAcknowledgement);
+            if (intent is not null && intent != expected || ack is not null && (intent is null || ack.RequestHash != hash))
+                return Result<OriginalResponse>.Fail(ErrorCode.Conflict, "Contradictory original GitHub intent/acknowledgement.");
+            return ack is null ? Result<OriginalResponse>.Fail(ErrorCode.NotFound, "No original GitHub acknowledgement.")
+                : Result<OriginalResponse>.Ok(new(ack.StatusCode, ack.Body));
+        }
+        catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException)
+        { return Result<OriginalResponse>.Fail(ErrorCode.StorageUnavailable, "Original GitHub evidence is unreadable."); }
+
+        async Task<T?> Read<T>(string file, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> type) where T : class
+        {
+            try
+            {
+                await using var input = File.OpenRead(file);
+                if (input.Length > 16 * 1024 * 1024) throw new InvalidDataException("Oversized original evidence.");
+                return await JsonSerializer.DeserializeAsync(input, type, ct) ?? throw new JsonException("Missing original evidence.");
+            }
+            catch (FileNotFoundException) { return null; }
+            catch (DirectoryNotFoundException) when (Directory.Exists(_paths.TwigDir)) { return null; }
+        }
+    }
     internal static string Identity(GitHubBoundReadContext target, TwigConfiguration configuration, string actor)
         => JsonSerializer.Serialize(new[]
         {
@@ -49,8 +89,9 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         FileStream? generation = null;
         try
         {
-            generation = new FileStream(Path.Combine(_paths.TwigDir, ProviderTargetAttachmentDocument.LockFileName),
-                FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+            if (!_executionOwner)
+                generation = new FileStream(Path.Combine(_paths.TwigDir, ProviderTargetAttachmentDocument.LockFileName),
+                    FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
             await ValidateAsync(ct).ConfigureAwait(false);
             var token = await credentials.GetTokenAsync(ct).ConfigureAwait(false);
             if (string.IsNullOrWhiteSpace(token))
@@ -83,7 +124,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         if (!pinned.IsSuccess) throw new InvalidOperationException(pinned.Error.Message);
     }
 
-    private sealed class Session(CleanCoreGitHubAccess access, FileStream generation, string token,
+    private sealed class Session(CleanCoreGitHubAccess access, FileStream? generation, string token,
         HashSet<Guid> previousAttempts) : GitHubSession
     {
         private int _disposed;
@@ -151,7 +192,7 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
             var directory = Path.Combine(access._paths.TwigDir, "core-github-intents");
             var targets = await NativeCoreExecution.AdmitAsync(access._registryPath,
                 new(access._store.InstanceId, access._store.DatabasePath, access._paths.RepoRoot, Connection),
-                intent.Plan, intent.Operation, intent.Attempt, ct).ConfigureAwait(false);
+                intent.Plan, intent.Operation, intent.Attempt, ct, ownerClaims: access._executionOwner).ConfigureAwait(false);
             if (!targets.IsSuccess) return Result<GitHubWriteAdmission>.Fail(targets.Error);
             try
             {
@@ -170,15 +211,15 @@ internal sealed class CleanCoreGitHubAccess(TwigConfiguration configuration, Twi
         }
         public override void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) == 0) generation.Dispose();
+            if (Interlocked.Exchange(ref _disposed, 1) == 0) generation?.Dispose();
         }
     }
 
     private sealed class Admission(string path, string requestHash, string token, IDisposable targets) : GitHubWriteAdmission
     {
+        protected override string RetainedBody(string body) => body.Replace(token, "[redacted]", StringComparison.Ordinal);
         public override Task ObserveAsync(int statusCode, string body, CancellationToken ct)
-            => WriteNewAsync(path, new CoreGitHubNativeAcknowledgement(requestHash, statusCode,
-                body.Replace(token, "[redacted]", StringComparison.Ordinal)),
+            => WriteNewAsync(path, new CoreGitHubNativeAcknowledgement(requestHash, statusCode, RetainedBody(body)),
                 CoreGitHubNativeJsonContext.Default.CoreGitHubNativeAcknowledgement, ct);
         public override void Dispose() => targets.Dispose();
     }

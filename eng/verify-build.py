@@ -79,7 +79,7 @@ def run_worker(command, timeout, trace, warn_after=60, clock=time.monotonic):
     return process.returncode
 
 
-def worker(binary, directory, trace):
+def worker(binary, directory, trace, held_candidate=False):
     trace.write('worker', 'start')
     directory = directory.resolve()
     workspace, home = directory / 'workspace', directory / 'home'
@@ -112,6 +112,13 @@ def worker(binary, directory, trace):
     for label, arguments in (('help', ('--help',)), ('auth-help', ('auth', '--help')),
                              ('connection-help', ('connection', 'status', '--help'))):
         run(label, *arguments)
+    if held_candidate:
+        refused = run('disconnected', 'plan', 'preview', '--file', 'smoke.json', '-o', 'json', expected=2)
+        if refused.stdout or 'No command was dispatched' not in refused.stderr or data.exists() or (home / 'metadata').exists():
+            raise RuntimeError('Held plan preview did not refuse before creating local state')
+        trace.write('worker', 'end', 0)
+        print('SMOKE PASSED: offline help; held plan preview refused before dispatch')
+        return 0
     with headless_server(data, env, trace):
         check_operations(command, workspace, home, env, trace, run)
     refused = run('disconnected', 'plan', 'preview', '--file', 'smoke.json', '-o', 'json', expected=1)
@@ -232,6 +239,7 @@ def main():
     parser.add_argument('--warn-after', type=int, default=60, choices=range(1, 601),
                         metavar='SECONDS', help='Worker timing warning target (default: %(default)s)')
     parser.add_argument('--worker', type=Path, help=argparse.SUPPRESS)
+    parser.add_argument('--held-candidate', action='store_true', help='Expect refusal rather than an installable command server')
     parser.add_argument('--trace', type=Path, help='Optional safe, flushed JSONL phase trace; no arguments or payloads')
     args = parser.parse_args()
     binary = args.binary.resolve()
@@ -240,7 +248,7 @@ def main():
     trace = SmokeTrace(args.trace.resolve() if args.trace else None)
     if args.worker:
         try:
-            return worker(binary, args.worker, trace)
+            return worker(binary, args.worker, trace, args.held_candidate)
         except BaseException:
             trace.write('worker', 'error')
             raise
@@ -248,6 +256,8 @@ def main():
     with tempfile.TemporaryDirectory(prefix='twig-build-smoke-',
                                      dir=os.environ['LOCALAPPDATA'] if os.name == 'nt' else None) as directory:
         command = [sys.executable, str(Path(__file__).resolve()), '--binary', str(binary), '--worker', directory]
+        if args.held_candidate:
+            command.append('--held-candidate')
         if trace.path is not None:
             command.extend(['--trace', str(trace.path)])
         result = run_worker(command, args.timeout, trace, warn_after=args.warn_after)

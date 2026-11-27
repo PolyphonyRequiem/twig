@@ -97,6 +97,7 @@ public sealed record LocalEdits : RetainedItem
     }
 
     public WorkItem EditBaseline { get; }
+    public Guid? CaptureRevision { get; init; }
     public FieldValues Changes => Fields;
 }
 

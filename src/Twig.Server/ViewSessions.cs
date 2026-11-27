@@ -70,6 +70,14 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
     private static readonly TimeSpan OwnerRenewalLead = TimeSpan.FromHours(12);
     private readonly object gate = new();
     private readonly Dictionary<Guid, ViewSession> sessions = [];
+    internal Guid[] StandaloneDisplayOwners(Guid store)
+    {
+        lock (gate)
+            return sessions.Values.Where(s => s.CatalogId == store && s.OwnerAuthenticated && Standalone(s)
+                && !s.Revoked && s.Expires > time.GetUtcNow()).Select(s => s.ProfileId).Distinct().ToArray();
+    }
+    private static bool Standalone(ViewSession session) => session.RepositoryBindings is null && session.RepositoryRoot is null
+        && session.RuntimeContext is null or { WorkingDirectory: null, GitRoot: null, Repository: null, IsRemote: not true };
     public CanvasRegistration RegisterNativeCanvas(Guid instance, CanvasRuntimeContext? context = null)
     {
         lock (gate)
@@ -353,7 +361,20 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
         sessions.Add(session.Id, session);
         return (session, token);
     }
-    private ViewSession Admit(Guid id, string token, bool presentation)
+    // Fixture Display and sign-out use this same session guard. Never take it
+    // under the release mutex: other (non-Display) session paths can do file I/O.
+    internal T WithDisplayOwner<T>(Guid id, string capability, Func<ViewSession, T> action)
+    {
+        lock (gate)
+        {
+            var session = Admit(id, capability, false, readProfile: false);
+            if (!session.OwnerAuthenticated || session.NativeContentBlocked || session.ProfileId == Guid.Empty || !Standalone(session))
+                throw new HttpFailure(403, "OwnerRequired", "An owner content capability is required.");
+            return action(session);
+        }
+    }
+
+    private ViewSession Admit(Guid id, string token, bool presentation, bool readProfile = true)
     {
         if (!ValidSecret(token) || !sessions.TryGetValue(id, out var value)
             || !Equal(Hash(token), presentation ? value.PresentationHash : value.ContentHash))
@@ -362,7 +383,7 @@ public sealed partial class ViewSessions(string preferencesDirectory, TimeProvid
             throw new HttpFailure(403, "SessionRevoked", "This view was signed out. Connect explicitly to use it again.");
         if ((presentation && !value.OwnerAuthenticated ? value.PresentationExpires : value.Expires) <= time.GetUtcNow())
             throw new HttpFailure(403, "SessionExpired", "Renew this view with the same Windows owner before continuing.");
-        if (!presentation && value.OwnerAuthenticated)
+        if (readProfile && !presentation && value.OwnerAuthenticated)
         {
             using var lease = ProfileLease(value);
             var document = ReadDocument(value);

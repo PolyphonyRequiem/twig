@@ -9,7 +9,8 @@ namespace Twig.Server;
 
 public sealed record ServerOptions(int Port, string DataDirectory, string? WebRoot = null,
     string DataMode = "Native user-wide Benches", X509Certificate2? Certificate = null,
-    bool WindowsSignIn = false, string? CanvasInstallRoot = null, Guid ServerId = default, Guid ProcessInstance = default);
+    bool WindowsSignIn = false, string? CanvasInstallRoot = null, Guid ServerId = default, Guid ProcessInstance = default,
+    bool ExecutionV2 = false, bool NativeDesktop = false);
 
 public static class BenchHost
 {

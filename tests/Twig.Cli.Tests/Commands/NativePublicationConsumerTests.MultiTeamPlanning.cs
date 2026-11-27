@@ -85,8 +85,8 @@ public sealed partial class NativePublicationConsumerTests
         _transport.TeamBPast = true;
         var refreshed = RequiredPlanning(await NativeSourceReader.RefreshPlanningAsync(paths.RepoRoot,
             initial.Source, PrincipalTransport.TeamB, ConfigurePlanning, default));
-        RequiredPlanning(Twig.Core.Core.ResolveBench(bench, refreshed.Snapshot, refreshed.Schema!.Value, DateTimeOffset.UtcNow))
-            .Single().NativeId.ShouldBe("42");
+        Twig.Core.Core.ResolveBench(bench, refreshed.Snapshot, refreshed.Schema!.Value, DateTimeOffset.UtcNow)
+            .Error.Code.ShouldBe(ErrorCode.Unavailable);
         JsonSerializer.Serialize(refreshed.PlanningCalendars.Single(value => value.Team == PrincipalTransport.TeamA),
             Twig.Infrastructure.Serialization.TwigJsonContext.Default.PlanningMetadata).ShouldBe(aCalendar);
         BenchCodec.Serialize(RequiredPlanning(await shared.ReadAsync()).Benches.Single()).ShouldBe(BenchCodec.Serialize(bench));

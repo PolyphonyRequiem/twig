@@ -44,7 +44,7 @@ public sealed partial class NativePublicationConsumerTests
         var snapshot = (await store.ReadAsync(host.Stamp.Connection, default)).Value;
         snapshot.RetainedItems.Single().Key.ShouldBe(original.Operations[1].Item);
         (await user.ReadEditorCapturesAsync(default)).Value.Count(capture => capture.Settled).ShouldBe(1);
-        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
+        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default, original.Digest);
         if (uncertain) fresh.IsSuccess.ShouldBeFalse();
         else
         {
@@ -138,7 +138,7 @@ public sealed partial class NativePublicationConsumerTests
     }
 
     [Fact]
-    public async Task NativeWholePlanDefinitivelyRefusedCreationUuidIsNeverRecreated()
+    public async Task NativeWholePlanRefusedCreationRequiresExactPredecessorForTheSameSeed()
     {
         var host = await CreateHumanHostAsync();
         var user = UserBenchStore.ForRegistry(host.Registry);
@@ -160,6 +160,13 @@ public sealed partial class NativePublicationConsumerTests
         (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).IsSuccess.ShouldBeFalse();
         (await review.ContinueDeliveryAsync()).Value.Status.ShouldBe("Protected");
         _transport.PostCount.ShouldBe(1);
+        var replacement = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default, review.Digest);
+        replacement.IsSuccess.ShouldBeTrue(replacement.IsSuccess ? "" : replacement.Error.Message);
+        replacement.Value.Operations.Single().Item.ShouldBe(review.Operations.Single().Item);
+        (await replacement.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
+        (await replacement.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
+        _transport.PostCount.ShouldBe(2);
+        _transport.CommittedWrites.ShouldBe(1);
     }
 
     [Theory]
@@ -188,9 +195,11 @@ public sealed partial class NativePublicationConsumerTests
         HumanPatchAttempts.ShouldBe(1);
         _transport.FailSchema = false;
         _transport.SchemaFailureStatus = null;
-        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default);
+        (await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default)).IsSuccess.ShouldBeFalse();
+        var fresh = await NativePlanReview.ReviewAsync(host.Root, host.Bench, status.Sources, ConfigureHumanEditor, default, original.Digest);
         fresh.IsSuccess.ShouldBeTrue(fresh.IsSuccess ? "" : fresh.Error.Message);
         fresh.Value.Digest.ShouldNotBe(original.Digest);
+        fresh.Value.CoreDigests.Single().ShouldNotBe(original.CoreDigests.Single());
         (await fresh.Value.ApplyAsync()).Value.Status.ShouldBe("Complete");
         HumanPatchAttempts.ShouldBe(2);
         _transport.CommittedWrites.ShouldBe(1);

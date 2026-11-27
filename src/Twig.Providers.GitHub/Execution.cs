@@ -22,7 +22,10 @@ public sealed partial class GitHubProvider
             if (stored.Plans.Any(p => p.Digest == plan.Digest))
                 throw Wire.Refuse(ErrorCode.Conflict, "Retained intent cannot be reset.");
             await bound.Session.ValidateAsync(token);
-            var result = await _store.CommitAsync(_connection, stored.Version,
+            var result = LocalCommit.ReviewedScalar(plan)
+                ? await LocalCommit.AdmitScalarAsync(_store, plan, stored, acquired, null,
+                    s => { RefuseChangedActor(s, bound); RefuseUnresolvedTargets(plan, s); }, token)
+                : await _store.CommitAsync(_connection, stored.Version,
                 Copy(acquired, stored.Version + 1, plans: stored.Plans.Add(plan),
                     journal: stored.Journal.AddRange(plan.Operations.Select((_, n) => JournalEntry.Planned(plan.Digest, n)))), token);
             if (!result.IsSuccess) throw new GitHubFailure(result.Error);
@@ -30,6 +33,9 @@ public sealed partial class GitHubProvider
         }, ct));
 
     public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => ((IOriginalUpdateProvider)this).ApplyOriginalAsync(plan, operation, attempt, null, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.ApplyOriginalAsync(Plan plan, int operation, Guid attempt, IOriginalUpdateBarrier? barrier, CancellationToken ct)
         => Guard(() => WithSession(plan.Connection, async (bound, token) =>
         {
             if (attempt == Guid.Empty || operation < 0 || operation >= plan.Operations.Length)
@@ -51,22 +57,26 @@ public sealed partial class GitHubProvider
             var row = stored.Journal.Single(j => j.Digest == plan.Digest && j.Operation == operation);
             var began = row.Begin(attempt);
             if (!began.IsSuccess) throw new GitHubFailure(began.Error);
-            var fenced = await _store.CommitAsync(_connection, stored.Version,
+            var fenced = LocalCommit.ReviewedScalar(plan)
+                ? await LocalCommit.AdmitScalarAsync(_store, plan, stored, acquired, attempt,
+                    s => { RefuseChangedActor(s, bound); RefuseUnresolvedTargets(plan, s); }, token)
+                : await _store.CommitAsync(_connection, stored.Version,
                 Copy(acquired, stored.Version + 1, journal: Replace(stored.Journal, began.Value)), token);
             if (!fenced.IsSuccess) throw new GitHubFailure(fenced.Error);
+            if (op.Origin == RelationshipOrigin.Local)
+            {
+                await bound.Session.ValidateAsync(token);
+                var receipt = new Receipt(plan.Digest, operation, attempt, OpStatus.Applied,
+                    [$"actor:{bound.Actor}", $"authority:{bound.Authority}", "local:edge-transaction"]);
+                var edge = Edge(op, schema) with { LocalVersion = (op.ExpectedLocalVersion ?? 0) + 1, Deleted = op.Kind == OpKind.Unrelate };
+                return await PersistReceipt(plan, receipt, null, edge);
+            }
             var evidence = new List<string>
             {
                 $"actor:{bound.Actor}", $"authority:{bound.Authority}",
                 $"attempt:{attempt:D}", $"request-sha256:{Wire.Hash(shape.Payload)}",
-                op.Origin == RelationshipOrigin.Local ? "transport:local-store-cas" : "concurrency:observed-non-atomic; no remote CAS or atomic batch guarantee",
+                "concurrency:observed-non-atomic; no remote CAS or atomic batch guarantee",
             };
-            if (op.Origin == RelationshipOrigin.Local)
-            {
-                await bound.Session.ValidateAsync(token);
-                var receipt = new Receipt(plan.Digest, operation, attempt, OpStatus.Applied, evidence);
-                var edge = Edge(op, schema) with { LocalVersion = (op.ExpectedLocalVersion ?? 0) + 1, Deleted = op.Kind == OpKind.Unrelate };
-                return await PersistReceipt(plan, receipt, null, edge);
-            }
             Receipt outcome;
             var dispatched = false;
             try
@@ -78,10 +88,28 @@ public sealed partial class GitHubProvider
                 await bound.Session.ValidateAsync(token);
                 using var request = Request(bound, shape.Payload);
                 token.ThrowIfCancellationRequested();
+                if (barrier is not null)
+                    await barrier.OpenAsync(plan, attempt, new(intent.Method, intent.Target.AbsoluteUri, Wire.Hash(shape.Payload),
+                        bound.Actor, bound.Authority), token);
                 dispatched = true;
                 using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
                 var bytes = await Wire.Response(response, token);
                 var text = Wire.Utf8(bytes);
+                if (barrier is not null)
+                {
+                    await admission.ObserveAsync((int)response.StatusCode, text, CancellationToken.None);
+                    var original = DecodeOriginalUpdate(plan, operation, attempt, bound.Actor, bound.Authority,
+                        (int)response.StatusCode, bytes);
+                    if (op.Kind == OpKind.Create && original is not null)
+                    {
+                        var retained = admission.RetainedBody(text);
+                        if (retained != text && !(DecodeOriginalUpdate(plan, operation, attempt, bound.Actor,
+                            bound.Authority, (int)response.StatusCode, System.Text.Encoding.UTF8.GetBytes(retained)) is { } proof
+                            && SameReceipt(original, proof))) return Unknown("Redaction changed original create proof.");
+                        await barrier.WitnessCreateAsync(plan, attempt, new((int)response.StatusCode, retained), CancellationToken.None);
+                    }
+                    return original is null ? Unknown("No attributable original update acknowledgement.") : await PersistReceipt(plan, original, null);
+                }
                 evidence.Add($"http:{(int)response.StatusCode}");
                 evidence.Add($"github-response:{text}");
                 await admission.ObserveAsync((int)response.StatusCode, text, CancellationToken.None);
@@ -122,20 +150,27 @@ public sealed partial class GitHubProvider
                     : new(plan.Digest, operation, attempt, OpStatus.Failed, evidence,
                         error: new(ErrorCode.Unavailable, "Host admission/selection refused before mutation dispatch."));
             }
-            return await PersistReceipt(plan, outcome, null);
+            return barrier is not null ? outcome : await PersistReceipt(plan, outcome, null);
 
             Receipt Unknown(string message) => new(plan.Digest, operation, attempt, OpStatus.Indeterminate, evidence,
                 error: new(ErrorCode.Indeterminate, message));
         }, ct, validateAfter: false));
 
     public Task<Result<Receipt>> VerifyAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, false, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => Verify(plan, acknowledgement, true, ct);
+
+    private Task<Result<Receipt>> Verify(Plan plan, Receipt acknowledgement, bool original, CancellationToken ct)
         => Guard(async () =>
         {
             if (plan.Connection != _connection) throw Wire.Refuse(ErrorCode.Conflict, "Verification binding changed.");
             var stored = await Snapshot(ct);
             var row = stored.Journal.SingleOrDefault(j => j.Digest == plan.Digest && j.Operation == acknowledgement.Operation);
-            if (row is null || row.Status != OpStatus.Applied || row.Attempt != acknowledgement.Attempt
-                || row.Receipts.Length != 1 || !SameReceipt(row.Receipts[0], acknowledgement))
+            var rechecking = original && row?.CanRecheckAcknowledgedCreate == true && plan.Operations[acknowledgement.Operation].Kind == OpKind.Create;
+            if (row is null || !rechecking && (row.Status != OpStatus.Applied || row.Receipts.Length != 1)
+                || row.Attempt != acknowledgement.Attempt || !SameReceipt(row.Receipts[0], acknowledgement))
                 throw Wire.Refuse(ErrorCode.Conflict, "Verification requires the exact durable Applied receipt.");
             Receipt receipt;
             QueryPage? observations = null;
@@ -192,8 +227,63 @@ public sealed partial class GitHubProvider
                     [$"Readback unavailable ({ex.GetType().Name}); original Applied acknowledgement remains."],
                     publishedKey: acknowledgement.PublishedKey, error: new(ErrorCode.Indeterminate, "Readback failure is not non-dispatch evidence."));
             }
-            return await PersistReceipt(plan, receipt, observations);
+            return rechecking && receipt.Status != OpStatus.Verified ? row.Receipts[^1]
+                : original && receipt.Status == OpStatus.Indeterminate ? receipt : await PersistReceipt(plan, receipt, observations);
         });
+
+    private Receipt? DecodeOriginalUpdate(Plan plan, int ordinal, Guid attempt, string actor, string authority, int status, byte[] bytes)
+    {
+        var op = plan.Operations[ordinal];
+        if (op.Kind is not (OpKind.Batch or OpKind.Comment or OpKind.Create)) throw Wire.Invalid("Unsupported original effect.");
+        string[] evidence = [$"actor:{actor}", $"authority:{authority}", $"attempt:{attempt:D}", $"http:{status}"];
+        if (status is 400 or 401 or 403 or 404 or 405 or 415 or 422 or 429)
+            return new(plan.Digest, ordinal, attempt, OpStatus.Failed, evidence,
+                error: new(ErrorCode.Unavailable, $"Definitive HTTP {status} rejection."));
+        if (status != 200) return null;
+        var payload = Wire.Member(Wire.Data(Wire.Parse(bytes)), op.Kind switch
+        { OpKind.Comment => "addComment", OpKind.Create => "createIssue", _ => "updateIssue" });
+        if (Wire.Text(payload, "clientMutationId") != attempt.ToString("D")) return null;
+        if (op.Kind == OpKind.Comment)
+        {
+            var node = Wire.Member(Wire.Member(payload, "commentEdge"), "node");
+            return new(plan.Digest, ordinal, attempt, OpStatus.Applied, [.. evidence, "comment-id:" + Wire.Id(Wire.Text(node, "id"))]);
+        }
+        var issue = Wire.Member(payload, "issue");
+        Repository(Wire.Member(issue, "repository"));
+        var key = Key(Wire.Text(issue, "id"));
+        if (op.Kind == OpKind.Create) return new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence, publishedKey: key);
+        return key == op.Item
+            ? new(plan.Digest, ordinal, attempt, OpStatus.Applied, evidence) : null;
+    }
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.InspectOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? request, CancellationToken ct)
+        => Guard(async () =>
+        {
+            var row = (await Snapshot(ct)).Journal.Single(j => j.Digest == plan.Digest && j.Operation == 0);
+            if (plan.Connection != _connection || row.Attempt != attempt) throw Wire.Invalid("Original attempt changed.");
+            var create = plan.Operations[0].Kind == OpKind.Create;
+            if (row.Status != OpStatus.Applying && !create) return row.Receipts[^1];
+            if (_access is not IOriginalResponseSource source) throw Wire.Refuse(ErrorCode.Unavailable, "Original GitHub evidence reader unavailable.");
+            var observed = await source.ObserveOriginalAsync(plan, attempt, request, ct);
+            if (request is null && !observed.IsSuccess && observed.Error.Code == ErrorCode.NotFound)
+                return await PersistReceipt(plan, new(plan.Digest, 0, attempt, OpStatus.Failed, ["original:Closed"],
+                    error: new(ErrorCode.Conflict, "Original barrier permanently closed before dispatch.")), null);
+            if (request is null || !observed.IsSuccess) throw Wire.Refuse(ErrorCode.Indeterminate, "Original proof unavailable or contradictory; no resend.");
+            if (create && request.ResponseHash != observed.Value.Fingerprint()) throw Wire.Refuse(ErrorCode.Indeterminate, "No matching owner witness for the original GitHub response.");
+            var acknowledgement = DecodeOriginalUpdate(plan, 0, attempt, request.Actor, request.Context, observed.Value.Status,
+                System.Text.Encoding.UTF8.GetBytes(observed.Value.Body)) ?? throw Wire.Refuse(ErrorCode.Indeterminate, "No attributable original GitHub response.");
+            if (row.Status == OpStatus.Applying) return await PersistReceipt(plan, acknowledgement, null);
+            if (!SameReceipt(row.Receipts[0], acknowledgement)) throw Wire.Invalid("Contradictory original creation proof.");
+            return row.Receipts[^1];
+        });
+
+    async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
+    {
+        if (_access is not IOriginalResponseSource source) return Result<bool>.Fail(ErrorCode.Unavailable, "Original GitHub evidence reader unavailable.");
+        var response = await source.ObserveOriginalAsync(plan, attempt, null, ct);
+        return !response.IsSuccess && response.Error.Code != ErrorCode.NotFound
+            ? Result<bool>.Fail(response.Error) : Result<bool>.Ok(!response.IsSuccess);
+    }
 
     public async Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)
     {
@@ -286,33 +376,14 @@ public sealed partial class GitHubProvider
 
     private async Task<Receipt> PersistReceipt(Plan plan, Receipt receipt, QueryPage? observations, Relationship? localEdge = null)
     {
-        var current = await _store.ReadAsync(_connection, CancellationToken.None);
-        if (!current.IsSuccess) return Undurable(current.Error);
-        var stored = current.Value;
-        var row = stored.Journal.Single(j => j.Digest == receipt.Digest && j.Operation == receipt.Operation);
-        var recorded = row.Record(receipt);
-        if (!recorded.IsSuccess) return Undurable(recorded.Error);
-        var mappings = stored.Mappings;
-        if (plan.Operations[receipt.Operation].Kind == OpKind.Create && receipt.Status == OpStatus.Applied)
-            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, receipt.PublishedKey!, plan.Digest, receipt.Operation));
-        if (observations is not null) stored = Mirror(stored, observations, stored.Version);
-        var relationships = stored.Relationships;
-        if (localEdge is not null)
-        {
-            var prior = relationships.SingleOrDefault(r => r.Origin == RelationshipOrigin.Local
-                && r.From == localEdge.From && r.To == localEdge.To && r.Kind == localEdge.Kind);
-            if (prior?.LocalVersion != plan.Operations[receipt.Operation].ExpectedLocalVersion)
-                return Undurable(new(ErrorCode.Conflict, "Local relationship CAS changed after durable acquisition."));
-            relationships = relationships.Where(r => r != prior).Append(localEdge).ToImmutableArray();
-        }
-        var next = Copy(stored, stored.Version + 1, relationships: relationships,
-            journal: Replace(stored.Journal, recorded.Value), mappings: mappings);
-        var result = await _store.CommitAsync(_connection, stored.Version, next, CancellationToken.None);
+        var result = await LocalCommit.ReceiptAsync(_store, plan, receipt,
+            stored => observations is null ? stored : Mirror(stored, observations, stored.Version), localEdge);
         return result.IsSuccess ? receipt : Undurable(result.Error);
 
         Receipt Undurable(Error error) => new(receipt.Digest, receipt.Operation, receipt.Attempt, OpStatus.Indeterminate,
             receipt.Evidence.Add($"Receipt durability failed: {error.Code}; original durable fence remains."),
-            receipt.Revision, receipt.PublishedKey, new(ErrorCode.StorageUnavailable, "Outcome could not be committed; no replay."));
+            receipt.Revision, receipt.PublishedKey, error.StoreVersionChanged ? error
+                : new(ErrorCode.StorageUnavailable, "Outcome could not be committed; no replay."));
     }
 
     private static ImmutableArray<JournalEntry> Replace(ImmutableArray<JournalEntry> journal, JournalEntry row)

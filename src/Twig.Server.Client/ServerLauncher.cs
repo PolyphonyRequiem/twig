@@ -13,33 +13,34 @@ public static class ServerLauncher
     public const string InstanceHeader = "X-Twig-Server-Instance";
 
     public static async Task EnsureRunningAsync(string data, int port, X509Certificate2 certificate,
-        Action start, CancellationToken cancellationToken)
+        Action start, CancellationToken cancellationToken, Func<Guid>? executionOwner = null)
     {
         using var deadline = Deadline(cancellationToken);
         using var client = OwnerClient(certificate);
-        await EnsureWithProbeAsync(data, async () => await ProbeAsync(client, data, port, deadline.Token) != null,
+        await EnsureWithProbeAsync(data, async () => await ProbeAsync(client, data, port, deadline.Token, executionOwner: executionOwner) != null,
             start, deadline.Token);
     }
 
-    public static async Task<bool> IsRunningAsync(string data, int port, X509Certificate2 certificate, CancellationToken token)
+    public static async Task<bool> IsRunningAsync(string data, int port, X509Certificate2 certificate, CancellationToken token, Func<Guid>? executionOwner = null)
     {
         using var deadline = Deadline(token);
         using var client = OwnerClient(certificate);
-        if (await ProbeAsync(client, data, port, deadline.Token) != null) return true;
+        if (await ProbeAsync(client, data, port, deadline.Token, executionOwner: executionOwner) != null) return true;
         if (InstanceLocked(data)) throw new InvalidOperationException("The selected server is running but unavailable.");
         return false;
     }
 
     [SupportedOSPlatform("windows")]
-    public static async Task StopAsync(string data, int port, X509Certificate2 certificate, CancellationToken token)
+    public static async Task StopAsync(string data, int port, X509Certificate2 certificate, CancellationToken token, Func<Guid>? executionOwner = null)
     {
         using var deadline = Deadline(token);
         using var client = OwnerClient(certificate);
-        await StopWithProbeAsync(data, () => ProbeAsync(client, data, port, deadline.Token, requireCanvasProtocol: false), deadline.Token);
+        await StopWithProbeAsync(data, () => ProbeAsync(client, data, port, deadline.Token, requireCanvasProtocol: executionOwner is not null,
+            executionOwner: executionOwner), deadline.Token, executionOwner is not null);
     }
 
     [SupportedOSPlatform("windows")]
-    internal static async Task StopWithProbeAsync(string data, Func<Task<Guid?>> probe, CancellationToken token)
+    internal static async Task StopWithProbeAsync(string data, Func<Task<Guid?>> probe, CancellationToken token, bool executionV2 = false)
     {
         using var lease = await AcquireLeaseAsync(data, token);
         var instance = await probe();
@@ -50,7 +51,7 @@ public static class ServerLauncher
         }
         if (instance == Guid.Empty)
             throw new InvalidOperationException("The selected server does not support CLI stop. Use its operator console.");
-        using var signal = EventWaitHandle.OpenExisting(StopEventName(instance.Value), OwnerOnly);
+        using var signal = EventWaitHandle.OpenExisting(StopEventName(instance.Value, executionV2), OwnerOnly);
         signal.Set();
         while (InstanceLocked(data)) await Task.Delay(100, token);
         if (await probe() != null)
@@ -58,13 +59,14 @@ public static class ServerLauncher
     }
 
     // Per-process identity prevents a delayed stop for a previous run reaching its replacement.
-    private static string StopEventName(Guid instance) => "Twig.Server.Stop." + instance.ToString("N");
+    private static string StopEventName(Guid instance, bool executionV2) =>
+        (executionV2 ? "Twig.Owner.v2.Stop." : "Twig.Server.Stop.") + instance.ToString("N");
     private static NamedWaitHandleOptions OwnerOnly => new() { CurrentUserOnly = true, CurrentSessionOnly = false };
 
     [SupportedOSPlatform("windows")]
-    public static EventWaitHandle CreateStopSignal(Guid instance)
+    public static EventWaitHandle CreateStopSignal(Guid instance, bool executionV2 = false)
     {
-        var signal = new EventWaitHandle(false, EventResetMode.ManualReset, StopEventName(instance), OwnerOnly, out var created);
+        var signal = new EventWaitHandle(false, EventResetMode.ManualReset, StopEventName(instance, executionV2), OwnerOnly, out var created);
         if (created) return signal;
         signal.Dispose();
         throw new InvalidOperationException("Server stop signal already exists.");
@@ -99,7 +101,7 @@ public static class ServerLauncher
         }) { Timeout = TimeSpan.FromSeconds(3), MaxResponseContentBufferSize = 4096 };
 
     private static async Task<Guid?> ProbeAsync(HttpClient client, string data, int port, CancellationToken token,
-        bool requireCanvasProtocol = true)
+        bool requireCanvasProtocol = true, Func<Guid>? executionOwner = null)
     {
         async Task<bool> Refused(IPAddress address)
         {
@@ -124,6 +126,13 @@ public static class ServerLauncher
             throw new InvalidOperationException("The listener is not the selected server identity.");
         if (requireCanvasProtocol && status.GetProperty("protocol").GetString() != CanvasAssets.Protocol)
             throw new InvalidOperationException("The selected server is running an incompatible Canvas protocol. Stop it and start the selected version.");
+        if (executionOwner is not null)
+        {
+            var boot = executionOwner();
+            if (status.GetProperty("executionSession").GetString() != $"local-execution-v2/{boot:D}")
+                throw new InvalidOperationException("The authenticated endpoint is not the selected owner process.");
+            return boot;
+        }
         if (!response.Headers.TryGetValues(InstanceHeader, out var values)) return Guid.Empty;
         if (!Guid.TryParseExact(values.Single(), "D", out var instance) || instance == Guid.Empty)
             throw new InvalidOperationException("Invalid server process identity.");

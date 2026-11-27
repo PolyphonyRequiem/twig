@@ -222,6 +222,7 @@ public sealed partial class UserBenchStore
             command.Parameters.AddWithValue("$team", team);
             command.Parameters.AddWithValue("$document", text);
             await command.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+            await Advance(db, transaction, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             transaction.Commit();
             return Result<PlanningMetadata>.Ok(metadata);

@@ -6,6 +6,7 @@
     <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Twig.Providers.Native.Tests" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <ProjectReference Include="..\Twig.Core\Twig.Core.csproj" />
   </ItemGroup>

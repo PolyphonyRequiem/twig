@@ -25,14 +25,21 @@ internal static class ServerLifecycle
         }
         try
         {
+            var fixture = OwnerFixtureSelection.Read();
+            if (fixture is null && args[1] is "start" or "stop")
+            {
+                Error(OwnerFixtureSelection.CutoverHeld, json);
+                return 2;
+            }
             if (args[1] == "endpoint")
             {
-                var endpoint = await ReadInstalledEndpointAsync();
+                var endpoint = fixture is null ? await ReadInstalledEndpointAsync() : await fixture.OperateAsync("endpoint");
                 var origin = ValidateEndpoint(endpoint);
                 Console.WriteLine(json ? endpoint : format == "minimal" ? origin : $"Twig server endpoint is {origin}.");
                 return 0;
             }
-            var running = await RunInstalledAsync(args[1]);
+            var running = fixture is null ? await RunInstalledAsync(args[1])
+                : await fixture.OperateAsync(args[1]) == "{\"running\":true}";
             Console.WriteLine(json
                 ? (running ? "{\"running\":true}" : "{\"running\":false}")
                 : format == "minimal" ? (running ? "running" : "stopped")

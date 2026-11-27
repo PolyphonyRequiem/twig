@@ -5,7 +5,7 @@ using Model = Twig.Core.Core;
 namespace Twig.Providers.Native;
 
 /// <summary>Same-machine native protocol boundary. Remote transport/authentication is not inferred.</summary>
-public sealed class NativeProvider(NativeAuthority authority, IStore store) : IProvider, IDisposable
+public sealed class NativeProvider(NativeAuthority authority, IStore store) : IProvider, IOriginalUpdateProvider, IDisposable
 {
     public const string ItemType = "Twig.Item";
     public const string Title = "Twig.Title";
@@ -33,6 +33,9 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             presentation: new("Twig item", "708090", null))], []);
     }
 
+    public Task<Result<QueryPage>> ObserveQueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
+        => QueryAsync(connection, query, continuation, ct);
+
     public Task<Result<QueryPage>> QueryAsync(Connection connection, Query query, string? continuation, CancellationToken ct)
         => Guard(connection, async () =>
         {
@@ -58,7 +61,7 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             var missing = keys.Except(selected.Select(item => item.Key)).ToArray();
             if (missing.Length != 0)
                 throw new NativeFailure(new Error(ErrorCode.NotFound, "An exact native item is absent from this authority.")
-                    { Evidence = missing.Select(key => $"item-unavailable:{key.NativeId}").ToImmutableArray() });
+                    { Evidence = missing.SelectMany(key => new[] { $"item-unavailable:{key.NativeId}", $"authority-absent:{key.NativeId}" }).ToImmutableArray() });
             return new QueryPage(selected, [], null, true);
         });
 
@@ -69,6 +72,11 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             var acquired = Mirror(before, await authority.Read(ct));
             Check(Model.Validate(plan, Schema(), acquired, Capabilities));
             foreach (var op in plan.Operations) Shape(op);
+            if (LocalCommit.ReviewedScalar(plan))
+            {
+                var admitted = await LocalCommit.AdmitScalarAsync(store, plan, before, acquired, null, s => Fence(plan, s), ct);
+                return admitted.IsSuccess ? admitted.Value : throw new NativeFailure(admitted.Error);
+            }
             Fence(plan, before);
             if (before.Plans.Any(value => value.Digest == plan.Digest))
                 throw new NativeFailure(ErrorCode.Conflict, "Retained intent cannot be reset.");
@@ -78,6 +86,9 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
         });
 
     public Task<Result<Receipt>> ApplyAsync(Plan plan, int operation, Guid attempt, CancellationToken ct)
+        => ((IOriginalUpdateProvider)this).ApplyOriginalAsync(plan, operation, attempt, null, ct);
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.ApplyOriginalAsync(Plan plan, int operation, Guid attempt, IOriginalUpdateBarrier? barrier, CancellationToken ct)
         => Guard(plan.Connection, async () =>
         {
             if (attempt == Guid.Empty) throw new NativeFailure(ErrorCode.InvalidInput, "The first attempt needs its durable UUID.");
@@ -89,7 +100,15 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
             Fence(plan, before);
             var began = before.Journal.Single(row => row.Digest == plan.Digest && row.Operation == operation).Begin(attempt);
             if (!began.IsSuccess) throw new NativeFailure(began.Error.Code, began.Error.Message);
-            await Commit(before, Copy(acquired, before.Version + 1, journal: Replace(before.Journal, began.Value)), ct);
+            if (LocalCommit.ReviewedScalar(plan))
+            {
+                var admitted = await LocalCommit.AdmitScalarAsync(store, plan, before, acquired, attempt, s => Fence(plan, s), ct);
+                if (!admitted.IsSuccess) throw new NativeFailure(admitted.Error);
+            }
+            else await Commit(before, Copy(acquired, before.Version + 1, journal: Replace(before.Journal, began.Value)), ct);
+            if (barrier is not null)
+                await barrier.OpenAsync(plan, attempt, new("authority-update", Connection.Destination, plan.Digest, Connection.IdentityRef,
+                    Connection.ResourceScope), ct);
             Receipt receipt;
             try { receipt = await authority.Execute(plan, operation, attempt, ct); }
             catch (Exception ex) when (ex is NativeFailure or Microsoft.Data.Sqlite.SqliteException or IOException or OperationCanceledException)
@@ -108,7 +127,8 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
         {
             var before = await Snapshot(ct);
             var row = Row(before, plan, acknowledgement.Operation);
-            if (row.Status != OpStatus.Applied || row.Attempt != acknowledgement.Attempt || row.Receipts.Length != 1
+            var rechecking = row.CanRecheckAcknowledgedCreate && plan.Operations[acknowledgement.Operation].Kind == OpKind.Create;
+            if (!rechecking && (row.Status != OpStatus.Applied || row.Receipts.Length != 1) || row.Attempt != acknowledgement.Attempt
                 || !Same(row.Receipts[0], acknowledgement))
                 throw new NativeFailure(ErrorCode.Conflict, "Verification requires the exact durable Applied acknowledgement.");
             var authoritative = await authority.Recover(plan, acknowledgement.Operation, acknowledgement.Attempt, ct);
@@ -125,7 +145,31 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
                 [$"source:{Connection.ResourceScope}", $"principal:{Connection.IdentityRef}", "Separate authoritative readback; no replay."],
                 observed?.Revision, acknowledgement.PublishedKey,
                 matches ? null : new(ErrorCode.Partial, "The exact native effect is no longer fully observed."));
-            return await Persist(plan, receipt, items);
+            return rechecking && !matches ? row.Receipts[^1] : await Persist(plan, receipt, items);
+        });
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.VerifyOriginalAsync(Plan plan, Receipt acknowledgement, CancellationToken ct)
+        => VerifyAsync(plan, acknowledgement, ct);
+
+    async Task<Result<bool>> IOriginalUpdateProvider.CheckClosedAsync(Plan plan, Guid attempt, CancellationToken ct)
+    {
+        var settled = await authority.SettleOriginalUpdateAsync(plan, attempt, ct);
+        return settled.IsSuccess ? Result<bool>.Ok(settled.Value.Status == OpStatus.Failed) : Result<bool>.Fail(settled.Error);
+    }
+
+    Task<Result<Receipt>> IOriginalUpdateProvider.InspectOriginalAsync(Plan plan, Guid attempt, OriginalDispatch? request, CancellationToken ct)
+        => Guard(plan.Connection, async () =>
+        {
+            var row = Row(await Snapshot(ct), plan, 0);
+            if (row.Attempt != attempt || request is not null && request != new OriginalDispatch("authority-update", Connection.Destination,
+                plan.Digest, Connection.IdentityRef, Connection.ResourceScope))
+                throw new NativeFailure(ErrorCode.Conflict, "Expected the original authority attempt, not a transport receipt.");
+            if (row.Status != OpStatus.Applying && plan.Operations[0].Kind != OpKind.Create) return row.Receipts[^1];
+            var settled = await authority.SettleOriginalUpdateAsync(plan, attempt, ct);
+            if (!settled.IsSuccess) throw new NativeFailure(settled.Error);
+            if (row.Status == OpStatus.Applying) return await Persist(plan, settled.Value, null);
+            if (!Same(row.Receipts[0], settled.Value)) throw new NativeFailure(ErrorCode.Conflict, "Contradictory original native creation proof.");
+            return row.Receipts[^1];
         });
 
     public Task<Result<Receipt>> RecoverAsync(Plan plan, int operation, CancellationToken ct = default)
@@ -151,15 +195,10 @@ public sealed class NativeProvider(NativeAuthority authority, IStore store) : IP
 
     private async Task<Receipt> Persist(Plan plan, Receipt receipt, ImmutableArray<WorkItem>? observations)
     {
-        var before = await Snapshot(CancellationToken.None);
-        var recorded = Row(before, plan, receipt.Operation).Record(receipt);
-        if (!recorded.IsSuccess) throw new NativeFailure(recorded.Error.Code, recorded.Error.Message);
-        var mappings = before.Mappings;
-        if (receipt.Status == OpStatus.Applied && receipt.PublishedKey is { } key)
-            mappings = mappings.Add(new(plan.Operations[receipt.Operation].Item, key, plan.Digest, receipt.Operation));
-        var mirrored = observations is { } items ? Mirror(before, items) : before;
-        await Commit(before, Copy(mirrored, before.Version + 1, journal: Replace(before.Journal, recorded.Value), mappings: mappings),
-            CancellationToken.None);
+        var key = receipt.PublishedKey ?? plan.Operations[receipt.Operation].Item;
+        var result = await LocalCommit.ReceiptAsync(store, plan, receipt, before => observations is { } items
+            ? Copy(before, before.Version, items: before.Items.Where(i => i.Key != key).Concat(items.Where(i => i.Key == key))) : before);
+        if (!result.IsSuccess) throw new NativeFailure(result.Error);
         return receipt;
     }
 

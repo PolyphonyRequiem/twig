@@ -66,16 +66,26 @@ public static partial class Core
                 if (!expression.IsRelative) { paths.Add(expression.Text); continue; }
                 if (planning is null || query.PlanningTeam is null || planning.Team != query.PlanningTeam)
                     return Result<Query>.Fail(ErrorCode.Unavailable, "Relative iteration pins require the explicitly selected native team's refreshed calendar; another team's calendar is not a substitute.");
-                var dated = planning.Iterations.Where(iteration => iteration.SelectedTeam && iteration.Start is not null && iteration.Finish is not null)
-                    .OrderBy(iteration => iteration.Start).ThenBy(iteration => iteration.Path, StringComparer.Ordinal).ToArray();
-                if (now is not { } instant)
-                    return Result<Query>.Fail(ErrorCode.Unavailable, "Relative iteration evaluation requires an explicit UTC observation time.");
-                for (var index = 0; index < dated.Length; index++)
-                {
-                    if (dated[index].Start > instant || dated[index].Finish < instant) continue;
-                    var target = (long)index + expression.Offset;
-                    if (target >= 0 && target < dated.Length) paths.Add(dated[(int)target].Path);
-                }
+                if (now is not { } instant || planning.ObservedAt > instant
+                    || instant - planning.ObservedAt > TimeSpan.FromHours(24) || !planning.Gaps.IsEmpty)
+                    return Result<Query>.Fail(ErrorCode.Unavailable, "Relative iteration membership needs a current, complete team calendar.");
+                var selected = planning.Iterations.Where(i => i.SelectedTeam).OrderBy(i => i.Start).ToArray();
+                if (selected.Any(i => i.Start is null || i.Finish is null))
+                    return Result<Query>.Fail(ErrorCode.Unavailable, "The selected team calendar has an undated iteration.");
+                var intervals = selected.Select(i => (Start: i.Start!.Value.UtcDateTime.Date,
+                    Finish: i.Finish!.Value.UtcDateTime.Date, i.Path)).ToArray();
+                if (intervals.Any(i => i.Start > i.Finish) || intervals.Zip(intervals.Skip(1))
+                    .Any(pair => pair.First.Finish >= pair.Second.Start))
+                    return Result<Query>.Fail(ErrorCode.Unavailable, "The selected team calendar has ambiguous dates.");
+                var day = instant.UtcDateTime.Date;
+                var current = Array.FindIndex(intervals, i => i.Start <= day && day <= i.Finish);
+                var target = (long)current + expression.Offset;
+                if (current < 0 || target < 0 || target >= intervals.Length)
+                    return Result<Query>.Fail(ErrorCode.Unavailable, "The selected team calendar does not cover the requested offset.");
+                for (var i = Math.Min(current, (int)target); i < Math.Max(current, (int)target); i++)
+                    if ((intervals[i + 1].Start - intervals[i].Finish).Days != 1)
+                        return Result<Query>.Fail(ErrorCode.Unavailable, "The selected team calendar has a gap in the requested offset.");
+                paths.Add(intervals[target].Path);
             }
             var alternatives = paths.Order(StringComparer.OrdinalIgnoreCase)
                 .Select(path => new Query(QueryKind.PathEqual, query.Field, FieldValue.String(path))).ToArray();

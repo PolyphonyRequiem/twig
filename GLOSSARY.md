@@ -91,6 +91,15 @@ _Avoid_: Draft baseline.
 A defined set of intended work-item changes, distinct from editable local intent and from the outcome of applying those changes.
 _Avoid_: Proposal.
 
+**Plan unit**:
+One ordered operation in a Plan, with its own outcome and evidence. Observing the outcome of a unit does not resubmit it.
+
+**Action**:
+A deliberately reviewed change to publish for one work item, distinct from its editable private input.
+
+**Submission**:
+The durable execution identity for an Action. Observing it recovers the outcome of the original attempt rather than sending the Action again.
+
 ## Benches
 
 **Bench**:

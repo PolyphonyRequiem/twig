@@ -209,6 +209,7 @@ def main(args):
     installing = len(args) == 3 and args[0] == "install"
     require(installing or (len(args) == 1 and args[0] in ("start", "status", "stop")),
             "Usage: server-linux.py install <extracted-runtime> <private-data-directory>")
+    require(not installing and args == ["status"], "Candidate held pending signed matched cold cutover qualification.")
     local = Path(os.environ.get("XDG_DATA_HOME") or Path.home() / ".local/share")
     root = Path(os.environ.get("TWIG_SERVER_INSTALL_ROOT", local / "Twig/Server"))
     if not installing and not (root / "current.json").exists():

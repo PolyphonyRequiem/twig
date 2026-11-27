@@ -1,5 +1,11 @@
 # Twig server
 
+**Cold-cutover candidate:** the installation and start instructions below are
+for a qualified release, not this candidate. Keep using the existing matched
+installation. The candidate refuses installed data commands, promotion and
+start/stop; it does not upgrade or stop an existing owner. See the
+[qualification ledger](architecture/cold-cutover-qualification.md).
+
 Use [`twig server start`, `twig server status`, and `twig server stop`](commands/system/server.md)
 to control the local server, and `twig server endpoint -o json` for read-only
 Windows HTTPS endpoint discovery, including before startup.
@@ -17,6 +23,176 @@ The server serves same-machine Benches, native item reads, local draft/Plan
 workflows, and human-only Canvas Save/Apply on Windows x64. Linux x64 supports the
 headless command host only; there is no HTTP listener or Canvas fallback.
 Install the server separately from the CLI before running work-item commands.
+
+### Isolated execution-owner qualification (Windows)
+
+`eng\Test-ExecutionOwner.ps1` runs against build outputs, not an installed server.
+Pass the matched `-Server`, `-Cli`, `-CanvasHost` and CanvasHost.Tests `-ProxyHarness`,
+the pinned `-OldCli`, `-OldServer`, `-OldCanvasHostDll`, and the thumbprint of an
+already trusted localhost `-Certificate`. The script creates a private GUID-named
+fixture beneath LocalApplicationData, selects a free port, and removes its own
+processes and data. It does not install packages, trust a certificate, or select
+a production workspace.
+
+Only this fixture negotiates `local-execution-v2`. Its port, certificate, executable
+and canonical metadata home must agree before probing or starting a server.
+The OS-held home lease outlives any request timeout. The v1 discovery mirror
+and refusal listener exist for old clients, not for executing commands or Stop.
+The fixture admits `bench create <name> -o json` and `bench list -o json` in
+the owner to demonstrate a shared store; unqualified CLI routes never fall back
+to an executable worker. This does **not** activate a release, fence a live old
+installation, or qualify an installer for cold cutover.
+
+The matched Canvas subscribes to `GET /api/v2/views/{view}/authorization` before
+rendering released partitions. Ready and subsequent cursor changes are registered
+under the same release guard as page handoff. An expired grant, denial, stream gap
+or disconnect retires the browser buffer. The browser does not persist item text.
+
+Within `benches/{bench}/partitions/{partition}` on that v2 view, a scalar `PUT input`
+requires the exact item, field, observed provider baseline, per-field version and write
+UUID. The user Bench database keeps the acknowledgement even when a later input
+replaces the text. `POST input/inspect` can inspect the original UUID without
+preparing an Action. `POST action` supports `find`, `prepare`, `submit`, and `observe`;
+these are human content-capability commands, not presentation/agent commands.
+Prepare freezes the acknowledged text; Submit names that original write; Observe
+does not resubmit. An unchanged flush cannot replace a review. Deliberate re-review
+of retained text requires a changed unsubmitted baseline or a zero-dispatch
+`ReviewRequired` Action. Private inputs are never inferred from a local-only partition.
+
+In the fixture's `work` directory, `twig update <field> <value> --id <item> --review <uuid> --prepare`
+freezes a single update. Use `--stdin` in place of the value to read it once.
+`twig update --submit <uuid> --id <item>` submits that review; omitting `--prepare`
+on the first command prepares and submits in one invocation. Reusing the same
+review with different input is a conflict. An unclaimed review from a prior
+daemon boot remains queued; it cannot start a provider write after restart.
+
+In that same isolated workspace, `twig update <field> <value> --id <item> --local`
+retains an edit without publishing it. Two reviewed updates to distinct items can
+proceed while a third item is edited locally. Admission orders submitted reviews
+for the same native item across credentials and mirrors. A blocked submission
+returns `Queued`; the same owner wakes it when capacity or a conflicting claim
+is released. No client resubmission is necessary. Merely preparing a review
+does not reserve the item. If the original effect verifies but the local capture
+has changed, observation returns `DeliveryConflict`; it neither resends the update
+nor discards the later edit.
+
+ADO and GitHub also accept `twig note --id <item> --text <text> --review <uuid>`
+in this fixture. The Twig provider does not implement comments. A review keeps
+its original action and submission identities if it yields `Pending` after
+three local version conflicts. The same daemon reschedules only the local reducer,
+with the original inputs, in batches of up to three CAS attempts. Restart does
+not resume its provider call stack. A closed barrier needs original no-send
+proof; a post-dispatch observation inspects the original attempt, never resending it.
+
+`twig update --re-review <previous-review-uuid> --review <new-uuid> --id <item>`
+prepares a replacement only after inspecting the exact original attempt on the
+same connection and proving no effect. It keeps the frozen field value or note,
+reports the old and new executable digests, captures and revision evidence, and
+does not submit. Submit the new UUID separately. A predecessor can have only one
+replacement; neither reconnect nor `DeliveryConflict` authorizes one.
+
+For a retained Plan in the isolated qualification workspace, use
+`twig plan observe <digest> --bench <bench-uuid> -o json`. ADO and GitHub
+qualification require the host's synthetic transport; this path cannot fall
+back to live provider HTTP. Each unit identifies
+its scope, capture, Core operation and original attempt (if any). `continue`
+observes the original attempt and settles eligible admitted captures individually.
+A converged edit needs fresh exact item evidence. A verified operation also needs
+its original scoped journal and registry attempt; only a verified create with its
+attributable published mapping can add a pin. Readback does not send a mutation.
+The owner withholds the shared Bench while the scope step, pin, capture receipt
+and unit delivery settle. Restart checks the original ledgers; a scope-only commit
+keeps the Bench withheld until the same digest completes local delivery. An
+ineligible unit remains inspect-only with its reason and does not consume the
+draft or block a separately eligible sibling. `abandon-unadmitted`
+permanently stops admissions on that digest, without consuming any drafts or
+releasing attempted-unit claims. Neither verb publishes provider work. An
+interrupted local relationship's edge and Applied outcome are one SQLite commit:
+recovery verifies the committed edge or records that the original transaction
+did not commit. No remote acknowledgement is inferred.
+
+The qualified pipe admits reviewed scalar `update`, `seed publish` (all three
+providers), and `note` (ADO and GitHub). For a retained seed, use
+`twig seed publish --local-id <permanent-uuid> --review <uuid> [--prepare]`.
+`twig seed --observe <review> --local-id <permanent-uuid>` inspects the original
+attempt; `--find --local-id <permanent-uuid>` finds its submissions. Until an
+original create acknowledgement is attributable, the owner protects the whole
+destination. It then reserves the new item, seed, and creation endpoints before
+readback and wakes disjoint work. A reservation is not a published alias. A
+mismatch stays Partial and can be rechecked without sending another create.
+`--prepare`, `--submit`,
+`--observe` and `--cancel` change original action state or settle its receipt;
+`--find` only reads. `update --local` changes the captured draft, and `bench create`
+changes only the Bench catalogue. Neither opens a provider barrier. Qualified
+HTTP routes manage profile, enrollment and view sessions or return read-only
+data; editor, file-plan, and whole-Plan publication are not qualified HTTP
+or pipe routes. Seed publication is pipe-only. The installed command worker is unchanged.
+
+`OwnerUpdateProcessTests` exercises the matched CLI and server with a private
+SQLite Twig authority and deterministic HTTP substitutes for Azure DevOps and
+GitHub. The update contention cases park A for 30 seconds and require B and the local edit to
+finish before A returns. The remote-provider cases also verify a comment on B
+before A returns. Separate create cases exercise the destination fence, identity
+reservation, creation-bound parent, and restart. These cases do not qualify
+installed command routes or live provider availability.
+
+If the reply is lost, `twig update --find --id <item>` returns only original
+identities and states visible to the current actor, not field values. Multiple
+matches are explicit. `twig update --observe <uuid> --id <item>` checks the
+original evidence without resending. Ctrl+C detaches the observer;
+`twig update --cancel <uuid> --id <item>` cancels only before claim.
+A pending or uncertain result carries the original identities and exits nonzero.
+
+**Released Display (owner fixture only).** A negotiated owner content capability
+can `GET /api/v2/views/{view}/benches/{bench}/partitions/{partition}/page`.
+The route reads the owner-published projection in `released-benches.db` using a
+read-only SQLite transaction. It neither discovers membership nor opens the
+Bench definitions, source workspace, or provider. An unpublished partition
+returns `409 RefreshRequired`, not an empty result.
+
+Each response body is a JSON array of at most 512 KiB. `edit` rows contain only
+changed fields, never their provider baseline or type; `seed` rows contain local
+intent. The publisher must match the admitted origin's store, connection,
+principal and authority stamp. A `provider` partition is separate and requires
+a fresh exact item read on its bound connection. Grants live only in the
+owner process, expire within 60 monotonic seconds of request start, and cannot
+be extended by project access or an in-flight renewal.
+
+Echo `X-Twig-Next-Cursor` as `X-Twig-Cursor` and pin `X-Twig-Generation` on
+subsequent pages. A change anywhere in this owner's Bench invalidates the
+continuation. On `409 ViewChanged`, discard **all** collected pages; the
+fixture reader restarts at most once within a five-second total budget.
+`403 GrantRequired`, `503 Busy` and `503 AuthorityUnavailable` carry no item
+bytes. Responses identify the authority, process, auth epoch, owner, store,
+connection, partition, optional origin, generation, expiry, remaining time and
+withdrawal watermark in `X-Twig-*` headers. A successful enqueue precedes
+network delivery and cannot be recalled. Clients must still check their
+revocation stream before rendering. No HTTP route can mint a grant or supply
+release rows; membership and settlement producers belong to the owner.
+
+A prepared private input Action binds its exact acknowledged input write.
+Replacing or discarding that input before the owner's durable dispatch check
+requires a fresh review, even if a later write restores the original text.
+Once dispatch has been admitted, inspect the original Submission rather than
+trying to retract or repeat its effect.
+
+For an enrolled standalone owner, `GET /api/v2/views/{view}/benches/{bench}/partitions`
+lists eligible partition IDs without opening a workspace. Provider membership
+from a completed owner scan is available to eligible standalone views of the
+same catalog, including views attached after refresh. View authorization and
+grant freshness still apply. Origin-owned edits and seeds stay separate: exact
+pins can select local intent, while query and subtree contributions require a
+current scan of the same origin and workspace rules. Exact input observation
+does not invalidate an unchanged membership scan or renew its grants.
+
+Before a qualified workspace CAS, the owner records its predecessor and result
+hashes and affected Benches in `released-benches.db`. The matching step ID and
+result hash commit in the same transaction as the Core snapshot. Each Bench
+retains **all** pending dependencies; no provider call runs inside a publication
+transaction. Restart checks each original step against its workspace ledger
+before accepting writes. An absent step is no-effect only at its unchanged
+predecessor. Inconsistent evidence blocks admission; recovery never dispatches
+or reapplies the change. Pages and grants are not restored from an earlier boot.
 
 ## Install the release package
 
@@ -265,23 +441,22 @@ source binding/root (including principal/authority), repository context, Bench,
 source-qualified item, execution store, Plan identity/scope, scalar/normal-seed/
 ADO-pair/LOCAL-pair mode and explicit endpoint. Tickets and views are not part
 of durable identity. Independent live buffers cannot silently merge: the
-conditional input revision must match. Revisions are opaque monotonic numbers,
-not per-buffer consecutive counters; use the returned revision even for `Empty`.
-An absent buffer uses the document's current revision floor, so simultaneous
-first writes can conflict rather than overwrite. Never adopt the newest revision
+conditional input revision must match. A never-written buffer starts at zero;
+each record advances independently, so first writes to disjoint buffers do not
+conflict. Use the returned revision, including on tombstones. Never adopt the newest revision
 and retry automatically. Input CAS failures use `InputRevisionConflict`; a
 baseline change refuses replacement with `InputBaselineConflict`. Existing
 profile-lease contention can return `ViewStateBusy`. Observe/reconcile rather
 than treating any of these as permission to overwrite.
 
 The existing profile lease and flushed atomic writer persist at most 64 buffer
-slots and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
+live buffers and 1 MiB UTF-8 per profile. Each value payload is at most 256 KiB UTF-8,
 with 64 unique fields, strings of at most 65,536 characters, string lists of at
 most 256 elements, and 128 explicit links. The PUT transport bound is 256 KiB
 plus 16 KiB framing; existing native command body bounds remain unchanged.
 Discard/consume clear values, retaining bounded acknowledgement tombstones.
-When allocating a slot, the oldest cleared slot can be reclaimed; the revision
-floor prevents delayed initial writes from recreating discarded values.
+Cleared buffers free live capacity but retain their record revision; a delayed
+first write cannot recreate discarded values.
 No acknowledged live inputs are evicted. `InputLimit` is an explicit refusal.
 
 Recovery always authenticates/admit-checks the exact source and acquires a fresh
@@ -714,3 +889,16 @@ or Apply tool is exposed by MCP.
 For current implementation boundaries see the
 [architecture overview](architecture/overview.md) and
 [clean-core contract](architecture/clean-core-contract.md).
+
+The isolated v2 owner serves the same qualified membership inventory to the
+CLI and Canvas. Inspection does not refresh grants. Explicit refresh can qualify
+remote pins, native directed subtrees, supported provider queries and standalone
+planning browses. Subtrees require complete incident edges and agreement between
+each parent and child. The owner subtracts exclusions captured for the requested
+workspace and publishes only if its rules revision still matches. A GitHub query
+must exhaust its bounded repository issue listing (up to 100) and hydrate the
+exact candidates; a continuation is not an empty result. An authenticated native
+Twig authority can affirm an item's absence; a remote access refusal cannot.
+Incomplete evidence never supplies an exact total. Local edit pages are
+separate, identified by their workspace store UUID. Parking a local workspace
+does not revoke unrelated provider evidence.

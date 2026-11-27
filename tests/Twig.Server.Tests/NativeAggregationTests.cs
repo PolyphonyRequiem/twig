@@ -64,11 +64,16 @@ internal static class NativeAggregationTests
             await HttpView(root, panel, changes, bench.Id, aRoot, bRoot);
             var mappedSeed = ItemKey.Local(Guid.NewGuid());
             var mappedChanges = fieldsA.Set("System.Title", FieldValue.String("Retained mapped seed draft"));
+            var plan = new Plan(a, "schema", 1, [new("create", OpKind.Create, mappedSeed, fields: fieldsA,
+                type: itemA.Type, concurrency: ConcurrencyMode.ObservedNonAtomic)]);
+            var applying = Required(JournalEntry.Planned(plan.Digest, 0).Begin(Guid.NewGuid()));
+            var applied = Required(applying.Record(new(plan.Digest, 0, applying.Attempt, OpStatus.Applied, ["accepted"], itemA.Revision, keyA)));
+            var verified = Required(applied.Record(new(plan.Digest, 0, applying.Attempt, OpStatus.Verified, ["read back"], itemA.Revision, keyA)));
             bench = Required(await store.SaveAsync(new(bench.Id, bench.Name,
                 [new(SelectorKind.Pin, mappedSeed, connection: a), new(SelectorKind.Pin, keyB, connection: b)]), bench.Revision));
             gateway.Replace(aRoot, Observation(a, new(2, [itemA],
                 retainedItems: [new Seed(mappedSeed, itemA.Type, mappedChanges)],
-                mappings: [new(mappedSeed, keyA, "synthetic-published-plan", 0)]), "https://example.test/project/"));
+                plans: [plan], journal: [verified], mappings: [new(mappedSeed, keyA, plan.Digest, 0)]), "https://example.test/project/"));
             var mapped = Required(await panel.ReadViewAsync(bench.Id, anchor, [chosen], default));
             var mappedRow = mapped.View.Sources.Single(source => source.SourceId == anchor.Source.Id).Items.Single();
             Check(mappedRow.Identity.Key == keyA && mappedRow.BenchMember && mappedRow.HasDraft

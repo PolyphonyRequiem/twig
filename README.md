@@ -136,6 +136,10 @@ See the [server command reference](docs/commands/system/server.md) for lifecycle
 syntax and output formats, and the [server guide](docs/server.md) for
 prerequisites, installation, and MCP setup.
 
+Run `python eng/ci-checks.py ado-root-preflight` from the repository root to
+check ADO qualification method names before building. This reads only source;
+CI still verifies which tests actually ran from the TRX results.
+
 ### Native Agent HTTP regression ownership
 
 `python eng/ci-checks.py native-agent-http` runs ten individually isolated,

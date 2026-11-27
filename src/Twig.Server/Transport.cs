@@ -14,7 +14,10 @@ public sealed record CanvasRegistration(Guid ViewId, string PresentationCapabili
 public sealed record Ack(bool Acknowledged = true);
 public sealed record Failure(string Code, string Message);
 public sealed record ServiceStatus(string Protocol, string DataMode, bool CanvasDefaultDeny,
-    Guid ServerId = default, string? ServerVersion = null, string[]? Capabilities = null);
+    Guid ServerId = default, string? ServerVersion = null, string[]? Capabilities = null,
+    [property: System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    string? ExecutionSession = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? DesktopDeveloperMode = null);
 public sealed record LayoutBody(string Layout);
 public sealed record ViewBody(long ExpectedRevision, Guid? BenchId, string Layout, Guid? GroupSource, string? GroupField);
 public sealed record ViewPreferences(long Revision, Guid? BenchId, string Layout, Guid? GroupSource, string? GroupField);
@@ -177,7 +180,7 @@ public sealed record LocalRelationshipReadBody(Guid SourceId, Guid BenchId, stri
 public sealed record LocalRelationshipReviewBody(Guid Ticket, bool Adding, EditorInputReference? Inputs = null);
 public sealed record LocalRelationshipReferenceBody(Guid Ticket, Guid CaptureId, string Digest, int Operation, Guid Attempt);
 public sealed record LocalRelationshipEffectDto(string Kind, RelationshipEndpointDto Target, RelationshipEndpointDto Endpoint,
-    string Relation, long? ExpectedLocalVersion, long ExpectedStoreVersion, string SchemaFingerprint);
+    string Relation, long? ExpectedLocalVersion, string SchemaFingerprint);
 public sealed record LocalRelationshipReceiptDto(string Digest, int Operation, Guid Attempt, string Status, string[] Evidence, Failure? Error);
 public sealed record LocalRelationshipOutcomeDto(string Digest, int Operation, Guid Attempt, string Status, bool Settled,
     LocalRelationshipReceiptDto[] Receipts, Failure? Error);

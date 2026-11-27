@@ -3,6 +3,7 @@
 import argparse
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -232,7 +233,7 @@ def user_benches():
         ("native-plan-review-metadata", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanReviewDiscoversMetadataOncePerExactScope"),
         ("native-plan-local-cleanup", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanVerifiedEffectsWithFailedLocalCleanupSettleExactlyWithoutDispatch"),
         ("native-plan-definitive-edit", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanDefinitiveNoEffectEditRequiresNewReviewAndFreshRestoredAccess"),
-        ("native-plan-refused-seed", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanDefinitivelyRefusedCreationUuidIsNeverRecreated"),
+        ("native-plan-refused-seed", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanRefusedCreationRequiresExactPredecessorForTheSameSeed"),
         ("native-plan-same-scope-prefix", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanSameScopePartialPrefixDeliversOnlyVerifiedCaptureAndNeverReplaysIt"),
         ("native-capture-rewind", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureWholeDatabaseRewind"),
         ("native-capture-lifecycle", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureInterruptedBeforeCoreStage|FullyQualifiedName~NativeCaptureUserCommitBeforeRegistryConfirmation|FullyQualifiedName~NativeCaptureReserveAndPostCoreCrash"),
@@ -258,8 +259,8 @@ def user_benches():
                         "--results-directory", "artifacts/test-logs/ci/user-benches"], check=True)
 
 
-def ado_root():
-    methods = [
+def ado_root_methods():
+    return [
         "ExplicitCoreProductionRootReadsAndUpdatesThroughDraftDigestJournalWithoutLegacyWriters",
         "CoreProcessInspectionUsesDiscoveredRulesWithoutLegacyCommandsOrWorkReads",
         "CorePlanInspectionPreservesTypedDraftsAndExactJournalWithoutLegacyReaders",
@@ -268,7 +269,7 @@ def ado_root():
         "CoreParentedSeedPublishesItsHierarchyInTheCreationCallWithoutAPostCreateWriter",
         "CoreChainAuthoringValidationAndReconciliationRetainOriginalCreationReferences",
         "CoreLinkRouteUsesNativeJournalWithoutLegacyGraph",
-        "CoreLinkHumanActivePublishedUuidUsesPermanentMappingWithoutRewritingHistory",
+        "CoreLinkUsesExplicitPublishedTargetAndPreservesCreationReceipts",
         "CoreLinkMachineChildOptionRequiresIdBeforeAnyHttp",
         "CoreLinkRefusalsAndAmbientSelectionNeverUseLegacyOrDispatchUnsupportedIntent",
         "CoreLocalRelatedCannotFallbackFromNativeAdoAssociation",
@@ -276,8 +277,8 @@ def ado_root():
         "CoreLinkTelemetryUsesStaticMetadataAndCannotChangeTheOutcome",
         "CoreBenchCrudPreservesSelectorKindsAndNeverResolvesLegacyWriters",
         "CoreBenchPullKeepsDraftDebtAndExcludesImplicitMachineActiveContext",
-        "CoreSyncUsesOnePlanAndOneJsonResultWithSafeOptionalTelemetry",
-        "CoreActiveContextAndNativeEditorPreserveTargetingAndRealConcurrentFields",
+        "CoreExplicitSaveReturnsOneVerifiedPlanAndDoesNotReplayIt",
+        "CoreExplicitEditorPreservesTargetingAndRealConcurrentFields",
         "CoreQueryFindsLaterPageMatchesAndPreservesUnpublishedDraftsWithoutWriters",
         "CoreWorkspaceReadRoutesThroughProductionComposition",
         "CoreWorkspaceReadResolvesSharedPlanningRulesFromNativeCaches",
@@ -295,7 +296,21 @@ def ado_root():
         "NativeOnlineReadRequiresCapturedStampAndRevalidatesAuthorityAfterRemoteProbe",
         "NativeOnlineReadCancellationCannotReleaseContentOrRetainTheOperationLease",
     ]
-    for method in methods:
+
+
+def ado_root_preflight():
+    sources = Path(__file__).resolve().parents[1] / "tests/Twig.Cli.Tests/Commands"
+    declaration = re.compile(r"^\s*public\s+(?:async\s+)?(?:Task|void)\s+(\w+)\s*\(", re.MULTILINE)
+    declared = set()
+    for source in sources.glob("NativePublicationConsumerTests*.cs"):
+        declared.update(declaration.findall(source.read_text(encoding="utf-8")))
+    missing = [name for name in ado_root_methods() if name not in declared]
+    if missing:
+        sys.exit("ADO qualification methods missing from NativePublicationConsumerTests:\n  " + "\n  ".join(missing))
+
+
+def ado_root():
+    for method in ado_root_methods():
         subprocess.run([sys.executable, "eng/verify-trx.py", "--", "dotnet", "test",
                         "tests/Twig.Cli.Tests/Twig.Cli.Tests.csproj", "--no-build", "--no-restore", "-f", "net11.0",
                         "--filter", f"FullyQualifiedName=Twig.Cli.Tests.Commands.NativePublicationConsumerTests.{method}",
@@ -392,6 +407,7 @@ CHECKS = {
     'registry-compat': registry_compat,
     'catalog': catalog,
     'user-benches': user_benches,
+    'ado-root-preflight': ado_root_preflight,
     'ado-root': ado_root,
     'github-root': github_root,
     'native-auth': native_auth,

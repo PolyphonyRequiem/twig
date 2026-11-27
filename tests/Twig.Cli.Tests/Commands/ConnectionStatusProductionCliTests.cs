@@ -1,28 +1,64 @@
 using System.Text.Json;
 using Shouldly;
+using Twig.DependencyInjection;
 using Twig.Infrastructure.Config;
 using Twig.Infrastructure.Persistence;
 using Xunit;
 
 namespace Twig.Cli.Tests.Commands;
 
-public sealed class ConnectionStatusProductionCliTests : IDisposable
+public sealed class ConnectionStatusProductionCliTests : ConnectionStatusCases
 {
+    protected override Task<(int Exit, string Out, string Error)> RunAsync(string root, string home, params string[] args)
+        => StructuredReadProductionCliTests.RunInWorkspaceAsync(root, home, args);
+}
+
+public sealed class ConnectionStatusCommandTests : ConnectionStatusCases
+{
+    protected override Task<(int Exit, string Out, string Error)> RunAsync(string root, string home, params string[] args)
+    {
+        var previousHome = Environment.GetEnvironmentVariable("TWIG_USER_HOME");
+        var previousOut = Console.Out;
+        var previousError = Console.Error;
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        try
+        {
+            Environment.SetEnvironmentVariable("TWIG_USER_HOME", home);
+            Console.SetOut(output);
+            Console.SetError(error);
+            var exit = TwigConsoleApp.Run(args, services =>
+                services.AddTwigWorkspaceServices(root, args, Path.Combine(home, "display.json")));
+            return Task.FromResult((exit, output.ToString(), error.ToString()));
+        }
+        finally
+        {
+            Console.SetOut(previousOut);
+            Console.SetError(previousError);
+            Environment.SetEnvironmentVariable("TWIG_USER_HOME", previousHome);
+        }
+    }
+}
+
+public abstract class ConnectionStatusCases : IDisposable
+{
+    protected abstract Task<(int Exit, string Out, string Error)> RunAsync(string root, string home, params string[] args);
+
     private readonly string _root = Path.Combine(Path.GetTempPath(), $"twig-connection-layout-{Guid.NewGuid():N}");
 
     [Fact]
-    public async Task PortableConnectionInventoryPersistsAcrossServerWorkersWithoutWorkspace()
+    public async Task PortableConnectionInventoryPersistsAcrossInvocationsWithoutWorkspace()
     {
         Directory.CreateDirectory(_root);
         const string manifest = "{broken manifest";
         await File.WriteAllTextAsync(Path.Combine(_root, "twig.json"), manifest);
         var home = Path.Combine(_root, "home");
-        var added = await StructuredReadProductionCliTests.RunInWorkspaceAsync(_root, home,
+        var added = await RunAsync(_root, home,
             "connection", "add", "--provider", "ado", "--org", "fixture", "--project", "Project", "-o", "json");
         added.Exit.ShouldBe(0, added.Error);
         var otherDirectory = Path.Combine(_root, "outside-workspace");
         Directory.CreateDirectory(otherDirectory);
-        var listed = await StructuredReadProductionCliTests.RunInWorkspaceAsync(otherDirectory, home,
+        var listed = await RunAsync(otherDirectory, home,
             "connection", "list", "-o", "json");
         listed.Exit.ShouldBe(0, listed.Error);
         using var json = JsonDocument.Parse(listed.Out);
@@ -54,7 +90,7 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
         Directory.Exists(paths.TwigDir).ShouldBeTrue();
         var before = Directory.GetFiles(paths.TwigDir).ToDictionary(path => path, File.ReadAllBytes);
 
-        var result = await StructuredReadProductionCliTests.RunInWorkspaceAsync(
+        var result = await RunAsync(
             _root, Path.Combine(_root, "home"), "connection", "status", "-o", format);
 
         result.Exit.ShouldBe(1, result.Error);
@@ -86,7 +122,7 @@ public sealed class ConnectionStatusProductionCliTests : IDisposable
         File.Exists(Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.LayoutFileName)).ShouldBeTrue();
         File.Exists(Path.Combine(paths.TwigDir, WorktreeLocalAttachmentStore.AttachmentFileName)).ShouldBeTrue();
 
-        var result = await StructuredReadProductionCliTests.RunInWorkspaceAsync(
+        var result = await RunAsync(
             _root, Path.Combine(_root, "home"), "connection", "status", "-o", "json");
 
         result.Exit.ShouldBe(1, result.Error);

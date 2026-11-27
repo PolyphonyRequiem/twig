@@ -40,6 +40,352 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
     private string View => $"/api/v1/views/{owner.ViewId:D}/";
     private string Work => Path.Combine(root, "work");
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task QueryRefreshSupportsLateOwnerAndCanvasPrepareWithoutAnImplicitRenewal(bool attachLate)
+    {
+        await Start(executionV2: true);
+        var mirror = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(Path.Combine(Work, ".twig", "core.db"))).Value;
+        var before = (await handle.Workspace.SnapshotAsync(default)).Value;
+        Assert.True((await mirror.CommitAsync(handle.Source.Connection, before.Version, new(before.Version + 1,
+            [], before.Relationships, before.RetainedItems, before.Plans, before.Journal, before.Mappings, before.Benches), default)).IsSuccess);
+        var catalog = (await definitions.ReadAsync()).Value;
+        var original = Assert.Single(catalog.Benches);
+        Assert.True((await definitions.SaveAsync(new(bench, original.Name,
+            [new(SelectorKind.Query, query: new(QueryKind.All), connection: handle.Source.Connection)]), original.Revision)).IsSuccess);
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        using var output = new StringWriter();
+        Assert.Equal(0, await display.RefreshAsync(handle.Workspace, handle.Source, definitions, original.Name, output, default));
+        var refreshed = JsonSerializer.Deserialize(output.ToString(), DisplayJson.Default.ReleasedPartitions)!;
+
+        var reader = attachLate ? sessions.ConnectOwner(catalog.InstanceId, null, Guid.NewGuid()) : owner;
+        client.DefaultRequestHeaders.Authorization = new("Bearer", reader.ContentCapability);
+        var directory = $"/api/v2/views/{reader.ViewId:D}/benches/{bench:D}/partitions";
+        var inventory = JsonSerializer.Deserialize(await client.GetStringAsync(directory), DisplayJson.Default.ReleasedPartitions)!;
+        Assert.Equal(refreshed.Membership.State, inventory.Membership.State);
+        Assert.Equal(refreshed.Membership.Items, inventory.Membership.Items);
+        var partition = $"{directory}/{Assert.Single(inventory.Partitions):D}";
+        using var page = await client.GetAsync(partition + "/page");
+        Assert.Equal(HttpStatusCode.OK, page.StatusCode);
+        var baseline = Assert.Single(page.Headers.GetValues("X-Twig-Item-Version"));
+        var write = Guid.NewGuid();
+        await Send(HttpMethod.Put, partition + "/input",
+            new PrivateInputRequest(item.NativeId!, NativeProvider.Title, write, 0, "do not send", baseline));
+        var prepared = await Send(HttpMethod.Post, partition + "/action",
+            new CanvasActionRequest(item.NativeId!, NativeProvider.Title, "prepare", write));
+        Assert.Equal("Queued", prepared.GetProperty("status").GetString());
+        Assert.Single((await handle.Workspace.SnapshotAsync(default)).Value.Items);
+        var after = JsonSerializer.Deserialize(await client.GetStringAsync(directory), DisplayJson.Default.ReleasedPartitions)!;
+        Assert.Equal(inventory.Generation, after.Generation);
+        Assert.Equal(inventory.Membership.Items, after.Membership.Items);
+        Assert.Equal("fixture title", (await handle.Workspace.ObserveItemsAsync([item], default)).Value.Items.Single().Fields[NativeProvider.Title].Text);
+        display.Withdraw(handle.Source.Connection, item);
+        var denied = JsonSerializer.Deserialize(await client.GetStringAsync(directory), DisplayJson.Default.ReleasedPartitions)!;
+        Assert.Equal("Denied", denied.Membership.State);
+        Assert.Null(denied.Membership.ExactTotal);
+        using var revoked = await client.GetAsync(partition + "/page");
+        Assert.Equal(HttpStatusCode.Forbidden, revoked.StatusCode);
+        Assert.DoesNotContain("fixture title", await revoked.Content.ReadAsStringAsync());
+    }
+
+    [Theory]
+    [InlineData("observe", false)]
+    [InlineData("released", true)]
+    [InlineData("native", false)]
+    public async Task AppliedPlanAcknowledgementCanBeVerifiedAfterRestartWithoutReplay(string recovery, bool create)
+    {
+        await Start(planMode: true, executionV2: true);
+        using var authority = new SqliteConnection(new SqliteConnectionStringBuilder
+        {
+            DataSource = Path.Combine(root, "home", "native-databases", "database-input-fixture.db"),
+            Mode = SqliteOpenMode.ReadOnly,
+            Pooling = false
+        }.ToString());
+        await authority.OpenAsync();
+        using var effects = authority.CreateCommand();
+        effects.CommandText = "SELECT count(*) FROM native_effects";
+        var effectCount = (long)(await effects.ExecuteScalarAsync())!;
+        using (var editor = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value)
+        {
+            var form = (await editor.SelectAsync(item)).Value;
+            var target = create ? (await editor.CreateSeedAsync(form.Type)).Value : form;
+            var fields = FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("Acknowledged Plan effect"));
+            if (create) fields = fields.Set(form.StateField, form.Values[form.StateField]);
+            Assert.True((await editor.StageAsync(target.Ticket, fields)).IsSuccess);
+        }
+        var status = (await definitions.ReadPlanStatusAsync(bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(Work, bench, status.Sources, gateway.Configure, default)).Value;
+        var scope = Assert.Single(review.Document.Scopes).Scope;
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString());
+        await db.OpenAsync();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = $"""
+            CREATE TRIGGER park_verification BEFORE UPDATE OF document ON core_snapshots
+            WHEN json_extract(NEW.document,'$.Journal[0].Status')={(int)OpStatus.Verified}
+            BEGIN SELECT RAISE(ABORT,'park original readback'); END;
+            """;
+        await cmd.ExecuteNonQueryAsync();
+        var applied = Assert.Single((await review.ApplyAsync()).Value.Units);
+        Assert.Equal("Applied", applied.State);
+        Assert.NotNull(applied.Attempt);
+        cmd.CommandText = "DROP TRIGGER park_verification";
+        await cmd.ExecuteNonQueryAsync();
+
+        var restarted = (await NativePlanReview.OpenAsync(Work, review.Digest, gateway.Configure, default)).Value;
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        if (recovery == "observe")
+        {
+            var observed = (await restarted.ObserveAsync()).Value;
+            Assert.Equal("VerifiedDeliveryPending", observed.Status);
+            Assert.Equal(applied with { State = "Verified" }, Assert.Single(observed.Units));
+            Assert.False(Assert.Single((await definitions.ReadEditorCapturesAsync(default)).Value).Settled);
+        }
+        var continued = recovery == "native" ? await restarted.ContinueDeliveryAsync()
+            : await display.ContinuePlanAsync(Work, handle.Source, definitions, restarted, default);
+        Assert.True(continued.IsSuccess, continued.IsSuccess ? "" : continued.Error.Message);
+        Assert.Equal("Complete", continued.Value.Status);
+        Assert.Equal(applied with { State = "Delivered" }, Assert.Single(continued.Value.Units));
+        Assert.True(Assert.Single((await definitions.ReadEditorCapturesAsync(default)).Value).Settled);
+        var scoped = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
+        var final = (await scoped.ReadAsync(handle.Source.Connection, default)).Value;
+        var row = Assert.Single(final.Journal);
+        Assert.Equal(new[] { OpStatus.Applied, OpStatus.Verified }, row.Receipts.Select(receipt => receipt.Status));
+        Assert.Equal(applied.Attempt, row.Attempt);
+        Assert.Empty(final.RetainedItems);
+        var pins = Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors;
+        if (create) Assert.Single(pins, pin => pin.Item == Assert.Single(final.Mappings).Remote);
+        Assert.Equal(create ? 2 : 1, pins.Length);
+        Assert.Equal(effectCount + 1, await effects.ExecuteScalarAsync());
+    }
+
+    [Theory]
+    [InlineData("plan-scope")]
+    [InlineData("plan-receipt")]
+    [InlineData("newer-edit")]
+    [InlineData("replaced-pins")]
+    public async Task VerifiedSeedAndEditDeliverTheirOriginalsAndOneMappedPinAcrossRestart(string cut)
+    {
+        await Start(planMode: true, executionV2: true);
+        using var editor = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value;
+        var edit = (await editor.SelectAsync(item)).Value;
+        Assert.True((await editor.StageAsync(edit.Ticket, FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("edited")))).IsSuccess);
+        var seed = (await editor.CreateSeedAsync(edit.Type)).Value;
+        Assert.True((await editor.StageAsync(seed.Ticket, FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("created"))
+            .Set(edit.StateField, edit.Values[edit.StateField]))).IsSuccess);
+        var status = (await definitions.ReadPlanStatusAsync(bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(Work, bench, status.Sources, gateway.Configure, default)).Value;
+        var scope = Assert.Single(review.Document.Scopes).Scope;
+        using var db = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = scope.DatabasePath, Pooling = false }.ToString());
+        await db.OpenAsync();
+        using var cmd = db.CreateCommand();
+        cmd.CommandText = """
+            CREATE TRIGGER park_cleanup BEFORE UPDATE OF document ON core_snapshots
+            WHEN json_array_length(NEW.document,'$.Drafts')=0 AND json_array_length(OLD.document,'$.Drafts')>0
+            BEGIN SELECT RAISE(ABORT,'park verified cleanup'); END;
+            """;
+        await cmd.ExecuteNonQueryAsync();
+        var apply = (await review.ApplyAsync()).Value;
+        Assert.Equal("VerifiedDeliveryPending", apply.Status);
+        cmd.CommandText = "DROP TRIGGER park_cleanup";
+        await cmd.ExecuteNonQueryAsync();
+        var scoped = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(scope.DatabasePath, default, scope.StoreInstance)).Value;
+        var before = (await scoped.ReadAsync(handle.Source.Connection, default)).Value;
+        var mapping = Assert.Single(before.Mappings);
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        var replaced = await display.ContinuePlanAsync(Work, handle.Source with { StoreInstance = Guid.NewGuid() }, definitions, review, default);
+        Assert.False(replaced.IsSuccess);
+        if (cut == "replaced-pins")
+        {
+            var original = Assert.Single((await definitions.ReadAsync()).Value.Benches);
+            Assert.True((await definitions.SaveAsync(new(original.Id, original.Name, []), original.Revision)).IsSuccess);
+            var outcome = (await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value;
+            Assert.Equal("VerifiedDeliveryPending", outcome.Status);
+            Assert.Contains("Bench", outcome.Error!.Message);
+            Assert.Empty(Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors);
+            Assert.All((await definitions.ReadEditorCapturesAsync(default)).Value, c => Assert.False(c.Settled));
+            return;
+        }
+        if (cut == "newer-edit")
+        {
+            var draft = Assert.Single(before.RetainedItems.OfType<LocalEdits>());
+            var newer = draft with { CaptureRevision = Guid.NewGuid() };
+            Assert.True((await scoped.CommitAsync(handle.Source.Connection, before.Version, new(before.Version + 1,
+                before.Items, before.Relationships, before.RetainedItems.Where(d => d.Key != draft.Key).Append(newer),
+                before.Plans, before.Journal, before.Mappings, before.Benches), default)).IsSuccess);
+            var partial = (await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value;
+            Assert.Equal("VerifiedDeliveryPending", partial.Status);
+            Assert.Contains("draft changed", partial.Error!.Message);
+            Assert.Single(partial.Units, u => u.State == "Delivered");
+            Assert.Single(partial.Units, u => u.State == "Verified");
+            Assert.Equal(newer.CaptureRevision, Assert.IsType<LocalEdits>(Assert.Single(
+                (await scoped.ReadAsync(handle.Source.Connection, default)).Value.RetainedItems)).CaptureRevision);
+            Assert.Contains(Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors, s => s.Item == mapping.Remote);
+            return;
+        }
+        var fault = false;
+        display.StepBoundary = async (where, _) =>
+        {
+            if (where == cut && !(await scoped.ReadAsync(handle.Source.Connection, default)).Value.RetainedItems.Any(d => d.Key == mapping.Local))
+            {
+                fault = true;
+                throw new IOException("cut mapped seed delivery");
+            }
+        };
+        var interrupted = await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+        Assert.True(fault, interrupted.IsSuccess ? interrupted.Value.Status : interrupted.Error.Message);
+        var boot = new ReleasedBenchDisplay(Path.Combine(root, "home", "released-benches.db"));
+        await boot.RecoverPlans(Work, definitions, default);
+        var finished = await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+        Assert.True(finished.IsSuccess, finished.IsSuccess ? "" : finished.Error.Message);
+        Assert.Equal("Complete", finished.Value.Status);
+        Assert.All(finished.Value.Units, unit => Assert.Equal("Delivered", unit.State));
+        var final = (await scoped.ReadAsync(handle.Source.Connection, default)).Value;
+        Assert.Empty(final.RetainedItems);
+        Assert.Equal(before.Journal.Select(j => j.Attempt), final.Journal.Select(j => j.Attempt));
+        Assert.Equal(mapping, Assert.Single(final.Mappings));
+        Assert.Equal(2, (await definitions.ReadAsync()).Value.Benches.Single().Selectors.Length);
+        Assert.Single((await definitions.ReadAsync()).Value.Benches.Single().Selectors, s => s.Item == mapping.Remote);
+        Assert.Equal("Complete", (await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value.Status);
+    }
+
+    [Theory]
+    [InlineData("plan-manifest")]
+    [InlineData("plan-scope")]
+    [InlineData("plan-reserved")]
+    [InlineData("plan-receipt")]
+    [InlineData("plan-definitions")]
+    public async Task OriginalConvergedPlanCanSettleAcrossOwnerLossWithoutChangingPinsOrReplaying(string cut)
+    {
+        await Start(planMode: true, executionV2: true);
+        using var editor = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value;
+        var form = (await editor.SelectAsync(item)).Value;
+        Assert.True((await editor.StageAsync(form.Ticket, FieldValues.Empty.Set(NativeProvider.Title, form.Values[NativeProvider.Title]))).IsSuccess);
+        var status = (await definitions.ReadPlanStatusAsync(bench)).Value;
+        var review = (await NativePlanReview.ReviewAsync(Work, bench, status.Sources, gateway.Configure, default)).Value;
+        var retained = (await definitions.RetainPlanReviewAsync(review.Document, default)).Value;
+        var entry = Assert.Single(review.Document.Scopes);
+        var capture = Assert.Single(entry.Captures);
+        Assert.True((await definitions.AdvancePlanReviewAsync(retained, true, 0, 1, default)).IsSuccess);
+        Assert.True((await definitions.AdmitPlanCaptureAsync(retained, 0, capture.Id, default)).IsSuccess);
+        var scopeStore = (await Twig.Store.Sqlite.SqliteStore.OpenAsync(entry.Scope.DatabasePath, default, entry.Scope.StoreInstance)).Value;
+        var initial = (await scopeStore.ReadAsync(handle.Source.Connection, default)).Value.Version;
+        var authority = (await NativeAuthority.OpenAsync(Path.Combine(root, "home", "native-databases", "database-input-fixture.db"))).Value;
+        using var provider = new NativeProvider(authority, scopeStore);
+        var partition = new DisplayPartition(profile, ownerSession.CatalogId, bench, Guid.NewGuid(), null, handle.Source.Connection);
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        Assert.True((await display.AcquireAsync(partition, item, provider, default, handle.Source)).IsSuccess);
+        var hit = false;
+        display.StepBoundary = (point, _) =>
+        {
+            if (point == cut) { hit = true; throw new IOException("Owner lost at " + point); }
+            return Task.CompletedTask;
+        };
+        try
+        {
+            var interrupted = await display.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+            Assert.False(interrupted.IsSuccess, interrupted.IsSuccess ? interrupted.Value.Status : interrupted.Error.Message);
+        }
+        catch (IOException) when (hit) { }
+        Assert.True(hit, cut);
+        var url = $"/api/v2/views/{owner.ViewId:D}/benches/{bench:D}/partitions/{partition.Id:D}/page";
+        Assert.Equal(HttpStatusCode.Conflict, (await client.GetAsync(url)).StatusCode);
+        client.Dispose();
+        await app.StopAsync();
+        await app.DisposeAsync();
+        app = null;
+        var boot = new ReleasedBenchDisplay(Path.Combine(root, "home", "released-benches.db"));
+        await boot.RecoverPlans(Work, definitions, default);
+        var grant = await boot.AcquireAsync(partition, item, provider, default, handle.Source);
+        Assert.Equal(cut is not ("plan-scope" or "plan-reserved"), grant.IsSuccess);
+        var result = await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default);
+        Assert.True(result.IsSuccess, result.IsSuccess ? "" : result.Error.Message);
+        Assert.Equal("Complete", result.Value.Status);
+        Assert.Equal("Complete", (await boot.ContinuePlanAsync(Work, handle.Source, definitions, review, default)).Value.Status);
+        var final = (await scopeStore.ReadAsync(handle.Source.Connection, default)).Value;
+        Assert.Equal(initial + 1, final.Version);
+        Assert.Empty(final.RetainedItems);
+        Assert.True(Assert.Single((await definitions.ReadEditorCapturesAsync(default)).Value).Settled);
+        Assert.Equal(item, Assert.Single(Assert.Single((await definitions.ReadAsync()).Value.Benches).Selectors).Item);
+        Assert.True((await boot.AcquireAsync(partition, item, provider, default, handle.Source)).IsSuccess);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReleasedInputPreparesOneOriginalAndKeepsTextThroughPublicationOrDeliberateRereview(bool changeBaseline)
+    {
+        await Start(executionV2: true);
+        var local = Path.Combine(root, "home", "native-databases", "database-input-fixture.db");
+        var authority = (await NativeAuthority.OpenAsync(local)).Value;
+        using var provider = new NativeProvider(authority, (await Twig.Store.Sqlite.SqliteStore.OpenAsync(
+            handle.Document.DatabasePath, default, handle.Document.DatabaseInstance)).Value);
+        var scope = new DisplayPartition(profile, ownerSession.CatalogId, bench, Guid.NewGuid(), null, handle.Source.Connection);
+        var display = app!.Services.GetRequiredService<ReleasedBenchDisplay>();
+        Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+        var prefix = $"/api/v2/views/{owner.ViewId:D}/benches/{bench:D}/partitions/{scope.Id:D}";
+        using var page = await client.GetAsync(prefix + "/page");
+        var baseline = Assert.Single(page.Headers.GetValues("X-Twig-Item-Version"));
+        var write = Guid.NewGuid();
+        var body = new PrivateInputRequest(item.NativeId!, NativeProvider.Title, write, 0, "first text", baseline);
+        await Send(HttpMethod.Put, prefix + "/input", body);
+        var prepare = new CanvasActionRequest(body.Item, body.Field, "prepare", write);
+        var original = await Send(HttpMethod.Post, prefix + "/action", prepare);
+        original.GetProperty("status").GetString().ShouldBe("Queued");
+        var submission = original.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid();
+        if (changeBaseline)
+        {
+            using var independent = (await NativeItemEditor.OpenAsync(Work, bench, source.Stamp, gateway.Configure, default)).Value;
+            var fresh = (await independent.SelectAsync(item)).Value;
+            Assert.True((await independent.SaveAsync(fresh.Ticket,
+                FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("independent change")))).Value.Verified);
+            Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+            var refused = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "submit" });
+            refused.GetProperty("status").GetString().ShouldBe("ReviewRequired");
+            Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+            using var nextPage = await client.GetAsync(prefix + "/page");
+            var nextBaseline = Assert.Single(nextPage.Headers.GetValues("X-Twig-Item-Version"));
+            var kept = await Send(HttpMethod.Post, prefix + "/input/inspect", new PrivateInputRequest(body.Item, body.Field));
+            kept.GetProperty("text").GetString().ShouldBe("first text");
+            var nextWrite = Guid.NewGuid();
+            var next = body with { Baseline = nextBaseline, Expected = 1, Write = nextWrite };
+            await Send(HttpMethod.Put, prefix + "/input", next, HttpStatusCode.Conflict);
+            await Send(HttpMethod.Put, prefix + "/input", next with { Rereview = true });
+            var nextPrepare = prepare with { Write = nextWrite };
+            var replacement = await Send(HttpMethod.Post, prefix + "/action", nextPrepare);
+            var replacementId = replacement.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid();
+            replacementId.ShouldNotBe(submission);
+            await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "submit" }, HttpStatusCode.Conflict);
+            Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+            var published = await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "observe" });
+            published.GetProperty("status").GetString().ShouldBe("Complete");
+            var ambiguous = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "find", Write = null });
+            ambiguous.GetProperty("ambiguous").GetBoolean().ShouldBeTrue();
+            var before = (await provider.ReadAsync(scope.Connection, [item], default, captureOnly: true)).Value.Items.Single();
+            before.Fields[NativeProvider.Title].Text.ShouldBe("first text");
+            await Send(HttpMethod.Post, prefix + "/action", nextPrepare with { Mode = "observe" });
+            var after = (await provider.ReadAsync(scope.Connection, [item], default, captureOnly: true)).Value.Items.Single();
+            after.Revision.ShouldBe(before.Revision);
+            await Send(HttpMethod.Put, prefix + "/input", next with { Expected = 2, Write = Guid.NewGuid(), Rereview = true },
+                HttpStatusCode.Conflict);
+            return;
+        }
+        await Send(HttpMethod.Put, prefix + "/input", body with { Write = Guid.NewGuid(), Expected = 1, Text = "later input" });
+        var duplicate = await Send(HttpMethod.Post, prefix + "/action", prepare);
+        duplicate.GetRawText().ShouldBe(original.GetRawText());
+        var discovery = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "find", Write = null });
+        discovery.GetRawText().ShouldBe(original.GetRawText());
+        await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "submit" }, HttpStatusCode.Conflict);
+        Assert.True((await display.AcquireAsync(scope, item, provider, default, handle.Source)).IsSuccess);
+        var result = await Send(HttpMethod.Post, prefix + "/action", prepare with { Mode = "observe" });
+        result.GetProperty("status").GetString().ShouldBe("ReviewRequired");
+        result.GetProperty("matches")[0].GetProperty("original").GetProperty("submission").GetGuid().ShouldBe(submission);
+        var observed = (await provider.ReadAsync(scope.Connection, [item], default, captureOnly: true)).Value.Items.Single();
+        observed.Fields[NativeProvider.Title].Text.ShouldBe("fixture title");
+        var retained = await Send(HttpMethod.Post, prefix + "/input/inspect", new PrivateInputRequest(body.Item, body.Field));
+        retained.GetProperty("text").GetString().ShouldBe("later input");
+    }
+
     [Fact]
     public async Task HttpInputsRecoverAfterServerAndViewReplacementAndObserveLostPutWithoutNativeEffects()
     {
@@ -201,7 +547,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         refused.GetRawText().ShouldNotContain("private secret");
     }
 
-    private async Task Start(bool planMode = false)
+    private async Task Start(bool planMode = false, bool executionV2 = false)
     {
         Directory.CreateDirectory(Work);
         using (var git = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("git")
@@ -241,10 +587,10 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
             using var prepared = (await NativeItemEditor.OpenAsync(Work, bench, handle.Source, gateway.Configure, default)).Value;
             prepared.PlanMode.ShouldBeTrue();
         }
-        await StartApp();
+        await StartApp(executionV2);
     }
 
-    private async Task StartApp()
+    private async Task StartApp(bool executionV2 = false)
     {
         var changes = new CatalogChanges();
         panel = new(definitions, gateway, new(Path.Combine(root, "admissions"), gateway, changes));
@@ -255,11 +601,14 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
         session.CurrentBenchId = bench;
         session.NativeContext = source;
         session.DisplayContexts[source.Stamp.Connection] = source;
-        app = NativeBenchHost.Build(new(0, root), panel, sessions, changes);
+        var boot = Guid.NewGuid();
+        app = NativeBenchHost.Build(new(0, executionV2 ? Path.Combine(root, "home") : root, ServerId: Guid.NewGuid(),
+            ProcessInstance: boot, ExecutionV2: executionV2), panel, sessions, changes);
         await app.StartAsync();
         client = new() { BaseAddress = new(app.Urls.Single()), Timeout = TimeSpan.FromSeconds(15) };
         client.DefaultRequestHeaders.Authorization = new("Bearer", owner.ContentCapability);
         client.DefaultRequestHeaders.Add("X-Twig-Bench", "1");
+        if (executionV2) client.DefaultRequestHeaders.Add("X-Twig-Execution", $"local-execution-v2/{boot:D}");
     }
 
     private async Task Restart()
@@ -281,7 +630,7 @@ public sealed class NativeEditorInputsTests : IAsyncDisposable
 
     private async Task<JsonElement> Send<T>(HttpMethod method, string path, T body, HttpStatusCode expected = HttpStatusCode.OK)
     {
-        using var request = new HttpRequestMessage(method, View + path)
+        using var request = new HttpRequestMessage(method, path.StartsWith('/') ? path : View + path)
         {
             Content = new StringContent(JsonSerializer.Serialize(body,
                 (JsonTypeInfo<T>)TransportJson.Default.GetTypeInfo(typeof(T))!), Encoding.UTF8, "application/json"),

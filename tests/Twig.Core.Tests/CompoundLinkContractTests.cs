@@ -133,7 +133,7 @@ public sealed class CompoundLinkContractTests
         added.RootElement.GetProperty("operations")[0].GetProperty("links")[0].GetArrayLength().ShouldBe(3);
         removed.RootElement.GetProperty("operations")[0].GetProperty("links")[0].GetArrayLength().ShouldBe(4);
         removal.Digest.ShouldNotBe(legacy.Digest);
-        Plan.FormatVersion.ShouldBe(3);
+        Plan.FormatVersion.ShouldBe(4);
     }
 
     [Fact]
@@ -268,6 +268,6 @@ public sealed class CompoundLinkContractTests
     {
         typeof(CreationLink).GetConstructor([typeof(ItemKey), typeof(string), typeof(bool)])!.ShouldNotBeNull();
         typeof(CreationLink).GetConstructor([typeof(ItemKey), typeof(string), typeof(bool), typeof(bool)]).ShouldNotBeNull();
-        Plan.FormatVersion.ShouldBe(3);
+        Plan.FormatVersion.ShouldBe(4);
     }
 }

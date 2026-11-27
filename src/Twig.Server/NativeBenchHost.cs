@@ -16,19 +16,65 @@ namespace Twig.Server;
 public static partial class NativeBenchHost
 {
     private const int DefinitionBodyLimit = 2 * 1024 * 1024 + 16384;
+    private static bool QualifiedOwnerRoute(HttpRequest request) => (request.Method, request.Path.Value?.Split('/')) switch
+    {
+        ("GET", ["", "api", "v2", "views", var view, "authorization" or "benches"]) => Guid.TryParseExact(view, "D", out _),
+        ("PUT" or "POST", ["", "api", "v2", "views", var view, "benches", var bench, "partitions", var partition, .. var rest])
+            => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _) && Guid.TryParseExact(partition, "D", out _)
+                && (request.Method == "PUT" ? rest is ["input"] : rest is ["input", "inspect"] or ["action"]),
+        ("GET", ["", "api", "v2", "views", var view, "benches", var bench, "partitions", var partition, "page"])
+            => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _) && Guid.TryParseExact(partition, "D", out _),
+        ("GET", ["", "api", "v2", "views", var view, "benches", var bench, "partitions"])
+            => Guid.TryParseExact(view, "D", out _) && Guid.TryParseExact(bench, "D", out _),
+        ("GET", ["", "api", "v1", "status" or "owner-status" or "windows-profile"]) => true,
+        ("POST", ["", "api", "v1", "canvas-views" or "windows-profile" or "windows-enroll" or "windows-renew" or "windows-agent"]) => true,
+        ("GET", ["", "api", "v1", "views", var id, "benches" or "events" or "session" or "presentation"])
+            => Guid.TryParseExact(id, "D", out _),
+        ("DELETE", ["", "api", "v1", "views", var id]) => Guid.TryParseExact(id, "D", out _),
+        _ => false
+    };
+
     public static WebApplication Build(ServerOptions options, NativePanel panel, ViewSessions sessions, CatalogChanges? changes = null,
         INativeConnectionSetupGateway? connectionSetup = null)
     {
         var updates = changes ?? new CatalogChanges();
+        if (options.ExecutionV2 && options.ProcessInstance == Guid.Empty)
+            throw new ArgumentException("Execution negotiation requires a process identity.");
+        if (options.NativeDesktop && !(options.ExecutionV2 && options.WindowsSignIn))
+            throw new ArgumentException("Developer desktop requires an authenticated execution owner.");
+        var executionSession = options.ExecutionV2 ? $"local-execution-v2/{options.ProcessInstance:D}" : null;
+        string[] capabilities = ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1", "bench-seed-members-v1"];
+        var status = new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.ServerId,
+            CanvasAssets.ServerVersion, options.ExecutionV2 ? [.. capabilities, "local-execution-v2"] : capabilities,
+            executionSession, options.NativeDesktop ? Twig.OwnerFixtureSelection.DesktopMode : null);
+        var statusBytes = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(status, TransportJson.Default.ServiceStatus);
+        if (statusBytes.Length > 4096) throw new InvalidDataException("The owner status exceeds the client discovery bound.");
+        Task WriteStatus(HttpContext context)
+        {
+            context.Response.ContentType = "application/json; charset=utf-8";
+            return context.Response.Body.WriteAsync(statusBytes.AsMemory(), context.RequestAborted).AsTask();
+        }
         if (options.WindowsSignIn && (options.Certificate is null || !OperatingSystem.IsWindows() || options.Port == 0))
             throw new ArgumentException("Same-owner Windows authentication requires the existing trusted stable HTTPS localhost endpoint.");
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { Args = [] });
+        if (options.ExecutionV2)
+        {
+            builder.Services.AddSingleton(_ => new ReleasedBenchDisplay(Path.Combine(options.DataDirectory, "released-benches.db"),
+                sessions: sessions, definitions: panel.Definitions));
+            builder.Services.AddSingleton<Twig.Commands.IOwnerBenchPublication>(services => services.GetRequiredService<ReleasedBenchDisplay>());
+        }
+        if (options.ExecutionV2)
+            builder.Services.AddSingleton(sp => new OwnerCommandEndpoint(options.ProcessInstance, options.DataDirectory,
+                panel.Definitions, sp, sp.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping, options.NativeDesktop));
+        if (options.ExecutionV2)
+            builder.Services.Configure<HostOptions>(host => host.ShutdownTimeout = TimeSpan.FromSeconds(10));
         builder.Logging.ClearProviders();
         builder.Logging.AddSimpleConsole(options => options.SingleLine = true);
         builder.Logging.AddFilter((category, level) =>
             (category is "Twig.Server.NativeBenchHost" or "Bench.SourceDiagnostics" or "Twig.Server.NativeMetadataSync") && level >= LogLevel.Warning);
-        builder.Services.AddHostedService(services =>
-            new NativeMetadataSync(panel, services.GetRequiredService<ILogger<NativeMetadataSync>>()));
+        if (!options.ExecutionV2)
+            builder.Services.AddHostedService(services =>
+                new NativeMetadataSync(panel, services.GetRequiredService<ILogger<NativeMetadataSync>>()));
         if (options.WindowsSignIn)
         {
             var owner = WindowsOwner();
@@ -47,6 +93,7 @@ public static partial class NativeBenchHost
             server.Limits.MaxConcurrentConnections = 32;
         });
         var app = builder.Build();
+        if (options.ExecutionV2) MapReleasedDisplay(app, sessions, options, panel);
         var diagnostics = new NativeSourceDiagnostics(app.Services.GetRequiredService<ILoggerFactory>().CreateLogger("Bench.SourceDiagnostics"));
         app.Use(async (context, next) =>
         {
@@ -65,8 +112,17 @@ public static partial class NativeBenchHost
                 || context.Request.Headers["Sec-Fetch-Site"] == "cross-site"))
             { await Write(context, new Failure("OriginRejected", "Use the exact local service origin."), 403); return; }
             if (context.Request.Path.StartsWithSegments("/api")
+                && executionSession is not null
+                && !(HttpMethods.IsGet(context.Request.Method) && context.Request.Path.Value is "/api/v1/status" or "/api/v1/owner-status")
+                && context.Request.Headers["X-Twig-Execution"] != executionSession)
+            { await Write(context, new Failure("PolicyViolation", "A matched Twig client must negotiate this owner before continuing."), 403); return; }
+            if (context.Request.Path.StartsWithSegments("/api")
                 && (context.Request.QueryString.HasValue || context.Request.Method != "GET" && context.Request.Headers["X-Twig-Bench"] != "1"))
             { await Write(context, new Failure("InvalidTransport", "Use capability headers and bounded JSON."), 403); return; }
+            if (options.ExecutionV2 && context.Request.Path.StartsWithSegments("/api") && !QualifiedOwnerRoute(context.Request))
+            { await Write(context, new Failure("PolicyViolation", "This route is not qualified for the isolated execution owner."), 403); return; }
+            if (options.NativeDesktop && context.Request.Path.Value?.Split('/') is ["", "api", "v1", "views", _, "benches"])
+            { await Write(context, new Failure("PolicyViolation", "Use released Bench pages in native developer mode."), 403); return; }
             try { await next(context); }
             catch (HttpFailure error) when (!context.Response.HasStarted)
             {
@@ -94,19 +150,17 @@ public static partial class NativeBenchHost
         if (options.WindowsSignIn)
             app.MapGet("/api/v1/owner-status", (HttpContext context) =>
             {
-                if (options.ProcessInstance != Guid.Empty)
+                if (!options.ExecutionV2 && options.ProcessInstance != Guid.Empty)
                     context.Response.Headers[ServerLauncher.InstanceHeader] = options.ProcessInstance.ToString("D");
-                return Write(context,
-                new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.ServerId,
-                    CanvasAssets.ServerVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1", "bench-seed-members-v1"]));
+                return WriteStatus(context);
             })
                 .RequireAuthorization("WindowsOwner");
-        app.MapGet("/api/v1/status", (HttpContext context) => Write(context,
-            new ServiceStatus(CanvasAssets.Protocol, "Native user-wide Benches", true, options.ServerId,
-                CanvasAssets.ServerVersion, ["native-source", "verified-canvas-assets-v1", "scoped-bench-query-rules-v1", "owner-profile-v1", "owner-approved-connections-v1", "automatic-connections-v1", "owner-agent-v1", "mcp-read-v1", "explicit-bench-connections-v1", "repository-bindings-v1", "session-context-v1", "ado-setup-discovery-v1", "managed-ado-setup-v1", "ado-identity-reuse-v1", "managed-github-setup-v1", "workspace-read-v1", "private-editor-inputs-v1", "source-scoped-seeds-v1", "bench-seed-members-v1"])));
+        app.MapGet("/api/v1/status", WriteStatus);
         app.MapPost("/api/v1/canvas-views", async (HttpContext context) =>
         {
             var body = await Body<RegisterCanvasBody>(context);
+            if (options.ExecutionV2 && body.Context?.WorkingDirectory is not null)
+                throw new HttpFailure(403, "PolicyViolation", "Fixture views cannot attach a workspace directory.");
             await Write(context, sessions.RegisterNativeCanvas(Require(await panel.ListAsync(context.RequestAborted)).InstanceId, body.Context));
         });
         if (options.WindowsSignIn)
@@ -490,7 +544,8 @@ public static partial class NativeBenchHost
         {
             var session = await Authorize(context, id);
             using var subscription = updates.Subscribe(out var events);
-            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted,
+                app.Lifetime.ApplicationStopping);
             lifetime.CancelAfter(session.Expires - DateTimeOffset.UtcNow);
             context.Response.ContentType = "text/event-stream";
             await context.Response.WriteAsync("event: ready\ndata: {}\n\n", lifetime.Token);
@@ -565,7 +620,7 @@ public static partial class NativeBenchHost
             await Write(context, new PlanningRuleDto(BenchCodec.SerializeSelectors(
                 [new(SelectorKind.Query, query: query, connection: capture.Context.Stamp.Connection)])));
         });
-        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource, ReadAccounts);
+        MapPersistentSessions(app, panel, sessions, (context, id) => Authorize(context, id, true), options.WindowsSignIn, PresentSource, ReadAccounts, options.ExecutionV2);
         MapEditor(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapSeeds(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
         MapPlan(app, panel, sessions, updates, (context, id) => Authorize(context, id, true));
@@ -776,7 +831,7 @@ public static partial class NativeBenchHost
     {
         var source = capture.Context.Source;
         var observation = capture.Observation;
-        ItemKey Resolve(ItemKey key) => observation.Snapshot.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+        ItemKey Resolve(ItemKey key) => observation.Snapshot.ResolveVerified(key);
         if (selected is { } acquired)
         {
             var page = observation.AcquiredPlanningPage;

@@ -85,6 +85,13 @@ if (args is ["server", ..])
     return;
 }
 
+if (args is ["update" or "seed", ..] or ["plan", "observe" or "continue" or "abandon-unadmitted", ..]
+    && Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is not null)
+{
+    Environment.ExitCode = await Twig.ServerCommandClient.ExecuteAsync(args);
+    return;
+}
+
 // Retired surfaces fail before workspace discovery, provider composition or input reads.
 if (Twig.CoreMutationAdmissionGuard.ValidateCatalog(args) is { } retiredError)
 {
@@ -189,6 +196,13 @@ if (args[0] is "skills" or "version")
     return;
 }
 
+if (Environment.GetEnvironmentVariable("TWIG_OWNER_FIXTURE_ID") is null)
+{
+    CommandError.Write(new RendererFactory(), Console.Error,
+        StructuredMutationArgumentValidator.GetOutputFormat(args) ?? OutputFormats.Default, Twig.OwnerFixtureSelection.CutoverHeld);
+    Environment.ExitCode = 2;
+    return;
+}
 Environment.ExitCode = await Twig.ServerCommandClient.ExecuteAsync(invocationArguments);
 
 

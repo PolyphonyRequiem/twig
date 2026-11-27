@@ -10,8 +10,6 @@ public static partial class Core
         var errors = ImmutableArray.CreateBuilder<Error>();
         if (plan.Connection != schema.Connection || plan.SchemaFingerprint != schema.Fingerprint)
             errors.Add(new(ErrorCode.SchemaChanged, "The bound connection or discovered schema changed; preview a new plan."));
-        if (plan.ExpectedStoreVersion != store.Version)
-            errors.Add(new(ErrorCode.Conflict, "Local state changed after this plan was constructed."));
         errors.AddRange(PlanSchemaErrors(plan, schema, store));
         foreach (var op in plan.Operations)
             ValidateOperation(op, plan, schema, store, capabilities, errors);
@@ -44,7 +42,7 @@ public static partial class Core
             foreach (var key in op.Links.Select(link => link.Other).Prepend(op.Item)
                 .Concat(op.Other is null ? [] : new[] { op.Other }).Distinct())
             {
-                var resolved = store.Mappings.FirstOrDefault(mapping => mapping.Local == key)?.Remote ?? key;
+                var resolved = store.ResolveVerified(key);
                 var observed = store.Items.FirstOrDefault(item => item.Key == resolved);
                 var draft = store.RetainedItems.FirstOrDefault(draft => draft.Key == key);
                 if (observed is not null) references.Add(observed.Type);
@@ -139,7 +137,7 @@ public static partial class Core
             {
                 if (edge.Remove) Fail(ErrorCode.InvalidInput, "Creation cannot remove an existing relationship.");
                 var kind = schema.Relations.FirstOrDefault(kind => kind.Reference == edge.Relation);
-                var endpoint = store.Mappings.FirstOrDefault(mapping => mapping.Local == edge.Other)?.Remote ?? edge.Other;
+                var endpoint = store.ResolveVerified(edge.Other);
                 var predecessor = plan.Operations.TakeWhile(candidate => candidate != op)
                     .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == edge.Other);
                 if (!capabilities.AtomicFieldBatches || kind is null || kind.Shape is not (RelationShape.Dependency or RelationShape.Association)
@@ -156,8 +154,7 @@ public static partial class Core
                 Fail(ErrorCode.InvalidInput, "Creation-bound parent intent requires its explicit native relation.");
             if (op.Other is not null)
             {
-                var mappedParent = store.Mappings.FirstOrDefault(mapping => mapping.Local == op.Other);
-                var parentKey = mappedParent?.Remote ?? op.Other;
+                var parentKey = store.ResolveVerified(op.Other);
                 var earlierCreate = plan.Operations.TakeWhile(candidate => candidate != op)
                     .Any(candidate => candidate.Kind == OpKind.Create && candidate.Item == op.Other);
                 if (!capabilities.AtomicFieldBatches
@@ -599,10 +596,8 @@ public static partial class Core
                     OpStatus.Planned => current.Status != OpStatus.Applying,
                     OpStatus.Applying => current.Receipts.Length != prior.Receipts.Length + 1,
                     OpStatus.Applied => current.Receipts.Length != prior.Receipts.Length + 1,
-                    OpStatus.Partial => !prior.CanRecheckAcknowledgedCreate || current.Status != OpStatus.Verified
+                    OpStatus.Partial => !prior.VerifiesAcknowledgedCreate(current.Receipts[^1])
                         || current.Receipts.Length != prior.Receipts.Length + 1
-                        || current.Receipts[^1].PublishedKey != prior.Receipts[0].PublishedKey
-                        || current.Receipts[^1].Revision != prior.Receipts[0].Revision
                         || !next.Plans.Any(p => p.Digest == current.Digest
                             && p.Operations.ElementAtOrDefault(current.Operation)?.Kind == OpKind.Create),
                     _ => true,
@@ -632,31 +627,27 @@ public static partial class Core
             var op = plan.Operations[row.Operation];
             if (op.Kind == OpKind.Create && row.Status is OpStatus.Applied or OpStatus.Verified
                 && !next.Mappings.Any(m => m.Local == op.Item && m.PlanDigest == row.Digest
-                    && m.Operation == row.Operation && row.Receipts.Any(r => r.PublishedKey == m.Remote)))
+                    && m.Operation == row.Operation && row.Receipts[0].PublishedKey == m.Remote))
                 errors.Add(new(ErrorCode.Conflict, "Creation acknowledgement, publish mapping and journal must commit together."));
         }
         foreach (var mapping in next.Mappings)
             if (!next.Journal.Any(j => j.Digest == mapping.PlanDigest && j.Operation == mapping.Operation
-                && j.Receipts.Any(r => r.Status == OpStatus.Applied)
+                && j.Receipts.FirstOrDefault() is { Status: OpStatus.Applied } ack && ack.PublishedKey == mapping.Remote
                 && next.Plans.Any(p => p.Digest == j.Digest && j.Operation < p.Operations.Length
                     && p.Operations[j.Operation].Kind == OpKind.Create && p.Operations[j.Operation].Item == mapping.Local
-                    && mapping.Remote.BelongsTo(p.Connection))
-                && j.Receipts.Any(r => r.PublishedKey == mapping.Remote)))
+                    && mapping.Remote.BelongsTo(p.Connection))))
                 errors.Add(new(ErrorCode.Conflict, "A mapping needs the original create's attributable acknowledgement."));
         var attemptedCreates = next.Journal.Where(j => j.Status != OpStatus.Planned)
             .Join(next.Plans, j => j.Digest, p => p.Digest, (row, plan) => (Row: row, Plan: plan))
             .Where(x => x.Plan.Operations.ElementAtOrDefault(x.Row.Operation)?.Kind == OpKind.Create);
         foreach (var group in attemptedCreates.GroupBy(x => x.Plan.Operations[x.Row.Operation].Item))
         {
-            var ordered = group.OrderBy(x => x.Plan.ExpectedStoreVersion).ToArray();
-            for (var i = 1; i < ordered.Length; i++)
+            foreach (var later in group.Where(x => !before.Journal.Any(row => row.Digest == x.Row.Digest
+                && row.Operation == x.Row.Operation && row.Status != OpStatus.Planned)))
             {
-                var prior = ordered[i - 1];
-                var later = ordered[i];
-                if (prior.Plan.Connection != later.Plan.Connection
-                    || prior.Plan.ExpectedStoreVersion == later.Plan.ExpectedStoreVersion
+                if (group.Any(prior => prior.Row != later.Row && (prior.Plan.Connection != later.Plan.Connection
                     || !before.Journal.Any(row => row.Digest == prior.Row.Digest
-                        && row.Operation == prior.Row.Operation && row.DefinitivelyHadNoEffect))
+                        && row.Operation == prior.Row.Operation && row.DefinitivelyHadNoEffect))))
                     errors.Add(new(ErrorCode.Conflict, "A durable creation UUID cannot begin another attempt under a replacement digest without a prior definitive rejection."));
             }
         }

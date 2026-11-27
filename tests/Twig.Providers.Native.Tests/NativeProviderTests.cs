@@ -126,6 +126,29 @@ public sealed class NativeProviderTests : IDisposable
     }
 
     [Fact]
+    public async Task Original_update_settlement_prevents_late_execution_after_owner_exit()
+    {
+        var (authority, mirror, provider) = await Open();
+        var (seed, _) = await Seed(provider, mirror);
+        (await provider.ImportAsync(seed)).IsSuccess.ShouldBeTrue();
+        var created = (await provider.ApplyAsync(seed, 0, Guid.NewGuid(), default)).Value;
+        (await provider.VerifyAsync(seed, created, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var before = (await mirror.ReadAsync(authority.Connection, default)).Value;
+        var item = before.Items.Single();
+        var plan = new Plan(authority.Connection, seed.SchemaFingerprint, before.Version,
+            [new("update", OpKind.Batch, item.Key, item.Revision,
+                FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("late")))]);
+        var attempt = Guid.NewGuid();
+        var reopened = (await NativeAuthority.OpenAsync(authority.DatabasePath)).Value;
+        var rejected = (await reopened.SettleOriginalUpdateAsync(plan, attempt, default)).Value;
+        rejected.Status.ShouldBe(OpStatus.Failed);
+        rejected.Evidence.ShouldContain("authority:RejectedNoEffect");
+        (await provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
+        (await provider.ApplyAsync(plan, 0, attempt, default)).Value.Status.ShouldBe(OpStatus.Failed);
+        (await provider.ReadAsync(authority.Connection, [item.Key], default)).Value.Items.Single().Revision.ShouldBe(item.Revision);
+    }
+
+    [Fact]
     public async Task Authority_commit_survives_lost_client_ack_and_recovers_only_original_effect()
     {
         var (authority, mirror, provider) = await Open();
@@ -156,6 +179,65 @@ public sealed class NativeProviderTests : IDisposable
             => next.Journal.Any(entry => entry.Status == OpStatus.Applied)
                 ? Task.FromResult(Result<long>.Fail(ErrorCode.StorageUnavailable, "Simulated lost client acknowledgement."))
                 : inner.CommitAsync(connection, expectedVersion, next, ct);
+    }
+
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task Receipt_reduces_onto_disjoint_commits_or_yields_after_three_local_attempts(int losses)
+    {
+        var (authority, mirror, provider) = await Open();
+        var (plan, _) = await Seed(provider, mirror);
+        (await provider.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
+        var racing = new RaceAppliedStore(mirror, losses);
+        var attempt = Guid.NewGuid();
+        var applied = await new NativeProvider(authority, racing).ApplyAsync(plan, 0, attempt, default);
+        racing.LocalAttempts.ShouldBe(3);
+        applied.IsSuccess.ShouldBe(losses < 3);
+        var recovered = (await provider.RecoverAsync(plan, 0)).Value;
+        recovered.Attempt.ShouldBe(attempt);
+        (await mirror.ReadAsync(plan.Connection, default)).Value.RetainedItems.Length.ShouldBe(1 + losses);
+        (await provider.QueryAsync(plan.Connection, new(QueryKind.All), null, default)).Value.Items.Length.ShouldBe(1);
+    }
+
+    [Theory]
+    [InlineData(OpStatus.Planned)]
+    [InlineData(OpStatus.Applying)]
+    public async Task Reviewed_update_admission_reduces_disjoint_versions_without_reacquiring_or_losing_intent(OpStatus stage)
+    {
+        var (authority, mirror, provider) = await Open();
+        var (seed, _) = await Seed(provider, mirror);
+        (await provider.ImportAsync(seed)).IsSuccess.ShouldBeTrue();
+        var created = (await provider.ApplyAsync(seed, 0, Guid.NewGuid(), default)).Value;
+        (await provider.VerifyAsync(seed, created, default)).Value.Status.ShouldBe(OpStatus.Verified);
+        var item = (await mirror.ReadAsync(authority.Connection, default)).Value.Items.Single();
+        var plan = new Plan(authority.Connection, seed.SchemaFingerprint, 0, [new("update", OpKind.Batch, item.Key, item.Revision,
+            FieldValues.Empty.Set(NativeProvider.Title, FieldValue.String("new")))], review: new(Guid.NewGuid(), mirror.InstanceId, authority.Connection.IdentityRef, "no-draft"));
+        var racing = new RaceAppliedStore(mirror, 2, stage);
+        var writer = new NativeProvider(authority, racing);
+        (await writer.ImportAsync(plan)).IsSuccess.ShouldBeTrue();
+        var attempt = Guid.NewGuid();
+        var receipt = (await writer.ApplyAsync(plan, 0, attempt, default)).Value;
+        receipt.Attempt.ShouldBe(attempt);
+        receipt.Status.ShouldBe(OpStatus.Applied);
+        (await mirror.ReadAsync(authority.Connection, default)).Value.RetainedItems.Length.ShouldBe(3);
+    }
+
+    private sealed class RaceAppliedStore(IStore inner, int losses, OpStatus stage = OpStatus.Applied) : IStore
+    {
+        public int LocalAttempts { get; private set; }
+        public Task<Result<StoreSnapshot>> ReadAsync(Connection connection, CancellationToken ct) => inner.ReadAsync(connection, ct);
+        public async Task<Result<long>> CommitAsync(Connection connection, long expectedVersion, StoreSnapshot next, CancellationToken ct)
+        {
+            if (next.Journal.Any(entry => entry.Status == stage) && ++LocalAttempts <= losses)
+            {
+                var s = (await inner.ReadAsync(connection, ct)).Value;
+                var other = new Seed(ItemKey.Local(Guid.NewGuid()), NativeProvider.ItemType, FieldValues.Empty);
+                (await inner.CommitAsync(connection, s.Version, new(s.Version + 1, s.Items, s.Relationships,
+                    s.RetainedItems.Add(other), s.Plans, s.Journal, s.Mappings, s.Benches), ct)).IsSuccess.ShouldBeTrue();
+            }
+            return await inner.CommitAsync(connection, expectedVersion, next, ct);
+        }
     }
 
     private static async Task<(Plan, ItemKey)> Seed(NativeProvider provider, SqliteStore mirror)

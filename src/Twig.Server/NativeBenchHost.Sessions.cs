@@ -11,7 +11,7 @@ public static partial class NativeBenchHost
     public static void MapPersistentSessions(WebApplication app, NativePanel panel, ViewSessions sessions,
         Func<HttpContext, Guid, Task<ViewSession>> authorize, bool windowsSignIn,
         Func<SourceViewDto, SourceViewDto> presentSource,
-        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts = null)
+        Func<CancellationToken, Task<NativeAadEnrollment[]>>? readAccounts = null, bool releasedOnly = false)
     {
         if (windowsSignIn)
         {
@@ -29,6 +29,8 @@ public static partial class NativeBenchHost
             app.MapPost("/api/v1/windows-renew", async (HttpContext http) =>
             {
                 var body = await Body<OwnerRenewBody>(http);
+                if (releasedOnly && (body.ViewId is null || body.InitialView))
+                    throw new HttpFailure(403, "PolicyViolation", "Renew only the registered view; use released pages for content.");
                 var store = Require(await panel.ListAsync(http.RequestAborted)).InstanceId;
                 var content = http.Request.Headers["X-Twig-Bench-Content"];
                 if (content.Count > 1)
@@ -37,7 +39,7 @@ public static partial class NativeBenchHost
                 var session = sessions.Content(renewed.Connection.ViewId, renewed.Connection.ContentCapability, true);
                 (NativeViewStateInfo State, NativeInitialView View)? initial = renewed.Recovered && body.InitialView
                     ? await InitialView(panel, sessions, session, presentSource, http.RequestAborted, readAccounts) : null;
-                var state = initial?.State ?? (renewed.Recovered
+                var state = initial?.State ?? (renewed.Recovered && !releasedOnly
                     ? await RestoreViewReferences(panel, sessions, session, http.RequestAborted)
                     : sessions.ReadState(session));
                 await Write(http, new NativeOwnerSession(renewed.Connection.ViewId,

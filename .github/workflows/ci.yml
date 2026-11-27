@@ -1,6 +1,11 @@
 name: CI
 on:
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      held_candidate:
+        description: Verify installed writers refuse before effects (pre-cutover candidates only)
+        type: boolean
+        default: false
   workflow_call: {}
 
 permissions:
@@ -133,14 +138,28 @@ jobs:
           path: artifacts/test-logs/ci/initial-view-http/*.trx
           if-no-files-found: error
       - name: Standalone server installer orchestration (synthetic only)
-        if: runner.os == 'Windows'
+        if: runner.os == 'Windows' && !inputs.held_candidate
         shell: powershell
         run: ./eng/test-server-install.ps1
-      - name: Install Linux server archive and exercise real headless lifecycle
+      - name: Package Linux server archive
         if: runner.os == 'Linux'
+        run: bash eng/server-package-linux.sh
+      - name: Install Linux server archive and exercise real headless lifecycle
+        if: runner.os == 'Linux' && !inputs.held_candidate
+        run: python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-server-linux.sh
+      - name: Verify held Linux archive rejects installed writers before effects
+        if: runner.os == 'Linux' && inputs.held_candidate
         run: |
-          bash eng/server-package-linux.sh
-          python3 eng/run-bounded.py --warn-after 60 --timeout 300 -- bash eng/test-server-linux.sh
+          (cd artifacts && sha256sum -c twig-server-linux-x64.tar.gz.sha256)
+          dest="$(mktemp -d)"
+          tar -xzf artifacts/twig-server-linux-x64.tar.gz -C "$dest"
+          python3 eng/test-cold-admission.py --operator-dir "$dest" --cli src/Twig/bin/Debug/net11.0/twig --server "$dest/server-linux-x64/Twig.Server"
+      - name: Verify held Windows installer paths and writer refusal before effects
+        if: runner.os == 'Windows' && inputs.held_candidate
+        shell: pwsh
+        run: |
+          ./eng/test-server-paths.ps1
+          python eng/test-cold-admission.py --cli src/Twig/bin/Debug/net11.0/twig.exe --server src/Twig.Server/bin/Debug/net11.0/Twig.Server.exe
 
       - name: Explicit native setup and creation-bound readback
         id: native_setup
@@ -285,6 +304,7 @@ jobs:
       - name: Supported Core-only platform delivery regression (offline)
         run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-platform-support.py
       - name: Exercise the CLI and server command boundary
+        if: ${{ !inputs.held_candidate }}
         run: python eng/run-bounded.py --warn-after 60 --timeout 300 -- python eng/test-server-commands.py
 
       - name: Fundamental build validation (60-second warning target, 300-second safety timeout)

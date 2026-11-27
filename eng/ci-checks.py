@@ -232,7 +232,7 @@ def user_benches():
         ("native-plan-review-metadata", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanReviewDiscoversMetadataOncePerExactScope"),
         ("native-plan-local-cleanup", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanVerifiedEffectsWithFailedLocalCleanupSettleExactlyWithoutDispatch"),
         ("native-plan-definitive-edit", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanDefinitiveNoEffectEditRequiresNewReviewAndFreshRestoredAccess"),
-        ("native-plan-refused-seed", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanDefinitivelyRefusedCreationUuidIsNeverRecreated"),
+        ("native-plan-refused-seed", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanRefusedCreationRequiresExactPredecessorForTheSameSeed"),
         ("native-plan-same-scope-prefix", "Twig.Cli.Tests", "FullyQualifiedName~NativeWholePlanSameScopePartialPrefixDeliversOnlyVerifiedCaptureAndNeverReplaysIt"),
         ("native-capture-rewind", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureWholeDatabaseRewind"),
         ("native-capture-lifecycle", "Twig.Cli.Tests", "FullyQualifiedName~NativeCaptureInterruptedBeforeCoreStage|FullyQualifiedName~NativeCaptureUserCommitBeforeRegistryConfirmation|FullyQualifiedName~NativeCaptureReserveAndPostCoreCrash"),

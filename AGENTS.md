@@ -25,6 +25,13 @@ must never be used to justify replaying an uncertain write.
 
 `.github/copilot-instructions.md` is obsolete and is not current agent guidance.
 
+### Engineering policy
+
+**Policy:** For service changes involving states, message boundaries,
+nullability, build checks or migration scope, read
+[the policy index](docs/agents/policy.md) before editing or reviewing. Apply
+only the relevant rows and report their evidence.
+
 ### Issue tracker
 
 GitHub Issues in `PolyphonyRequiem/twig`, preferably through Twig to dogfood

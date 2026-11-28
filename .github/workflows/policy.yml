@@ -1,0 +1,23 @@
+name: Twig service policy
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  twig-service-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Build service with blocking compiler diagnostics
+        run: dotnet build src/Twig.Server -p:Nullable=enable -p:TreatWarningsAsErrors=true
+      - name: Run catalog invariants
+        run: dotnet run --project tests/Twig.Server.Catalog.Tests -p:Nullable=enable -p:TreatWarningsAsErrors=true
